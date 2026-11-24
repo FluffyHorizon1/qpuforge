@@ -1,0 +1,9 @@
+
+error budget for XEB-10 on AF-9 tunable-coupler 3x3 (32 CZ, 523 ns)
+  all sources: infidelity 0.1432 +- 0.0202
+  control  alone: infidelity 0.0833  (60.9% of sum)
+  thermal  alone: infidelity 0.0267  (19.5% of sum)
+  T1       alone: infidelity 0.0233  (17.1% of sum)
+  Tphi     alone: infidelity 0.0033  ( 2.4% of sum)
+  zz       alone: infidelity 0.0001  ( 0.1% of sum)
+  (readout assignment error acts on the measured counts, not on the state fidelity)

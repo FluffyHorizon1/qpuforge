@@ -1,0 +1,9 @@
+// qpuforge — single include
+#pragma once
+#include "core.hpp"
+#include "json.hpp"
+#include "device.hpp"
+#include "circuit.hpp"
+#include "compiler.hpp"
+#include "sim.hpp"
+#include "emulator.hpp"

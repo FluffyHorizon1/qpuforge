@@ -1,0 +1,38 @@
+[decomposition] arbitrary 1q unitary -> RZ/SX/X native sequence
+  3016 unitaries, worst deviation 8.08e-16, max physical pulses 2
+[transmon] charge-basis spectrum vs Koch et al. (2007) asymptotics
+  EJ/EC=  30  f01 3.6034 (asym 3.6230)  alpha -0.3091 (-EC=-0.250)  disp 4.481e-04 (asym 5.730e-04)  |n01| 0.9487 (asym 0.9840)
+  EJ/EC=  50  f01 4.7355 (asym 4.7500)  alpha -0.2873 (-EC=-0.250)  disp 9.908e-06 (asym 1.191e-05)  |n01| 1.0878 (asym 1.1180)
+  EJ/EC=  80  f01 6.0635 (asym 6.0746)  alpha -0.2774 (-EC=-0.250)  disp 9.270e-08 (asym 1.069e-07)  |n01| 1.2310 (asym 1.2574)
+  E_J(Rn=10 kOhm, Delta=180 ueV) = 14.043 GHz (hand calc 14.04)
+[pair physics] exact two-transmon ZZ vs 2nd-order perturbation theory; inverse design hits targets
+  g=  3.0 MHz: realised g 3.000 MHz, ZZ exact   -24.41 kHz, perturbative   -25.42 kHz, t_CZ 186.8 ns
+  g=  6.0 MHz: realised g 6.000 MHz, ZZ exact   -97.61 kHz, perturbative  -101.67 kHz, t_CZ 98.4 ns
+  g= 12.0 MHz: realised g 12.000 MHz, ZZ exact  -389.77 kHz, perturbative  -406.68 kHz, t_CZ 54.2 ns
+  ZZ(2g)/ZZ(g) = 3.997 (expect ~4)
+[qasm] OpenQASM 2.0 reader
+[compiler] routed + decomposed + scheduled circuits reproduce the logical state exactly
+  2x3 chip, 6 logical qubits: worst infidelity 1.38e-14 over 12 random circuits (411 SWAPs inserted)
+  3x3 chip, 5 logical qubits: worst infidelity 1.42e-14 over 12 random circuits (429 SWAPs inserted)
+  3x3 chip, 9 logical qubits: worst infidelity 1.70e-14 over 12 random circuits (560 SWAPs inserted)
+  1x5 chip, 5 logical qubits: worst infidelity 2.01e-14 over 12 random circuits (639 SWAPs inserted)
+[noise] T1 / T2 decay, thermal equilibrium: density matrix exact, trajectories statistical
+  T1:   P1(t=60 us) analytic 0.22964 | density 0.22964 | trajectories 0.2382 +- 0.0067
+  T2:   |rho01|(t=60 us) analytic 0.084740 | density 0.084740   (T2 = 34.3 us)
+  equilibrium P1 0.01200 (thermal 0.01200)
+[noise] resonant / detuned exchange: moment-by-moment propagators compose to the exact Rabi formula
+  detuning 0.0 MHz, g 0.5 MHz, t=9063 ns: P(transfer) emulator 0.039101 | density 0.039101 | analytic 0.039101
+  detuning 0.8 MHz, g 0.5 MHz, t=9063 ns: P(transfer) emulator 0.543693 | density 0.543693 | analytic 0.543693
+  detuning 3.0 MHz, g 0.5 MHz, t=9063 ns: P(transfer) emulator 0.076562 | density 0.076562 | analytic 0.076562
+[noise] full noise model: trajectory fidelity vs exact density matrix
+  GHZ-5  on 5 sim qubits, 10 moments: density 0.03543 | trajectories 0.03550 +- 0.00023
+  QFT-4  on 4 sim qubits, 71 moments: density 0.08715 | trajectories 0.08857 +- 0.00117
+[benchmark] experimental GHZ fidelity = max over relative phase of <GHZ_phi|rho|GHZ_phi>
+  GHZ-4 with strong ZZ: trajectories 0.1945 | exact max_phi 0.1958
+[benchmark] XEB estimator vs exact density-matrix XEB; XEB-vs-fidelity relation (reported)
+  12-cycle circuit: XEB exact (density matrix) 0.1180 | sampled 0.1138   [state fidelity 0.2936]
+   6 cycles (avg of 8 circuits): state fidelity 0.5218   normalised XEB 0.5800
+  14 cycles (avg of 8 circuits): state fidelity 0.1722   normalised XEB 0.1613
+  20 cycles (avg of 8 circuits): state fidelity 0.0771   normalised XEB 0.1229
+
+54 checks passed, 0 failed

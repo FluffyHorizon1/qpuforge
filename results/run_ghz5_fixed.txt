@@ -1,0 +1,9 @@
+  state fidelity  0.8483 +- 0.0115   (400 trajectories)
+  P(ideal most-likely outcome 00000) = 0.4627 over 10000 shots
+  linear XEB 13.2976 (normalised 0.8865; ideal-circuit value 15.000)
+  top outcomes:
+    00000  0.4627
+    11111  0.4309
+    11101  0.0229
+    00111  0.0132
+  (0.01 s)

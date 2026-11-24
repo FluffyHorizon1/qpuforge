@@ -1,0 +1,13 @@
+
+examples/ghz5.qasm on AF-9 tunable-coupler 3x3
+  compiled: 16 moments, 363 ns, 7 CZ, 15 1q pulses, 30 virtual RZ, 1 SWAPs, 5 simulated qubits
+  layout (logical->physical): 0->Q3 1->Q4 2->Q1 3->Q0 4->Q2
+  state fidelity  0.9610 +- 0.0096   (400 trajectories)
+  P(ideal most-likely outcome 00000) = 0.4704 over 10000 shots
+  linear XEB 13.8992 (normalised 0.9266; ideal-circuit value 15.000)
+  top outcomes:
+    00000  0.4704
+    11111  0.4608
+    11110  0.0077
+    00111  0.0076
+  (0.01 s)

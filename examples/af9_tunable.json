@@ -1,0 +1,133 @@
+{
+  "name": "AF-9 tunable-coupler 3x3",
+  "architecture": "tunable-coupler-cz",
+  "environment": {"T_eff_mK": 45, "flux_noise_uPhi0": 2, "charge_noise_e": 0.0001, "Tphi_other_us": 10000},
+  "materials": {"junction_gap_ueV": 180, "Rn_spread_pct": 2, "Q_dielectric": 3000000},
+  "gates": {
+    "t_1q_ns": 25,
+    "t_readout_ns": 800,
+    "cz_shape_factor": 1.5,
+    "cz_ramp_ns": 5,
+    "err_1q_control": 0.0001,
+    "err_2q_control": 0.002,
+    "readout_separation_err": 0.005,
+    "active_reset": false,
+    "reset_err": 0.002
+  },
+  "tunable_coupler": {"g_max_MHz": 40, "residual_zz_kHz": 5},
+  "qubits": [
+    {
+      "id": 0,
+      "x_um": 0,
+      "y_um": 0,
+      "C_fF": 96.4167685272,
+      "Rn_kOhm": 7.38823392387,
+      "tunable": true,
+      "squid_asymmetry": 0,
+      "flux_bias": 0,
+      "readout": {"f_GHz": 6.9, "g_MHz": 90, "kappa_MHz": 1, "purcell_filter": 30}
+    },
+    {
+      "id": 1,
+      "x_um": 800,
+      "y_um": 0,
+      "C_fF": 97.1904507931,
+      "Rn_kOhm": 8.783608919,
+      "tunable": true,
+      "squid_asymmetry": 0,
+      "flux_bias": 0,
+      "readout": {"f_GHz": 6.96, "g_MHz": 90, "kappa_MHz": 1, "purcell_filter": 30}
+    },
+    {
+      "id": 2,
+      "x_um": 1600,
+      "y_um": 0,
+      "C_fF": 96.1242670363,
+      "Rn_kOhm": 6.94952853971,
+      "tunable": true,
+      "squid_asymmetry": 0,
+      "flux_bias": 0,
+      "readout": {"f_GHz": 7.02, "g_MHz": 90, "kappa_MHz": 1, "purcell_filter": 30}
+    },
+    {
+      "id": 3,
+      "x_um": 0,
+      "y_um": 800,
+      "C_fF": 97.4460544818,
+      "Rn_kOhm": 9.19416363918,
+      "tunable": true,
+      "squid_asymmetry": 0,
+      "flux_bias": 0,
+      "readout": {"f_GHz": 7.08, "g_MHz": 90, "kappa_MHz": 1, "purcell_filter": 30}
+    },
+    {
+      "id": 4,
+      "x_um": 800,
+      "y_um": 800,
+      "C_fF": 96.011093691,
+      "Rn_kOhm": 7.23749795734,
+      "tunable": true,
+      "squid_asymmetry": 0,
+      "flux_bias": 0,
+      "readout": {"f_GHz": 7.14, "g_MHz": 90, "kappa_MHz": 1, "purcell_filter": 30}
+    },
+    {
+      "id": 5,
+      "x_um": 1600,
+      "y_um": 800,
+      "C_fF": 97.067761266,
+      "Rn_kOhm": 8.58855084636,
+      "tunable": true,
+      "squid_asymmetry": 0,
+      "flux_bias": 0,
+      "readout": {"f_GHz": 7.2, "g_MHz": 90, "kappa_MHz": 1, "purcell_filter": 30}
+    },
+    {
+      "id": 6,
+      "x_um": 0,
+      "y_um": 1600,
+      "C_fF": 96.1200930993,
+      "Rn_kOhm": 6.94952853967,
+      "tunable": true,
+      "squid_asymmetry": 0,
+      "flux_bias": 0,
+      "readout": {"f_GHz": 7.26, "g_MHz": 90, "kappa_MHz": 1, "purcell_filter": 30}
+    },
+    {
+      "id": 7,
+      "x_um": 800,
+      "y_um": 1600,
+      "C_fF": 97.3165000669,
+      "Rn_kOhm": 8.98537646177,
+      "tunable": true,
+      "squid_asymmetry": 0,
+      "flux_bias": 0,
+      "readout": {"f_GHz": 7.32, "g_MHz": 90, "kappa_MHz": 1, "purcell_filter": 30}
+    },
+    {
+      "id": 8,
+      "x_um": 1600,
+      "y_um": 1600,
+      "C_fF": 96.418894171,
+      "Rn_kOhm": 7.38823392389,
+      "tunable": true,
+      "squid_asymmetry": 0,
+      "flux_bias": 0,
+      "readout": {"f_GHz": 7.38, "g_MHz": 90, "kappa_MHz": 1, "purcell_filter": 30}
+    }
+  ],
+  "couplings": [
+    {"a": 0, "b": 1, "C_fF": 0.153558354417},
+    {"a": 0, "b": 3, "C_fF": 0.155711771739},
+    {"a": 1, "b": 2, "C_fF": 0.150783634116},
+    {"a": 1, "b": 4, "C_fF": 0.152616173288},
+    {"a": 2, "b": 5, "C_fF": 0.14975867836},
+    {"a": 3, "b": 4, "C_fF": 0.154756368693},
+    {"a": 3, "b": 6, "C_fF": 0.152898120974},
+    {"a": 4, "b": 5, "C_fF": 0.151578765682},
+    {"a": 4, "b": 7, "C_fF": 0.153675121778},
+    {"a": 5, "b": 8, "C_fF": 0.152514546753},
+    {"a": 6, "b": 7, "C_fF": 0.151829852551},
+    {"a": 7, "b": 8, "C_fF": 0.154623854354}
+  ]
+}

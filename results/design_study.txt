@@ -1,0 +1,21 @@
+A. fixed-coupling CZ: coupling strength sweep (3x3, 8-frequency plan, Q=3e6)
+  fixed g=2 MHz              t_CZ  275.2 ns  |ZZ|    12.9 kHz  e2q 4.75e-03  T1   89.7 us  coll  0 |  GHZ-9 0.728  RCS-10 0.683  QFT-6 0.275
+  fixed g=3 MHz              t_CZ  186.8 ns  |ZZ|    29.0 kHz  e2q 3.87e-03  T1   89.7 us  coll  0 |  GHZ-9 0.672  RCS-10 0.662  QFT-6 0.123
+  fixed g=4 MHz              t_CZ  142.6 ns  |ZZ|    51.5 kHz  e2q 3.42e-03  T1   89.7 us  coll  0 |  GHZ-9 0.556  RCS-10 0.604  QFT-6 0.028
+  fixed g=6 MHz              t_CZ   98.4 ns  |ZZ|   115.8 kHz  e2q 2.98e-03  T1   89.7 us  coll  0 |  GHZ-9 0.274  RCS-10 0.430  QFT-6 0.015
+  fixed g=8 MHz              t_CZ   76.3 ns  |ZZ|   205.7 kHz  e2q 2.76e-03  T1   89.7 us  coll  0 |  GHZ-9 0.129  RCS-10 0.241  QFT-6 0.019
+  fixed g=12 MHz             t_CZ   54.2 ns  |ZZ|   461.9 kHz  e2q 2.54e-03  T1   89.7 us  coll  0 |  GHZ-9 0.055  RCS-10 0.036  QFT-6 0.014
+  fixed g=16 MHz             t_CZ   43.1 ns  |ZZ|   818.8 kHz  e2q 2.43e-03  T1   89.7 us  coll  3 |  GHZ-9 0.016  RCS-10 0.002  QFT-6 0.003
+B. tunable-coupler CZ (g_max 40 MHz, residual ZZ 5 kHz)
+  tunable coupler            t_CZ   23.3 ns  |ZZ|     5.0 kHz  e2q 2.23e-03  T1   89.7 us  coll  0 |  GHZ-9 0.927  RCS-10 0.856  QFT-6 0.772
+  tunable coupler, ZZ 50kHz  t_CZ   23.3 ns  |ZZ|    50.0 kHz  e2q 2.23e-03  T1   89.7 us  coll  0 |  GHZ-9 0.898  RCS-10 0.848  QFT-6 0.627
+C. frequency plan (fixed coupling g=4 MHz)
+  2-frequency plan           t_CZ  142.6 ns  |ZZ|    43.4 kHz  e2q 3.43e-03  T1   89.6 us  coll 14 |  GHZ-9 0.327  RCS-10 0.563  QFT-6 0.026
+  4-frequency plan           t_CZ  142.6 ns  |ZZ|    46.0 kHz  e2q 3.42e-03  T1   89.8 us  coll  6 |  GHZ-9 0.596  RCS-10 0.638  QFT-6 0.032
+  8-frequency plan           t_CZ  142.6 ns  |ZZ|    51.5 kHz  e2q 3.42e-03  T1   89.7 us  coll  0 |  GHZ-9 0.556  RCS-10 0.604  QFT-6 0.028
+D. materials: dielectric Q (tunable coupler)
+  Q=5e+05                    t_CZ   23.3 ns  |ZZ|     5.0 kHz  e2q 3.23e-03  T1   15.5 us  coll  0 |  GHZ-9 0.820  RCS-10 0.752  QFT-6 0.591
+  Q=1e+06                    t_CZ   23.3 ns  |ZZ|     5.0 kHz  e2q 2.63e-03  T1   30.7 us  coll  0 |  GHZ-9 0.872  RCS-10 0.809  QFT-6 0.672
+  Q=3e+06                    t_CZ   23.3 ns  |ZZ|     5.0 kHz  e2q 2.23e-03  T1   89.7 us  coll  0 |  GHZ-9 0.927  RCS-10 0.856  QFT-6 0.772
+  Q=1e+07                    t_CZ   23.3 ns  |ZZ|     5.0 kHz  e2q 2.09e-03  T1  273.9 us  coll  0 |  GHZ-9 0.935  RCS-10 0.870  QFT-6 0.809
+wrote results/design_study.csv

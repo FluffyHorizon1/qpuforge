@@ -1,0 +1,106 @@
+{
+  "device": {
+    "qubits": 49,
+    "couplers": 80,
+    "mean_T1_us": 147.004629081,
+    "best_T1_us": 157.645866364,
+    "mean_T2_us": 217.838152858,
+    "mean_readout_err": 0.00551174508357,
+    "t_cz_mean_ns": 43.5290570198,
+    "cz_err_mean": 0.000892021272515,
+    "cz_leak_mean": 5.49713217228e-05
+  },
+  "distance_scaling": {
+    "eps_d3": 0.000815089320755,
+    "eps_d5": 0.000171648333175,
+    "eps_d7": 5.669e-05,
+    "eps_err_d3": 1.91277402056e-05,
+    "eps_err_d5": 1.17504888725e-05,
+    "eps_err_d7": 7.932896813387393e-06,
+    "Lambda_3_5": 4.74860026707,
+    "Lambda_5_7": 3.1010760275180806,
+    "round_ns_d5": 734.036376682,
+    "logical_lifetime_d5_ms": 4.27639676486,
+    "d7_method": "follow-up run: 51 logical failures in 100,000 shots of 9 rounds (eps from P_L); Lambda(5->7) against d=5 at the same 9 rounds (79 failures in 50,000 shots, eps 1.758e-4). The original 3-9-round fit returned 0 (unstable free-intercept fit).",
+    "eps_d5_9rounds": 0.0001758
+  },
+  "alpha1_v11_reference": {
+    "eps_d3": 0.00374051937388,
+    "eps_d5": 0.00154563923591,
+    "Lambda": 2.42004685633
+  },
+  "long_run_d5": {
+    "lrr": {
+      "P_L_50": 0.0466666666667,
+      "leaked_data": 7.9150127472e-05,
+      "leaked_meas": 0.000110740087881,
+      "round_ns": 728.197519548
+    },
+    "lrr_dqlr": {
+      "P_L_50": 0.0548,
+      "leaked_data": 8.11773745924e-06,
+      "leaked_meas": 0.000100624359668,
+      "round_ns": 758.197519548
+    }
+  },
+  "budget_d3": {
+    "T1": -0.725619029018,
+    "Tphi": -0.215832500214,
+    "control": -0.538647661571,
+    "readout": -0.125238266731,
+    "reset": -0.0746444876794,
+    "zz": -0.0964853384147,
+    "leakage": -0.150594246204,
+    "thermal": 0.0540652975643
+  },
+  "sensitivity_d3": {
+    "resid_2p5e-4": -0.242930249678,
+    "Q_x2": -0.457679284994,
+    "readout_200": -0.0893880473726,
+    "sep_0p25": -0.0544917371914
+  },
+  "fab_yield_d5": {
+    "spread_2.0": {
+      "collision_free": 192,
+      "samples": 200,
+      "f01_sigma_MHz": 57.1159904208
+    },
+    "spread_1.0": {
+      "collision_free": 185,
+      "samples": 200,
+      "f01_sigma_MHz": 28.5297910518
+    },
+    "spread_0.5": {
+      "collision_free": 199,
+      "samples": 200,
+      "f01_sigma_MHz": 14.2605775759
+    }
+  },
+  "wiring": {
+    "xy": 49,
+    "flux_qubit": 49,
+    "flux_coupler": 80,
+    "readout_in": 3,
+    "readout_out": 3,
+    "total_lines": 184,
+    "feedlines": 3
+  },
+  "layout": {
+    "width_mm": 9.4,
+    "height_mm": 9.4,
+    "drc_clean": true,
+    "etch_polygons": 42196,
+    "bumps": 227
+  },
+  "exit_criteria": {
+    "lambda": true,
+    "eps_d5": true,
+    "beats_alpha": true,
+    "lifetime": true,
+    "yield": true,
+    "leakage": true,
+    "drc": true
+  },
+  "shots": 60000,
+  "runtime_s": 2262.55911052
+}

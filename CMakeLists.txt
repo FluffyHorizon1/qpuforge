@@ -11,7 +11,7 @@ target_include_directories(qpuforge INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/includ
 if(OpenMP_CXX_FOUND)
   target_link_libraries(qpuforge INTERFACE OpenMP::OpenMP_CXX)
 endif()
-foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp)
+foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp)
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)
   list(GET parts 1 src)

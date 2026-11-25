@@ -1,0 +1,114 @@
+Secured Cyber Solutions Proprietary Software Licence
+Version 1.0
+SPDX-License-Identifier: LicenseRef-SCS-Proprietary-1.0
+
+Software:  qpuforge — this repository, including all source code, documentation,
+           data, designs and other files in it (the "Software")
+
+Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
+
+
+1. Ownership
+
+The Software is owned by Secured Cyber Solutions Ltd ("SCS") and is protected by
+copyright and other intellectual property laws. Nothing in this licence transfers
+ownership of the Software or of any intellectual property right in it.
+
+
+2. No rights unless granted in writing
+
+No licence or other right in the Software is granted to you except:
+
+  (a) under a written licence agreement signed by an authorised representative
+      of SCS; or
+
+  (b) where the Software is published in a public GitHub repository, the limited
+      rights that GitHub's Terms of Service give GitHub users: to view the
+      Software and to fork it using GitHub's own features. Those rights do not
+      include any right to use, copy, modify, compile, run or distribute the
+      Software outside GitHub, and every fork remains subject to this licence.
+
+All rights not expressly granted are reserved by SCS.
+
+
+3. Restrictions
+
+Unless SCS has agreed otherwise in writing, you must not:
+
+  (a) use, run, install, copy or reproduce the Software, in whole or in part;
+  (b) modify, adapt, translate or create derivative works of the Software;
+  (c) distribute, publish, sell, rent, lease, sublicense or host the Software, or
+      otherwise make it available to anyone else, including as an online service;
+  (d) decompile, disassemble or reverse engineer any compiled form of the
+      Software, except to the extent that applicable law expressly permits this
+      despite this restriction;
+  (e) use the Software, or anything generated with it, to develop a competing
+      product or service;
+  (f) use the Software to train, fine-tune, evaluate or benchmark any machine
+      learning or artificial intelligence model, or include it in any dataset;
+  (g) remove, alter or obscure any copyright notice, licence notice or other
+      proprietary marking in the Software.
+
+
+4. Confidentiality
+
+If you have access to the Software through a private repository or any other
+non-public channel, the Software is confidential information of SCS. You must
+keep it confidential, use it only for the purpose SCS has authorised, and return
+or destroy it when SCS asks you to or when that authorisation ends.
+
+
+5. Contributions
+
+If you submit code, documentation, issues, suggestions or other material to SCS
+(for example as a pull request), you grant SCS a perpetual, irrevocable,
+worldwide, royalty-free and transferable licence, with the right to sublicense,
+to use, copy, modify, distribute and commercialise that material for any purpose,
+and you confirm that you have the right to grant that licence. SCS is under no
+obligation to use any contribution.
+
+
+6. Third-party components
+
+The Software may include or depend on components owned by third parties. Those
+components are licensed under their own terms, which are identified in the
+NOTICE file where they are included in the Software. Nothing in this licence
+restricts any right you have under those terms.
+
+
+7. Termination
+
+Any permission SCS has given you ends automatically if you breach this licence.
+When it ends you must stop using the Software and delete every copy of it in
+your possession or control.
+
+
+8. No warranty
+
+To the fullest extent permitted by law, the Software is provided "as is",
+without warranty or condition of any kind, express or implied, including any
+implied warranty or condition of satisfactory quality, fitness for a particular
+purpose, accuracy or non-infringement.
+
+
+9. Limitation of liability
+
+To the fullest extent permitted by law, SCS is not liable for any loss or damage
+arising out of or in connection with the Software or this licence, whether in
+contract, tort (including negligence) or otherwise. Nothing in this licence
+limits or excludes any liability that cannot be limited or excluded by law,
+including liability for death or personal injury caused by negligence, or for
+fraud or fraudulent misrepresentation.
+
+
+10. Governing law and jurisdiction
+
+This licence, and any dispute or claim arising out of or in connection with it
+or its subject matter, is governed by the law of England and Wales. The courts
+of England and Wales have exclusive jurisdiction.
+
+
+11. Licensing enquiries
+
+To request a licence or any permission, contact Secured Cyber Solutions Ltd via
+https://securedcybersolutions.co.uk

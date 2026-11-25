@@ -1,0 +1,55 @@
+CZ calibration: 16 unique frequency combinations for 80 pairs (0 simulated, 16 cached)
+1. Beta-1 device (49 qubits: 25 data + 24 measure, tunable couplers)
+   mean T1 147 us (best 158), T2 218 us, readout error 0.55% at 300 ns; 80 CZ pairs: 43.5 ns, error 8.92e-04, leakage 5.5e-05
+
+2. Logical error per round vs code distance (Beta-1 physics; MWPM decoder)
+   d=3: eps 0.0815% +- 0.0019%   (round 729 ns)
+   d=5: eps 0.0172% +- 0.0012%   (round 734 ns)
+   d=7: eps 0.0000% +- 0.0010%   (97 qubits, frame model only)
+   Lambda(3->5) = 4.75, Lambda(5->7) = inf;  d=5 logical lifetime 4.28 ms
+   reference, Alpha-1 v1.1 physics: d=3 0.3741%, d=5 0.1546%, Lambda 2.42
+
+3. Long experiments at d=5 (50 rounds): leakage removal
+   LRR only (Beta-1)            P_L(50) 0.0467, leaked data 7.9e-05 meas 1.1e-04, round 728 ns
+   LRR + DQLR (option)          P_L(50) 0.0548, leaked data 8.1e-06 meas 1.0e-04, round 758 ns
+
+4. Error budget (Beta-1 physics, d=3, leave one source out) and remaining sensitivity
+   without T1       eps 0.0224%  (-73%)
+   without Tphi     eps 0.0639%  (-22%)
+   without control  eps 0.0376%  (-54%)
+   without readout  eps 0.0713%  (-13%)
+   without reset    eps 0.0754%  (-7%)
+   without zz       eps 0.0736%  (-10%)
+   without leakage  eps 0.0692%  (-15%)
+   without thermal  eps 0.0859%  (+5%)
+   CZ residual 5e-4 -> 2.5e-4             eps 0.0617%  (-24%)
+   dielectric Q 6e6 -> 1.2e7              eps 0.0442%  (-46%)
+   readout 300 -> 200 ns                  eps 0.0742%  (-9%)
+   readout separation 0.5% -> 0.25%       eps 0.0771%  (-5%)
+
+5. Fabrication yield at d=5 (junction resistance spread; frequency-collision rules)
+   spread 2.0%: collision-free 192/200 (96%), frequency scatter 57 MHz rms
+   spread 1.0%: collision-free 185/200 (92%), frequency scatter 29 MHz rms
+   spread 0.5% (trimmed): collision-free 199/200 (100%), frequency scatter 14 MHz rms
+
+6. Wiring and readout multiplexing
+   49 XY drive + 49 qubit flux + 80 coupler flux + 3 readout in + 3 readout out = 184 coaxial lines (16.3 qubits per feedline)
+   Alpha-1 (17 qubits) needs 64; per readout output chain: TWPA + HEMT
+
+7. Physical layout (49-qubit chip from the synthesised Alpha-1 v1.1 cells)
+   chip 9.4 x 9.4 mm, 42196 etch polygons, 129 junction regions, 227 bump pads, DRC clean -> designs/beta1/BF49.gds
+
+8. Beta exit criteria (simulation gate before tape-out)
+   [PASS] error suppression Lambda(3->5) >= 2
+   [PASS] logical error per round at d=5 <= 0.1%
+   [PASS] d=5 logical error below Alpha-1 v1.1 d=3 by >= 3x
+   [PASS] d=5 logical lifetime > 5x best physical T1
+   [PASS] trimmed fabrication yield >= 80% collision-free
+   [PASS] chosen leakage scheme (LRR) at least as good as LRR + DQLR over 50 rounds
+   [PASS] layout DRC clean
+
+review complete in 2263 s -> designs/beta1/beta1_review.json
+
+[follow-up] d=7 re-run (the 3-9-round fit above returned 0 although failures occurred: a free-intercept fit is unstable at
+            these rates; beta1_review.cpp now uses one long run): 51 logical failures in 100,000 shots of 9 rounds
+            -> eps 0.00567% per round. d=5 at the same 9 rounds: 79 in 50,000 -> eps 0.0176%. Lambda(5->7) = 3.10.

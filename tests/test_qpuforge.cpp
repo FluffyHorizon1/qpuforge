@@ -1,13 +1,23 @@
 // qpuforge validation suite — every layer checked against independent physics or an independent computation
 #include "qpuforge/qpuforge.hpp"
 #include "qpuforge/layout.hpp"
-#include <fstream>
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
 
 using namespace qpuforge;
 static int g_fail = 0, g_pass = 0;
 #define CHECK(cond, ...) do { if (cond) { ++g_pass; } else { ++g_fail; std::printf("  FAIL %s:%d  ", __FILE__, __LINE__); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)
+
+// unique scratch path in the system temp directory (no fixed /tmp names: parallel ctest runs and non-POSIX systems)
+static std::string temp_path(const std::string& name) {
+    static const std::string tag = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    return (std::filesystem::temp_directory_path() / ("qpuforge_" + tag + "_" + name)).string();
+}
 
 static M2 random_unitary(std::mt19937& rng) {
     std::uniform_real_distribution<double> U(0, 2 * PI);
@@ -439,12 +449,17 @@ static void test_frame_vs_statevector() {
     const auto R = analyze(D); auto nm = noise_model(D, R); nm.only("T1");
     const auto M = prepare_memory(D, R, nm, 2);
     const auto fr = run_memory_frame(M, 200000, 5);
-    const auto sv = run_memory_statevector(M, nm, 240, 9);
-    const double sem = std::sqrt(sv.detection_rate * (1 - sv.detection_rate) / (240.0 * double(M.exp.detectors.size())));
-    std::printf("  detection rate: statevector %.4f +- %.4f | Pauli frame %.4f ; P_L statevector %.4f +- %.4f | frame %.4f\n",
-                sv.detection_rate, sem, fr.detection_rate, sv.p_logical, sv.p_logical_sem, fr.p_logical);
-    CHECK(std::abs(sv.detection_rate - fr.detection_rate) < 4 * sem + 0.004, "frame model detection rate");
-    CHECK(std::abs(sv.p_logical - fr.p_logical) < 4 * sv.p_logical_sem + 0.005, "frame model logical error");
+    // 1000 trajectories: P_L standard error ~0.005 (was 240 shots, +-0.012, which could not resolve a 2x model error).
+    // The frame model Pauli-twirls amplitude damping, so a small systematic offset (~0.003 in detection rate) is allowed.
+    const long nsv = 1000;
+    const auto sv = run_memory_statevector(M, nm, nsv, 9);
+    const double sem = std::sqrt(sv.detection_rate * (1 - sv.detection_rate) / (double(nsv) * double(M.exp.detectors.size())));
+    const double sem_pl = std::hypot(sv.p_logical_sem, fr.p_logical_sem);
+    std::printf("  detection rate: statevector %.4f +- %.4f | Pauli frame %.4f ; P_L statevector %.4f +- %.4f | frame %.4f +- %.4f\n",
+                sv.detection_rate, sem, fr.detection_rate, sv.p_logical, sv.p_logical_sem, fr.p_logical, fr.p_logical_sem);
+    CHECK(std::abs(sv.detection_rate - fr.detection_rate) < 3 * sem + 0.004, "frame model detection rate");
+    CHECK(std::abs(sv.p_logical - fr.p_logical) < 3 * sem_pl + 0.003, "frame model logical error |%.4f - %.4f| vs %.4f", sv.p_logical, fr.p_logical,
+          3 * sem_pl + 0.003);
 }
 
 static void test_eigensolver() {
@@ -510,8 +525,11 @@ static void test_pulse_cz() {
         const double g1c = S.G1c * s1.n(0, 1) * sc.n(0, 1), g2c = S.G2c * s2.n(0, 1) * sc.n(0, 1), g12e = S.G12 * s1.n(0, 1) * s2.n(0, 1);
         const double fc = S.c.f01(xc), f2 = S.q2.f01(0.0);
         const double pert = 2 * std::sqrt(2.0) * std::abs(g12e + g1c * g2c / (f2 - fc));
-        std::printf("  coupler on at %.2f GHz: |11>-|20> gap %.2f MHz, perturbative %.2f MHz\n", fc, gap * 1e3, pert * 1e3);
-        CHECK(std::abs(gap - pert) < 0.2 * pert, "gap vs perturbation theory");
+        // the neglected next order is O((g/Delta)^2) relative; allow 1.5x the larger of the two dispersive ratios (was a flat 20 %)
+        const double f1 = S.q1.f01(x1), nlo = std::max(std::pow(g1c / (f1 - fc), 2), std::pow(g2c / (f2 - fc), 2));
+        std::printf("  coupler on at %.2f GHz: |11>-|20> gap %.2f MHz, perturbative %.2f MHz (%+.1f%%; next order ~%.1f%%)\n", fc, gap * 1e3, pert * 1e3,
+                    100 * (gap / pert - 1), 100 * nlo);
+        CHECK(std::abs(gap - pert) < 1.5 * nlo * pert, "gap vs perturbation theory");
     }
     // calibration of the 3 knobs
     const auto [P, R] = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns);
@@ -581,13 +599,15 @@ static void test_leakage_frame() {
             return run_memory_frame(prepare_memory(D, R, nm, 15), 20000, 13);
         };
         const auto none = run(false, false), lrr = run(true, false), both = run(true, true);
-        std::printf("  CZ leakage 2e-3 (15 rounds): leaked measure fraction %.1e -> %.1e with leakage-removing reset;"
+        std::printf("  CZ leakage 2e-3 (15 rounds): leaked measure fraction %.1e -> %.1e with leakage-removing reset (%.1e with DQLR too);"
                     " data %.1e -> %.1e with DQLR; detection %.4f / %.4f / %.4f\n",
-                    none.leak_frac_meas, lrr.leak_frac_meas, lrr.leak_frac_data, both.leak_frac_data, none.detection_rate, lrr.detection_rate,
-                    both.detection_rate);
-        CHECK(lrr.leak_frac_meas < 0.3 * none.leak_frac_meas, "LRR does not remove measure-qubit leakage");
-        CHECK(both.leak_frac_data < 0.5 * lrr.leak_frac_data, "DQLR does not remove data leakage");
-        CHECK(lrr.detection_rate < none.detection_rate, "leakage removal should reduce detection events");
+                    none.leak_frac_meas, lrr.leak_frac_meas, both.leak_frac_meas, lrr.leak_frac_data, both.leak_frac_data, none.detection_rate,
+                    lrr.detection_rate, both.detection_rate);
+        // observed ratios: 0.19 (LRR, measure), 0.29 (DQLR, data), 0.63 (detection); bounds leave ~30 % margin
+        CHECK(lrr.leak_frac_meas < 0.25 * none.leak_frac_meas, "LRR does not remove measure-qubit leakage");
+        CHECK(both.leak_frac_data < 0.4 * lrr.leak_frac_data, "DQLR does not remove data leakage");
+        CHECK(lrr.detection_rate < 0.8 * none.detection_rate, "leakage removal should reduce detection events");
+        CHECK(both.leak_frac_meas <= 1.2 * lrr.leak_frac_meas, "DQLR should not add measure-qubit leakage");
     }
 }
 
@@ -662,8 +682,9 @@ static void test_layout() {
         CHECK(L.problems.empty(), "chip placement/spacing: %s", L.problems.empty() ? "" : L.problems.front().c_str());
         std::printf("  AF-17 mask DRC (not asserted; first-cut layout): %s\n", drc_summary(L).c_str());
         CHECK(worst < 1.0 && L.resonators.size() == 17, "resonator lengths");
-        write_gds(L, "/tmp/qpuforge_test.gds", "T");
-        std::ifstream f("/tmp/qpuforge_test.gds", std::ios::binary);
+        const std::string gds_path = temp_path("af17.gds");
+        write_gds(L, gds_path, "T");
+        std::ifstream f(gds_path, std::ios::binary);
         std::vector<unsigned char> b((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         std::size_t i = 0; int boundaries = 0, records = 0; bool ok = true; int last = -1;
         while (i + 4 <= b.size()) {
@@ -679,26 +700,42 @@ static void test_layout() {
     }
 }
 
-int main() {
-    test_decomposition();
-    test_transmon();
-    test_zz_and_inverse_design();
-    test_qasm();
-    test_compiler();
-    test_decoherence();
-    test_exchange();
-    test_trajectories_vs_exact();
-    test_ghz_metric();
-    test_xeb();
-    test_dynamic_circuits();
-    test_surface_geometry();
-    test_qec_circuits();
-    test_frame_vs_statevector();
-    test_eigensolver();
-    test_pulse_cz();
-    test_leakage_frame();
-    test_calibrated_noise_plumbing();
-    test_layout();
+static const std::vector<std::pair<const char*, void (*)()>> kTests = {
+    {"decomposition", test_decomposition},
+    {"transmon", test_transmon},
+    {"zz_and_inverse_design", test_zz_and_inverse_design},
+    {"qasm", test_qasm},
+    {"compiler", test_compiler},
+    {"decoherence", test_decoherence},
+    {"exchange", test_exchange},
+    {"trajectories_vs_exact", test_trajectories_vs_exact},
+    {"ghz_metric", test_ghz_metric},
+    {"xeb", test_xeb},
+    {"dynamic_circuits", test_dynamic_circuits},
+    {"surface_geometry", test_surface_geometry},
+    {"qec_circuits", test_qec_circuits},
+    {"frame_vs_statevector", test_frame_vs_statevector},
+    {"eigensolver", test_eigensolver},
+    {"pulse_cz", test_pulse_cz},
+    {"leakage_frame", test_leakage_frame},
+    {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
+    {"layout", test_layout},
+};
+
+// test_qpuforge            run every test
+// test_qpuforge NAME...    run the named tests (CTest runs one test per entry, see CMakeLists.txt)
+// test_qpuforge --list     print the test names
+int main(int argc, char** argv) {
+    std::vector<std::string> want(argv + 1, argv + argc);
+    if (want.size() == 1 && want[0] == "--list") { for (const auto& t : kTests) std::puts(t.first); return 0; }
+    int ran = 0;
+    for (const auto& [name, fn] : kTests) {
+        if (!want.empty() && std::find(want.begin(), want.end(), name) == want.end()) continue;
+        const auto t0 = std::chrono::steady_clock::now();
+        fn(); ++ran;
+        std::printf("  (%s: %.1f s)\n", name, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+    }
+    if (ran == 0 || (!want.empty() && ran != int(want.size()))) { std::printf("unknown test name(s)\n"); return 2; }
     std::printf("\n%d checks passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

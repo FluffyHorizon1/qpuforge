@@ -9,7 +9,7 @@
 
 namespace qpuforge {
 
-enum class Op { U, CX, CZ, SWAP, CP, CCX, MEASURE, BARRIER,
+enum class Op { U, CX, CZ, SWAP, CP, CCX, MEASURE, RESET, BARRIER,
                 // native (physical) ops produced by the compiler
                 RZ, SX, X };
 
@@ -37,6 +37,7 @@ struct Circuit {
     void swap(int a, int b) { gates.push_back({Op::SWAP, {a, b}, {}, 0, -1, "swap"}); }
     void measure(int q, int c) { gates.push_back({Op::MEASURE, {q}, {}, 0, c, "measure"}); nclbits = std::max(nclbits, c + 1); }
     void measure_all() { for (int i = 0; i < n; ++i) measure(i, i); }
+    void reset(int q) { gates.push_back({Op::RESET, {q}, {}, 0, -1, "reset"}); }
 };
 
 // ------------------------------------------------------------------ OpenQASM 2.0 (common subset)
@@ -125,7 +126,11 @@ inline Circuit parse_qasm(const std::string& text) {
             continue;
         }
         if (st.rfind("barrier", 0) == 0) { C.gates.push_back({Op::BARRIER, {}, {}, 0, -1, "barrier"}); continue; }
-        if (st.rfind("reset", 0) == 0 || st.rfind("if", 0) == 0 || st.rfind("gate", 0) == 0)
+        if (st.rfind("reset", 0) == 0) {
+            for (int q : resolve(trim(st.substr(5)), qregs)) C.gates.push_back({Op::RESET, {q}, {}, 0, -1, "reset"});
+            continue;
+        }
+        if (st.rfind("if", 0) == 0 || st.rfind("gate", 0) == 0)
             throw std::runtime_error("qasm: '" + st.substr(0, st.find(' ')) + "' not supported yet");
         // gate statement: name[(params)] args
         std::size_t k = 0;

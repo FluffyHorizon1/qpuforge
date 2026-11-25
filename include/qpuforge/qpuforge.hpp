@@ -7,3 +7,6 @@
 #include "compiler.hpp"
 #include "sim.hpp"
 #include "emulator.hpp"
+#include "surface.hpp"
+#include "qec.hpp"
+#include "presets.hpp"

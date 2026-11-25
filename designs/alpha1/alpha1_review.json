@@ -1,0 +1,63 @@
+{
+  "ladder": [
+    {"step": "Gen-0: fixed coupling g=3 MHz, 800 ns readout, measurement-based reset", "eps": 0.0123228449889, "eps_err": 0.000124525386964, "round_ns": 1907.10678093, "detection_rate": 0.0891238636364, "collisions": 0},
+    {"step": "+ tunable couplers (CZ 23 ns, idle ZZ 5 kHz)", "eps": 0.00537699753897, "eps_err": 8.13913720864e-05, "round_ns": 1253.03300859, "detection_rate": 0.0699768181818, "collisions": 0},
+    {"step": "+ fast Purcell-filtered readout (500 ns, 2chi = kappa = 4 MHz)", "eps": 0.00537941689149, "eps_err": 7.89179463189e-05, "round_ns": 953.033008589, "detection_rate": 0.0620784090909, "collisions": 0},
+    {"step": "+ active reset (200 ns, 0.3%)  = Alpha-1", "eps": 0.00447591046068, "eps_err": 6.8009934279e-05, "round_ns": 853.033008589, "detection_rate": 0.0475409090909, "collisions": 0}
+  ],
+  "alpha1": {
+    "eps": 0.00456819468209,
+    "eps_err": 4.90842420565e-05,
+    "round_ns": 853.033008589,
+    "detection_rate": 0.0477425,
+    "logical_lifetime_us": 186.733068084,
+    "best_T1_us": 75.5585656857,
+    "best_T2_us": 77.3793139243,
+    "mean_T1_us": 70.7712161441,
+    "mean_e2q": 0.00239678058902,
+    "mean_e1q": 0.000276796380606,
+    "collisions": 0,
+    "max_idle_zz_kHz": 5
+  },
+  "budget": [
+    {"source": "T1", "detection_share": 0.24870423769, "eps_if_eliminated": 0.00145034711639, "relative": -0.682511973038},
+    {"source": "control", "detection_share": 0.317571266927, "eps_if_eliminated": 0.00174695180693, "relative": -0.617583765907},
+    {"source": "Tphi", "detection_share": 0.0839325473592, "eps_if_eliminated": 0.00341447662412, "relative": -0.252554485579},
+    {"source": "readout", "detection_share": 0.221292477279, "eps_if_eliminated": 0.00375614745194, "relative": -0.177761082146},
+    {"source": "reset", "detection_share": 0.12622732416, "eps_if_eliminated": 0.00397756336737, "relative": -0.129292063018},
+    {"source": "zz", "detection_share": 0.00227214658539, "eps_if_eliminated": 0.00454997028864, "relative": -0.00398940822578},
+    {"source": "thermal", "detection_share": 0, "eps_if_eliminated": 0.00455021976286, "relative": -0.00393479710921}
+  ],
+  "sensitivity": [
+    {"change": "CZ control error 0.20% -> 0.10%", "eps": 0.00318856856723, "relative": -0.30200685629},
+    {"change": "dielectric Q 3e6 -> 6e6 (T1 x2)", "eps": 0.00322650865374, "relative": -0.293701587108},
+    {"change": "readout 500 ns -> 300 ns", "eps": 0.003523425867, "relative": -0.228704967235},
+    {"change": "readout separation error 0.5% -> 0.25%", "eps": 0.00424431315059, "relative": -0.0708992400791},
+    {"change": "reset error 0.3% -> 0.15%", "eps": 0.00433012402573, "relative": -0.0521148227952},
+    {"change": "T_eff 45 mK -> 35 mK (colder qubits & resonators)", "eps": 0.00357927429496, "relative": -0.216479475143},
+    {"change": "1q control error 0.01% -> 0.005%", "eps": 0.00440112317146, "relative": -0.0365727650096},
+    {"change": "residual coupler ZZ 5 kHz -> 1 kHz", "eps": 0.00457520135869, "relative": 0.00153379553453}
+  ],
+  "distance5": {"eps": 0.001751486796, "eps_err": 5.75167271908e-05, "Lambda": 2.60818105653, "collisions": 0},
+  "fab": [
+    {
+      "Rn_spread_pct": 1,
+      "yield": 0.985,
+      "failure_modes": {"PARASITIC-RESONANT": 3}
+    },
+    {
+      "Rn_spread_pct": 2,
+      "yield": 0.985,
+      "failure_modes": {"PARASITIC-RESONANT": 3}
+    },
+    {
+      "Rn_spread_pct": 4,
+      "yield": 0.91,
+      "failure_modes": {"11-20-RESONANT": 10, "CZ-INFEASIBLE": 20}
+    }
+  ],
+  "crosscheck": [
+    {"design": "Alpha-1", "sv_PL": 0.00666666666667, "sv_PL_sem": 0.00469830544708, "frame_PL": 0.0077975, "sv_det": 0.0347222222222, "frame_det": 0.0391814583333},
+    {"design": "Gen-0", "sv_PL": 0.0433333333333, "sv_PL_sem": 0.0117552194869, "frame_PL": 0.0251975, "sv_det": 0.0769444444444, "frame_det": 0.07618875}
+  ]
+}

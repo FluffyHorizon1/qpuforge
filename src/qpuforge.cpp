@@ -18,6 +18,11 @@ static void usage() {
         "  qpuforge run <chip.json> <circuit> [--traj N] [--shots N] [--seed S] [--off SRC,..] [--top K]\n"
         "  qpuforge budget <chip.json> <circuit> [--traj N]  error budget by noise source\n"
         "  qpuforge fab <chip.json> [--samples N] [--seed S] fabrication Monte Carlo (junction spread)\n"
+        "  qpuforge qec <chip.json> [--rounds 2,4,6,8,10] [--shots N] [--statevector N] [--off SRC,..]\n"
+        "                surface-code memory experiment: logical error per round (needs a surface layout)\n"
+        "  qpuforge layout <chip.json> <out.svg>             chip floor-plan\n"
+        "  qpuforge new <chip.json> --preset alpha1|gen0 [--distance D]    named designs\n"
+        "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"
         "\n"
         "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"
         "  noise sources: T1 Tphi thermal zz exchange control readout");
@@ -56,11 +61,11 @@ static void print_report(const ChipDesign& D, const ChipReport& R) {
     std::printf("\n%s — %zu qubits, %zu couplers, architecture %s\n", D.name.c_str(), D.qubits.size(), D.couplings.size(), D.architecture.c_str());
     std::printf("materials: Q_diel=%.2g  junction gap %.0f ueV (Rn spread %.1f%%)  T_eff=%.0f mK  flux noise %.1f uPhi0\n\n",
                 D.Q_dielectric, D.gap_ueV, D.Rn_spread_pct, D.T_eff_mK, D.flux_noise_uPhi0);
-    std::printf(" Q   C_fF   Rn_kOhm  EJ/EC   f01_GHz  dressed   alpha_MHz  disp_kHz  T1_us(diel/Purcell)      Tphi_us   T2_us   P_th    ro(1|0) ro(0|1)  e_1q\n");
+    std::printf(" Q  role       C_fF   Rn_kOhm  EJ/EC   f01_GHz  dressed   alpha_MHz  disp_kHz  T1_us(diel/Purcell)      Tphi_us   T2_us   P_th    ro(1|0) ro(0|1)  e_1q\n");
     for (std::size_t i = 0; i < R.q.size(); ++i) {
         const auto& q = R.q[i]; const auto& d = D.qubits[i];
-        std::printf("%2d  %6.1f  %7.3f  %6.1f   %7.4f  %7.4f   %8.1f  %8.3g  %6.1f (%6.0f/%7.0f)  %8.0f  %6.1f  %.4f  %.4f  %.4f  %.1e\n",
-                    q.id, d.C_fF, d.Rn_kOhm, q.EJ_EC, q.f01, q.f01_dressed, q.alpha * 1e3, q.charge_disp_kHz, q.T1_us, q.T1_diel_us,
+        std::printf("%2d  %-9s %6.1f  %7.3f  %6.1f   %7.4f  %7.4f   %8.1f  %8.3g  %6.1f (%6.0f/%7.0f)  %8.0f  %6.1f  %.4f  %.4f  %.4f  %.1e\n",
+                    q.id, d.role.c_str(), d.C_fF, d.Rn_kOhm, q.EJ_EC, q.f01, q.f01_dressed, q.alpha * 1e3, q.charge_disp_kHz, q.T1_us, q.T1_diel_us,
                     q.T1_purcell_us, q.Tphi_us, q.T2_us, q.p_thermal, q.ro_err_0to1, q.ro_err_1to0, q.err_1q);
     }
     std::printf("\n pair     coupler   g_MHz   detune_MHz   ZZ_static_kHz  (pert.)   ZZ_idle_kHz   t_CZ_ns   CZ point GHz   e_2q     flags\n");
@@ -75,12 +80,28 @@ static void print_report(const ChipDesign& D, const ChipReport& R) {
 
 static int cmd_new(int argc, char** argv) {
     if (argc < 3) { usage(); return 1; }
+    if (auto pre = arg(argc, argv, "--preset"); !pre.empty()) {
+        const int d = std::stoi(arg(argc, argv, "--distance", "3"));
+        ChipDesign D = pre == "alpha1" ? alpha1(d) : (pre == "gen0" ? gen0_surface17(d) : throw std::runtime_error("unknown preset " + pre));
+        save_design(D, argv[2]);
+        std::printf("wrote %s (%zu qubits, %zu couplers)\n", argv[2], D.qubits.size(), D.couplings.size());
+        print_report(D, analyze(D));
+        return 0;
+    }
     GenSpec s;
+    if (auto sd = arg(argc, argv, "--surface"); !sd.empty()) {
+        s = surface_spec(std::stoi(sd));
+        s.f_hi = 5.9; s.f_lo = 5.2;
+    }
+    s.feedlines = std::stoi(arg(argc, argv, "--feedlines", std::to_string(s.feedlines)));
+    s.kappa_MHz = std::stod(arg(argc, argv, "--kappa-MHz", std::to_string(s.kappa_MHz)));
+    s.chi_MHz = std::stod(arg(argc, argv, "--chi-MHz", std::to_string(s.chi_MHz)));
+    s.purcell_filter = std::stod(arg(argc, argv, "--purcell", std::to_string(s.purcell_filter)));
     if (auto g = arg(argc, argv, "--grid"); !g.empty()) { s.topology = "grid"; s.rows = std::stoi(g.substr(0, g.find('x'))); s.cols = std::stoi(g.substr(g.find('x') + 1)); }
     if (auto l = arg(argc, argv, "--line"); !l.empty()) { s.topology = "line"; s.rows = 1; s.cols = std::stoi(l); }
     if (auto l = arg(argc, argv, "--ring"); !l.empty()) { s.topology = "ring"; s.rows = 1; s.cols = std::stoi(l); }
-    s.f_hi = std::stod(arg(argc, argv, "--f-hi", "5.4"));
-    s.f_lo = std::stod(arg(argc, argv, "--f-lo", "4.8"));
+    s.f_hi = std::stod(arg(argc, argv, "--f-hi", std::to_string(s.topology == "surface" ? s.f_hi : 5.4)));
+    s.f_lo = std::stod(arg(argc, argv, "--f-lo", std::to_string(s.topology == "surface" ? s.f_lo : 4.8)));
     s.alpha = std::stod(arg(argc, argv, "--alpha", "-0.22"));
     s.g = std::stod(arg(argc, argv, "--g-MHz", "4")) / 1000.0;
     s.plan = std::stoi(arg(argc, argv, "--plan", "8"));
@@ -89,6 +110,12 @@ static int cmd_new(int argc, char** argv) {
     s.architecture = arg(argc, argv, "--arch", "fixed") == "tunable" ? "tunable-coupler-cz" : "fixed-coupling-cz";
     auto D = generate(s);
     if (auto nm = arg(argc, argv, "--name"); !nm.empty()) D.name = nm;
+    if (auto v = arg(argc, argv, "--readout-ns"); !v.empty()) D.t_readout_ns = std::stod(v);
+    if (auto v = arg(argc, argv, "--reset-ns"); !v.empty()) D.t_reset_ns = std::stod(v);
+    if (auto v = arg(argc, argv, "--reset-err"); !v.empty()) D.reset_err = std::stod(v);
+    if (auto v = arg(argc, argv, "--err2q"); !v.empty()) D.err_2q_control = std::stod(v);
+    if (auto v = arg(argc, argv, "--residual-zz-kHz"); !v.empty()) D.tc_residual_zz_kHz = std::stod(v);
+    for (int i = 1; i < argc; ++i) if (!std::strcmp(argv[i], "--active-reset")) D.active_reset = true;
     save_design(D, argv[2]);
     std::printf("wrote %s (%zu qubits, %zu couplers)\n", argv[2], D.qubits.size(), D.couplings.size());
     print_report(D, analyze(D));
@@ -196,6 +223,48 @@ static int cmd_fab(int argc, char** argv) {
     return 0;
 }
 
+static int cmd_layout(int argc, char** argv) {
+    if (argc < 4) { usage(); return 1; }
+    const auto D = load_design(argv[2]);
+    write_layout_svg(D, analyze(D), argv[3]);
+    std::printf("wrote %s\n", argv[3]);
+    return 0;
+}
+
+static int cmd_qec(int argc, char** argv) {
+    if (argc < 3) { usage(); return 1; }
+    const auto D = load_design(argv[2]);
+    const auto R = analyze(D);
+    auto nm = noise_model(D, R);
+    if (auto off = arg(argc, argv, "--off"); !off.empty()) { std::stringstream ss(off); std::string s; while (std::getline(ss, s, ',')) nm.disable(s); }
+    std::vector<int> rounds;
+    { std::stringstream ss(arg(argc, argv, "--rounds", "2,4,6,8,10")); std::string s; while (std::getline(ss, s, ',')) rounds.push_back(std::stoi(s)); }
+    const long shots = std::stol(arg(argc, argv, "--shots", "200000"));
+    const int sv_shots = std::stoi(arg(argc, argv, "--statevector", "0"));
+    const unsigned seed = unsigned(std::stoul(arg(argc, argv, "--seed", "2026")));
+    std::printf("\n%s — memory-Z experiment, distance %d, Pauli-frame Monte Carlo (%ld shots per point)\n", D.name.c_str(), D.surface_d, shots);
+    std::printf("  rounds   round_ns   detection   P_L                eps/round\n");
+    std::vector<MemoryResult> all;
+    for (int r : rounds) {
+        const auto M = prepare_memory(D, R, nm, r);
+        const auto res = run_memory_frame(M, shots, seed + unsigned(r));
+        all.push_back(res);
+        std::printf("  %5d   %8.0f   %8.4f    %.5f +- %.5f   %.5f\n", r, res.round_ns, res.detection_rate, res.p_logical, res.p_logical_sem, res.eps_per_round);
+        if (res.ignored_exchange_pairs) std::printf("    ! %d near-degenerate exchange pair(s) not modelled by the Pauli-frame simulator\n", res.ignored_exchange_pairs);
+        if (sv_shots > 0 && r == rounds.front()) {
+            const auto sv = run_memory_statevector(M, nm, sv_shots, seed);
+            std::printf("          exact statevector (%d shots): detection %.4f, P_L %.4f +- %.4f\n", sv_shots, sv.detection_rate, sv.p_logical, sv.p_logical_sem);
+        }
+    }
+    const double eps = fit_eps_per_round(all);
+    double best_T1 = 0, best_T2 = 0;
+    for (const auto& q : R.q) { best_T1 = std::max(best_T1, q.T1_us); best_T2 = std::max(best_T2, q.T2_us); }
+    const double round_us = all.back().round_ns / 1e3;
+    std::printf("  logical error per round (fit): %.5f   ->  logical lifetime ~ %.1f us (round %.2f us)\n", eps, round_us / std::max(eps, 1e-12), round_us);
+    std::printf("  best physical qubit on chip: T1 %.1f us, T2 %.1f us\n", best_T1, best_T2);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 1; }
     const std::string cmd = argv[1];
@@ -205,6 +274,8 @@ int main(int argc, char** argv) {
         if (cmd == "run") return cmd_run(argc, argv);
         if (cmd == "budget") return cmd_budget(argc, argv);
         if (cmd == "fab") return cmd_fab(argc, argv);
+        if (cmd == "qec") return cmd_qec(argc, argv);
+        if (cmd == "layout") return cmd_layout(argc, argv);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 2;

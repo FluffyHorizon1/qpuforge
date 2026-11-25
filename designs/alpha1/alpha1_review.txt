@@ -1,0 +1,40 @@
+1. Improvement ladder (distance-3 memory, Pauli-frame Monte Carlo, eps = logical error per round)
+   Gen-0: fixed coupling g=3 MHz, 800 ns readout, measurement-based reset     eps 0.0123 +- 0.0001   round 1907 ns   collisions 0
+   + tunable couplers (CZ 23 ns, idle ZZ 5 kHz)                               eps 0.0054 +- 0.0001   round 1253 ns   collisions 0
+   + fast Purcell-filtered readout (500 ns, 2chi = kappa = 4 MHz)             eps 0.0054 +- 0.0001   round  953 ns   collisions 0
+   + active reset (200 ns, 0.3%)  = Alpha-1                                   eps 0.0045 +- 0.0001   round  853 ns   collisions 0
+
+2. Alpha-1: eps 0.0046 +- 0.0000 per 853 ns round, detection rate 0.0477
+   logical lifetime ~187 us vs best physical T1 76 us / T2 77 us (mean T1 71 us)
+
+3. Alpha-1 QEC error budget
+   source    share of detections     eps if eliminated (now 0.0046)
+   T1         24.9%                  0.0015  (-68%)
+   control    31.8%                  0.0017  (-62%)
+   Tphi        8.4%                  0.0034  (-25%)
+   readout    22.1%                  0.0038  (-18%)
+   reset      12.6%                  0.0040  (-13%)
+   zz          0.2%                  0.0045  (-0%)
+   thermal     0.0%                  0.0046  (-0%)
+
+4. Sensitivity: one improvement at a time from Alpha-1
+   CZ control error 0.20% -> 0.10%                      eps 0.0032  (-30.2%)
+   dielectric Q 3e6 -> 6e6 (T1 x2)                      eps 0.0032  (-29.4%)
+   readout 500 ns -> 300 ns                             eps 0.0035  (-22.9%)
+   readout separation error 0.5% -> 0.25%               eps 0.0042  (-7.1%)
+   reset error 0.3% -> 0.15%                            eps 0.0043  (-5.2%)
+   T_eff 45 mK -> 35 mK (colder qubits & resonators)    eps 0.0036  (-21.6%)
+   1q control error 0.01% -> 0.005%                     eps 0.0044  (-3.7%)
+   residual coupler ZZ 5 kHz -> 1 kHz                   eps 0.0046  (+0.2%)
+
+5. Distance-5 projection (49 qubits, same physics)
+   d=5: eps 0.0018 +- 0.0001 per round (collisions 0)  ->  Lambda = eps3/eps5 = 2.61  (below threshold: bigger codes help)
+
+6. Fabrication Monte Carlo (Rn spread) and exact-statevector cross-checks
+   Rn spread 1%: collision-free yield 98%
+   Rn spread 2%: collision-free yield 98%
+   Rn spread 4%: collision-free yield 91%
+   Alpha-1  R=2: P_L statevector 0.0067 +- 0.0047 | Pauli frame 0.0078 ; detection 0.0347 | 0.0392
+   Gen-0    R=2: P_L statevector 0.0433 +- 0.0118 | Pauli frame 0.0252 ; detection 0.0769 | 0.0762
+
+wrote results/alpha1_review.json, examples/alpha1.json, examples/alpha1_layout.svg  (421 s)

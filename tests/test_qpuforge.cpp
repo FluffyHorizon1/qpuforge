@@ -1,6 +1,7 @@
 // qpuforge validation suite — every layer checked against independent physics or an independent computation
 #include "qpuforge/qpuforge.hpp"
 #include <cstdio>
+#include <iterator>
 
 using namespace qpuforge;
 static int g_fail = 0, g_pass = 0;
@@ -55,6 +56,19 @@ static void test_transmon() {
         CHECK(std::abs(T.f01() - f01_ref) < 2e-4, "f01 vs phase-grid reference");
         CHECK(std::abs(disp - disp_asym) / disp_asym < 0.25, "charge dispersion vs asymptotic (%.3e vs %.3e)", disp, disp_asym);
         CHECK(std::abs(std::abs(T.n(0, 1)) - n01_asym) / n01_asym < 0.05, "n01");
+    }
+    // |11> = |20> must use alpha at the tuned EJ, not the idle alpha.
+    {
+        const double EC = 0.20, f_partner = 5.20;
+        const double EJ_idle = solve_EJ_for_f01(5.90, EC);
+        const auto idle = transmon_fa(EJ_idle, EC);
+        const double naive = f_partner - idle.alpha;
+        const double tuned = f01_for_11_20(EC, f_partner);
+        const auto at = transmon_fa(solve_EJ_for_f01(tuned, EC), EC);
+        std::printf("  11-20: idle alpha %.1f MHz, naive f %.4f GHz, tuned f %.4f GHz, alpha there %.1f MHz\n",
+                    idle.alpha * 1e3, naive, tuned, at.alpha * 1e3);
+        CHECK(std::abs((at.f01 + at.alpha) - f_partner) < 1e-6, "tuned 11-20 resonance");
+        CHECK(tuned > naive + 1e-3, "idle alpha places the interaction too low");
     }
     const double EJ = EJ_from_Rn_GHz(10.0, 180.0);
     std::printf("  E_J(Rn=10 kOhm, Delta=180 ueV) = %.3f GHz (hand calc 14.04)\n", EJ);
@@ -325,6 +339,125 @@ static void test_xeb() {
     }
 }
 
+static void test_dynamic_circuits() {
+    std::puts("[dynamic] mid-circuit measurement, reset, classical record");
+    GenSpec s; s.topology = "line"; s.rows = 1; s.cols = 3; s.architecture = "tunable-coupler-cz";
+    auto D = generate(s);
+    D.reset_err = 0.05;
+    const auto R = analyze(D); const auto G = chip_graph(D, R); auto nm = noise_model(D, R);
+    const auto C = parse_qasm("OPENQASM 2.0; qreg q[2]; creg c[4]; x q[0]; measure q[0] -> c[0]; reset q[0]; measure q[0] -> c[1];"
+                              " h q[1]; cx q[1],q[0]; measure q[1] -> c[2]; measure q[0] -> c[3];");
+    const auto P = compile(C, G);
+    CHECK(P.dynamic && P.n_measure == 4 && P.n_reset == 1, "dynamic compile");
+    RunOptions o; o.trajectories = 2000; o.noisy = false;
+    const auto r = run(P, nm, o);
+    long good = 0; for (auto& [k, c] : r.counts) if (k == "0001" || k == "1101") good += c;
+    std::printf("  noiseless: outcomes {0001, 1101} in %ld / %ld shots, split %ld / %ld\n", good, r.shots, r.counts.count("0001") ? r.counts.at("0001") : 0L, r.counts.count("1101") ? r.counts.at("1101") : 0L);
+    CHECK(good == r.shots, "measure/reset/Bell semantics");
+    // reset error statistics: only reset noise on; P(read 1 after reset of |1>) = reset_err
+    auto nm2 = nm; nm2.only("reset");
+    const auto P2 = compile(parse_qasm("OPENQASM 2.0; qreg q[1]; creg c[1]; x q[0]; reset q[0]; measure q[0] -> c[0];"), G);
+    RunOptions o2; o2.trajectories = 20000;
+    const auto r2 = run(P2, nm2, o2);
+    const double p1 = double(r2.counts.count("1") ? r2.counts.at("1") : 0) / r2.shots, sem = std::sqrt(0.05 * 0.95 / r2.shots);
+    std::printf("  reset error: measured %.4f, expected %.4f +- %.4f\n", p1, 0.05, sem);
+    CHECK(std::abs(p1 - 0.05) < 4 * sem, "reset error rate");
+}
+
+static void test_surface_geometry() {
+    std::puts("[qec] rotated surface code geometry: stabilisers commute, logicals anticommute, CZ schedule conflict-free");
+    for (int d : {3, 5, 7}) {
+        const auto S = rotated_surface_code(d);
+        int bad = 0, nx = 0;
+        for (const auto& a : S.stabs) { if (a.type == 'X') ++nx; for (const auto& b : S.stabs) if (a.type == 'X' && b.type == 'Z') {
+            int c = 0; for (int x : a.support) for (int y : b.support) c += (x == y); bad += c % 2; } }
+        int lz = 0, lx = 0, ov = 0;
+        for (const auto& st : S.stabs) {
+            int c = 0;
+            for (int x : st.support) for (int y : (st.type == 'X' ? S.logical_z : S.logical_x)) c += (x == y);
+            (st.type == 'X' ? lz : lx) += c % 2;
+        }
+        for (int x : S.logical_z) for (int y : S.logical_x) ov += (x == y);
+        int conflicts = 0;
+        for (int step = 0; step < 4; ++step) {
+            std::vector<int> use(std::size_t(S.n_qubits()), 0);
+            for (const auto& st : S.stabs) if (st.order[std::size_t(step)] >= 0) {
+                conflicts += use[std::size_t(st.qubit)]++ > 0;
+                conflicts += use[std::size_t(S.data[std::size_t(st.order[std::size_t(step)])].qubit)]++ > 0;
+            }
+        }
+        std::printf("  d=%d: %d qubits (%zu data, %zu stabilisers), anticommuting stab pairs %d, logical violations %d/%d, Z_L.X_L overlap %d, schedule conflicts %d\n",
+                    d, S.n_qubits(), S.data.size(), S.stabs.size(), bad, lz, lx, ov, conflicts);
+        CHECK(S.n_qubits() == 2 * d * d - 1 && nx == (d * d - 1) / 2, "qubit / stabiliser counts");
+        CHECK(bad == 0 && lz == 0 && lx == 0 && ov % 2 == 1 && conflicts == 0, "surface code algebra");
+    }
+}
+
+static ChipDesign surface_chip(int d) {
+    GenSpec s; s.topology = "surface"; s.distance = d; s.architecture = "tunable-coupler-cz"; s.f_hi = 5.9; s.f_lo = 5.2; s.g = 0.004;
+    s.feedlines = 3; s.kappa_MHz = 4; s.chi_MHz = 4; s.purcell_filter = 100;
+    auto D = generate(s);
+    D.t_readout_ns = 500; D.active_reset = true; D.reset_err = 0.003; D.t_reset_ns = 200;
+    return D;
+}
+
+static void test_qec_circuits() {
+    std::puts("[qec] memory experiment: noiseless determinism, detector error model, circuit distance");
+    {
+        const auto D = surface_chip(3); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        const auto M = prepare_memory(D, R, nm, 3);
+        const auto recs = run_records(M.prog, nm, 30, 5, false);
+        int nonzero = 0;
+        for (const auto& rc : recs) {
+            for (const auto& det : M.exp.detectors) { int v = 0; for (int c : det) v ^= rc[std::size_t(c)]; nonzero += v; }
+            int o = 0; for (int c : M.exp.observable) o ^= rc[std::size_t(c)]; nonzero += o;
+        }
+        std::printf("  d=3 R=3 noiseless statevector: %d detection events / logical flips over 30 shots (%.0f ns per round)\n", nonzero, M.prog.duration_ns / 3);
+        CHECK(nonzero == 0, "noiseless memory experiment is deterministic");
+        CHECK(M.dem.hyperedge_faults == 0 && M.dem.undetectable_logical == 0, "DEM is graphlike with no undetectable logicals");
+        DetectorErrorModel U = M.dem; for (auto& e : U.edges) e.p = 0.01;
+        MatchingDecoder dec(U);
+        const auto faults = enumerate_faults(M.frame, M.exp);
+        int wrong = 0; std::vector<double> c; std::vector<int> ch;
+        for (const auto& f : faults) wrong += dec.decode(f.dets, c, ch) != int(f.obs);
+        std::printf("  d=3: %zu single faults, %d uncorrected by uniform-weight matching (circuit distance 3 needs 0)\n", faults.size(), wrong);
+        CHECK(wrong == 0, "every single fault correctable at d=3");
+    }
+    {
+        const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        const auto M = prepare_memory(D, R, nm, 2);
+        DetectorErrorModel U = M.dem; for (auto& e : U.edges) e.p = 0.01;
+        MatchingDecoder dec(U);
+        const auto faults = enumerate_faults(M.frame, M.exp);
+        std::mt19937 rng(3); std::uniform_int_distribution<std::size_t> pick(0, faults.size() - 1);
+        int wrong1 = 0, wrong2 = 0; std::vector<double> c; std::vector<int> ch;
+        for (const auto& f : faults) wrong1 += dec.decode(f.dets, c, ch) != int(f.obs);
+        for (int k = 0; k < 20000; ++k) {
+            const auto& f = faults[pick(rng)]; const auto& g = faults[pick(rng)];
+            std::vector<int> dets;
+            std::set_symmetric_difference(f.dets.begin(), f.dets.end(), g.dets.begin(), g.dets.end(), std::back_inserter(dets));
+            wrong2 += dec.decode(dets, c, ch) != int(f.obs ^ g.obs);
+        }
+        std::printf("  d=5: %zu single faults (%d uncorrected), 20000 random fault pairs (%d uncorrected); hyperedges %d\n", faults.size(), wrong1, wrong2, M.dem.hyperedge_faults);
+        CHECK(wrong1 == 0 && wrong2 == 0 && M.dem.undetectable_logical == 0, "every pair of faults correctable at d=5");
+    }
+}
+
+static void test_frame_vs_statevector() {
+    std::puts("[qec] Pauli-frame noise model vs exact statevector trajectories (amplitude damping only, exaggerated)");
+    GenSpec s; s.topology = "surface"; s.distance = 3; s.architecture = "tunable-coupler-cz"; s.f_hi = 5.9; s.f_lo = 5.2; s.g = 0.004; s.Q = 3e5;
+    auto D = generate(s); D.t_readout_ns = 500; D.active_reset = true; D.t_reset_ns = 200;
+    const auto R = analyze(D); auto nm = noise_model(D, R); nm.only("T1");
+    const auto M = prepare_memory(D, R, nm, 2);
+    const auto fr = run_memory_frame(M, 200000, 5);
+    const auto sv = run_memory_statevector(M, nm, 240, 9);
+    const double sem = std::sqrt(sv.detection_rate * (1 - sv.detection_rate) / (240.0 * double(M.exp.detectors.size())));
+    std::printf("  detection rate: statevector %.4f +- %.4f | Pauli frame %.4f ; P_L statevector %.4f +- %.4f | frame %.4f\n",
+                sv.detection_rate, sem, fr.detection_rate, sv.p_logical, sv.p_logical_sem, fr.p_logical);
+    CHECK(std::abs(sv.detection_rate - fr.detection_rate) < 4 * sem + 0.004, "frame model detection rate");
+    CHECK(std::abs(sv.p_logical - fr.p_logical) < 4 * sv.p_logical_sem + 0.005, "frame model logical error");
+}
+
 int main() {
     test_decomposition();
     test_transmon();
@@ -336,6 +469,10 @@ int main() {
     test_trajectories_vs_exact();
     test_ghz_metric();
     test_xeb();
+    test_dynamic_circuits();
+    test_surface_geometry();
+    test_qec_circuits();
+    test_frame_vs_statevector();
     std::printf("\n%d checks passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

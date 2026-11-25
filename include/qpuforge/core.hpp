@@ -94,12 +94,14 @@ inline Euler zyz(const M2& U) {
 // ------------------------------------------------------------------ real symmetric eigen-solvers
 // Implicit QL for a symmetric tridiagonal matrix (diag d, off-diag e[i] between i and i+1).
 // On return d holds eigenvalues (ascending), z (n x n, row-major) holds eigenvectors as columns.
-inline void tridiag_eigen(std::vector<double>& d, std::vector<double> e_off, std::vector<double>& z) {
+inline void tridiag_eigen(std::vector<double>& d, std::vector<double> e_off, std::vector<double>& z, bool vectors = true) {
     const int n = int(d.size());
     std::vector<double> e(n, 0.0);
     for (int i = 0; i + 1 < n; ++i) e[i] = e_off[i];
-    z.assign(std::size_t(n) * n, 0.0);
-    for (int i = 0; i < n; ++i) z[std::size_t(i) * n + i] = 1.0;
+    if (vectors) {
+        z.assign(std::size_t(n) * n, 0.0);
+        for (int i = 0; i < n; ++i) z[std::size_t(i) * n + i] = 1.0;
+    } else z.clear();
     for (int l = 0; l < n; ++l) {
         int iter = 0, m;
         do {
@@ -124,7 +126,7 @@ inline void tridiag_eigen(std::vector<double>& d, std::vector<double> e_off, std
                     r = (d[i] - g) * s + 2.0 * c * b;
                     d[i + 1] = g + (p = s * r);
                     g = c * r - b;
-                    for (int k = 0; k < n; ++k) {
+                    if (vectors) for (int k = 0; k < n; ++k) {
                         f = z[std::size_t(k) * n + i + 1];
                         z[std::size_t(k) * n + i + 1] = s * z[std::size_t(k) * n + i] + c * f;
                         z[std::size_t(k) * n + i] = c * z[std::size_t(k) * n + i] - s * f;
@@ -136,6 +138,7 @@ inline void tridiag_eigen(std::vector<double>& d, std::vector<double> e_off, std
         } while (m != l);
     }
     // sort ascending
+    if (!vectors) { std::sort(d.begin(), d.end()); return; }
     std::vector<int> idx(n);
     std::iota(idx.begin(), idx.end(), 0);
     std::sort(idx.begin(), idx.end(), [&](int x, int y) { return d[x] < d[y]; });
@@ -155,7 +158,7 @@ inline std::vector<double> sym_eigen(std::vector<double> A, int n, std::vector<d
     for (int sweep = 0; sweep < 100; ++sweep) {
         double off = 0, diag = 0;
         for (int i = 0; i < n; ++i) { diag += at(i, i) * at(i, i); for (int j = i + 1; j < n; ++j) off += at(i, j) * at(i, j); }
-        if (off <= 1e-30 * (diag + 1e-300)) break;
+        if (off <= 1e-26 * (diag + 1e-300)) break;          // ~1e-13 relative in amplitude: far below any physics we resolve
         for (int p = 0; p < n; ++p) for (int q = p + 1; q < n; ++q) {
             const double apq = at(p, q);
             if (std::abs(apq) < 1e-300) continue;

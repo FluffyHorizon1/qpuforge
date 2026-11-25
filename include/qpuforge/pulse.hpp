@@ -340,6 +340,14 @@ inline CZSystem design_pair_system(double f_hi, double a_hi, double f_lo, double
     return build(g12);
 }
 
+// Numerical model behind a coherent CZ calibration. Everything here changes the cached result, so all of it is part of
+// the cache key; bump kVersion whenever the CZ Hamiltonian, pulse shape, calibration procedure or fidelity metric
+// changes, so stale entries miss instead of being reused silently.
+struct CZModel {
+    static constexpr int kVersion = 2;        // v1 = qpuforge 0.3 pre-release (key had no model fields)
+    static constexpr double dt_ns = 0.1;      // ramp time step of simulate_cz during calibration
+    static constexpr int max_eval = 260;      // Nelder-Mead budget of optimize_cz
+};
 struct CZCalibration {
     int a{0}, b{0}, mover{0}, target{0};
     double f_mover{0}, f_target{0}, g12_MHz{0}, park_fc_GHz{0}, zz_idle_kHz{0}, residual_gap_MHz{0};
@@ -361,7 +369,7 @@ inline CZCalibration calibrate_cz_pair(double f_hi, double a_hi, double f_lo, do
     c.g12_MHz = g12 * 1e3; c.residual_gap_MHz = gap * 1e3;
     c.park_fc_GHz = S.c.f01(S.fluxc_idle);
     c.zz_idle_kHz = S.zz(S.fluxc_idle) * 1e6;
-    auto [P, R] = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns);
+    auto [P, R] = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval);
     c.pulse = P;
     c.fc_on_GHz = S.c.f01(P.fluxc_on);
     c.f_int_GHz = S.q1.f01(P.flux1_int);
@@ -371,7 +379,7 @@ inline CZCalibration calibrate_cz_pair(double f_hi, double a_hi, double f_lo, do
     // quasi-static flux noise on the mover and the coupler: curvature of 1 - F (local Z phases are corrected away in F,
     // so this captures conditional-phase and leakage sensitivity)
     const double h = 2e-4;
-    auto inf = [&](double d1, double dc) { CZPulse q = P; q.flux1_int += d1; q.fluxc_on += dc; return 1 - simulate_cz(S, q).fidelity; };
+    auto inf = [&](double d1, double dc) { CZPulse q = P; q.flux1_int += d1; q.fluxc_on += dc; return 1 - simulate_cz(S, q, CZModel::dt_ns).fidelity; };
     const double e0 = c.err_coherent;
     const double c1 = (inf(h, 0) - 2 * e0 + inf(-h, 0)) / (h * h), cc = (inf(0, h) - 2 * e0 + inf(0, -h)) / (h * h);
     c.err_flux_quasistatic = std::max(0.0, c1) + std::max(0.0, cc);   // times sigma^2 / 2 later (needs the chip's A)
@@ -388,9 +396,11 @@ inline double flux_noise_variance(double A_uPhi0) {
 // Coherent calibrations depend only on the pair's frequencies/anharmonicities and the coupler design: memoised in
 // process and optionally in a JSON file so reviews and parameter sweeps do not re-run the pulse optimisation.
 inline std::string cz_cache_key(double fh, double ah, double fl, double al, const CouplerElement& ce) {
-    char b[200];
-    std::snprintf(b, sizeof b, "%.5f_%.5f_%.5f_%.5f|%.4f_%.4f_%.3f_%.4f_%.3f", fh, ah, fl, al, ce.f_max_GHz, ce.alpha_GHz, ce.g_qc_MHz,
-                  ce.f_on_GHz, ce.t_rise_ns);
+    const CZSystem ref;                       // level truncations / charge cutoff actually used by design_pair_system
+    char b[320];
+    std::snprintf(b, sizeof b, "v%d|dt%.4f_ev%d_L%d.%d.%d_nc%d.%d.%d|%.5f_%.5f_%.5f_%.5f|%.4f_%.4f_%.3f_%.4f_%.3f", CZModel::kVersion,
+                  CZModel::dt_ns, CZModel::max_eval, ref.L1, ref.Lc, ref.L2, ref.q1.ncut, ref.c.ncut, ref.q2.ncut, fh, ah, fl, al,
+                  ce.f_max_GHz, ce.alpha_GHz, ce.g_qc_MHz, ce.f_on_GHz, ce.t_rise_ns);
     return b;
 }
 inline Json cz_coherent_json(const CZCalibration& c) {
@@ -425,14 +435,24 @@ struct CZCache {
         if (!f) return;
         std::stringstream ss; ss << f.rdbuf();
         const Json j = Json::parse(ss.str());
+        // versioned file: {"schema": "qpuforge-cz-cache", "model_version": N, "entries": {key: calibration}}.
+        // Anything else (including the unversioned v0.3 pre-release format) is rejected and regenerated.
+        const int ver = int(j.get("model_version", -1.0));
+        if (j.get("schema", "") != std::string("qpuforge-cz-cache") || ver != CZModel::kVersion || !j["entries"].is_obj()) {
+            std::fprintf(stderr, "CZ cache %s: model version %d does not match %d, ignored (calibrations will be re-simulated)\n",
+                         path.c_str(), ver, CZModel::kVersion);
+            return;
+        }
         std::lock_guard<std::mutex> lk(mu);
-        for (const auto& [k, v] : j.items()) if (!m.count(k)) m[k] = cz_coherent_from_json(v);
+        for (const auto& [k, v] : j["entries"].items()) if (!m.count(k)) m[k] = cz_coherent_from_json(v);
     }
     void save(const std::string& path) {
         if (path.empty()) return;
         std::lock_guard<std::mutex> lk(mu);
+        Json e = Json::object();
+        for (const auto& [k, v] : m) e.set(k, cz_coherent_json(v));
         Json j = Json::object();
-        for (const auto& [k, v] : m) j.set(k, cz_coherent_json(v));
+        j.set("schema", "qpuforge-cz-cache"); j.set("model_version", CZModel::kVersion); j.set("entries", e);
         std::ofstream f(path); j.dump(f); f << "\n";
     }
 };

@@ -5,8 +5,10 @@
 //   * Josephson energy from junction normal resistance (Ambegaokar–Baratoff), SQUID flux tuning
 //   * exact transmon spectra in the charge basis (frequencies, anharmonicity, charge dispersion, n-matrix)
 //   * exact two-transmon diagonalisation -> dressed frequencies and static ZZ (always-on crosstalk)
+//   * optional three-transmon coupler: park below both qubits so the exchange cancels, and read the ZZ that remains
 //   * coherence: dielectric loss (Q), Purcell decay, thermal excitation, flux / charge / thermal-photon dephasing
-//   * CZ gate model (|11> <-> |20> interaction), feasibility, frequency-collision rules
+//   * CZ gate model (|11> <-> |20> interaction), flux-noise dephasing while the measure qubit is off its sweet spot,
+//     feasibility, frequency-collision rules
 //   * inverse design (targets -> capacitances & junction resistances) and fabrication Monte Carlo
 // All frequencies inside are GHz (E/h) unless the name says otherwise.
 #pragma once
@@ -107,6 +109,81 @@ inline double f01_for_11_20(double EC, double f_partner) {
     return transmon_fa(std::exp(0.5 * (lo + hi)), EC).f01;
 }
 
+// 1/f flux noise, S_Phi(f) = A^2 / |f|, A in Phi0. The same rate the idle T_phi uses,
+// with the experiment duration made explicit (idle Ramsey reference is 10 us).
+// Angular-to-rate conversion matches the historical idle formula exactly at t = 10 us.
+inline double flux_dephasing_rate(double A_Phi0, double df_dflux_GHz, double d2f_dflux2_GHz, double t_s) {
+    const double ln_ir = std::abs(std::log(2 * PI * std::max(t_s, 1e-30)));
+    return 2 * PI * (A_Phi0 * std::abs(df_dflux_GHz) * 1e9 * std::sqrt(2 * ln_ir)
+                     + A_Phi0 * A_Phi0 * std::abs(d2f_dflux2_GHz) * 1e9 * ln_ir);
+}
+
+// Short-time gate infidelity from that rate. 1/f phase variance grows as t^2, so a
+// Markovian t * Gamma overstates a 20 ns pulse by ~1/(Gamma t). One Z on a two-qubit
+// gate has average infidelity (4/5) * p_Z, and p_Z = (1 - exp(-(Gamma t)^2)) / 2.
+inline double flux_pulse_infidelity(double gamma_per_s, double t_s) {
+    const double x = gamma_per_s * t_s;
+    return 0.4 * (1.0 - std::exp(-x * x));
+}
+
+// Capacitive coupler parked below both qubits. g_ab and g_qc are |0>-|1> exchange
+// couplings in GHz (same sign: the mediated term cancels g_ab only from below).
+// The exchange null is not a ZZ null. This returns the ZZ the three-body spectrum
+// actually has once the perturbative exchange has been tuned through zero.
+struct CouplerNull { double f_GHz{0}, J_MHz{0}, zz_kHz{0}; bool ok{false}; };
+inline CouplerNull coupler_exchange_null(const TransmonLevels& A, const TransmonLevels& B,
+                                         double g_ab_GHz, double g_qc_GHz, double EC_c_GHz) {
+    CouplerNull R;
+    if (!(g_qc_GHz > 0) || !(EC_c_GHz > 0) || A.L < 3 || B.L < 3) return R;
+    const double fa = A.f01(), fb = B.f01();
+    auto Jp = [&](double fc) {
+        return g_ab_GHz + 0.5 * g_qc_GHz * g_qc_GHz * (1.0 / (fc - fa) + 1.0 / (fc - fb));
+    };
+    double lo = 2.0, hi = std::min(fa, fb) - 0.30;
+    if (!(hi > lo) || Jp(lo) * Jp(hi) > 0) return R;
+    for (int i = 0; i < 60; ++i) {
+        const double mid = 0.5 * (lo + hi);
+        (Jp(mid) > 0 ? lo : hi) = mid;
+    }
+    const double fc = 0.5 * (lo + hi);
+    const auto C = transmon_levels(solve_EJ_for_f01(fc, EC_c_GHz), EC_c_GHz, 0.0, 3);
+    const int L = 3, dim = L * L * L;
+    const double nA = std::abs(A.n(0, 1)), nB = std::abs(B.n(0, 1)), nC = std::abs(C.n(0, 1));
+    if (nA < 1e-8 || nB < 1e-8 || nC < 1e-8) return R;
+    const double Gab = g_ab_GHz / (nA * nB);
+    const double Gac = g_qc_GHz / (nA * nC);
+    const double Gbc = g_qc_GHz / (nB * nC);
+    std::vector<double> H(std::size_t(dim) * dim, 0.0), V;
+    auto idx = [&](int a, int b, int c) { return (a * L + b) * L + c; };
+    for (int a = 0; a < L; ++a) for (int b = 0; b < L; ++b) for (int c = 0; c < L; ++c) {
+        const int s = idx(a, b, c);
+        H[std::size_t(s) * dim + s] = A.E[a] + B.E[b] + C.E[c];
+        for (int a2 = 0; a2 < L; ++a2) for (int b2 = 0; b2 < L; ++b2) for (int c2 = 0; c2 < L; ++c2) {
+            double v = 0;
+            if (c == c2) v += Gab * A.n(a, a2) * B.n(b, b2);
+            if (b == b2) v += Gac * A.n(a, a2) * C.n(c, c2);
+            if (a == a2) v += Gbc * B.n(b, b2) * C.n(c, c2);
+            H[std::size_t(s) * dim + idx(a2, b2, c2)] += v;
+        }
+    }
+    const auto ev = sym_eigen(H, dim, V);
+    auto dressed = [&](int a, int b, int c) {
+        const int s = idx(a, b, c);
+        int best = 0; double bw = -1;
+        for (int m = 0; m < dim; ++m) {
+            const double w = V[std::size_t(s) * dim + m] * V[std::size_t(s) * dim + m];
+            if (w > bw) { bw = w; best = m; }
+        }
+        return ev[best];
+    };
+    const double E00 = dressed(0, 0, 0), E10 = dressed(1, 0, 0), E01 = dressed(0, 1, 0), E11 = dressed(1, 1, 0);
+    R.f_GHz = C.f01();
+    R.J_MHz = Jp(R.f_GHz) * 1e3;
+    R.zz_kHz = (E11 - E10 - E01 + E00) * 1e6;
+    R.ok = true;
+    return R;
+}
+
 // ================================================================== design description
 struct ReadoutDesign { double f_GHz{7.0}, g_MHz{90}, kappa_MHz{1.0}, purcell_filter{30}; };
 struct QubitDesign {
@@ -133,6 +210,8 @@ struct ChipDesign {
     double t_1q_ns{25}, t_readout_ns{800}, t_reset_ns{200}, cz_shape_factor{1.5}, cz_ramp_ns{5};
     double err_1q_control{1e-4}, err_2q_control{2e-3}, readout_sep_err{0.005};
     double tc_g_max_MHz{40}, tc_residual_zz_kHz{5};
+    double tc_g_qc_MHz{40}, tc_coupler_EC{0.20};   // coupler–qubit exchange, coupler charging energy (GHz)
+    bool tc_model{false};                          // compute idle ZZ from the three-transmon null; else use tc_residual_zz_kHz
     bool active_reset{false};
     double reset_err{0.002};
     std::vector<QubitDesign> qubits;
@@ -173,6 +252,9 @@ inline ChipDesign design_from_json(const Json& j) {
     const Json& tc = j["tunable_coupler"];
     D.tc_g_max_MHz = tc.get("g_max_MHz", D.tc_g_max_MHz);
     D.tc_residual_zz_kHz = tc.get("residual_zz_kHz", D.tc_residual_zz_kHz);
+    D.tc_g_qc_MHz = tc.get("g_qc_MHz", D.tc_g_qc_MHz);
+    D.tc_coupler_EC = tc.get("coupler_EC_GHz", D.tc_coupler_EC);
+    D.tc_model = tc.get("model_coupler", D.tc_model);
     const Json& qs = j["qubits"];
     for (std::size_t i = 0; i < qs.size(); ++i) {
         const Json& q = qs[i];
@@ -222,6 +304,7 @@ inline Json design_to_json(const ChipDesign& D) {
     j.set("gates", g);
     Json tc = Json::object();
     tc.set("g_max_MHz", D.tc_g_max_MHz); tc.set("residual_zz_kHz", D.tc_residual_zz_kHz);
+    tc.set("g_qc_MHz", D.tc_g_qc_MHz); tc.set("coupler_EC_GHz", D.tc_coupler_EC); tc.set("model_coupler", D.tc_model);
     j.set("tunable_coupler", tc);
     Json qs = Json::array();
     for (const auto& q : D.qubits) {
@@ -271,6 +354,8 @@ struct PairReport {
     bool designed{false};           // has a coupler (2q gates allowed)
     double g_MHz{0}, delta_MHz{0}, zz_kHz{0}, zz_pert_kHz{0}, zz_idle_kHz{0};
     double t_cz_ns{0}, err_2q{0}, cz_interaction_GHz{0}, cz_excursion_MHz{0}, cz_alpha_GHz{0};
+    double cz_flux{0}, cz_df_dflux{0}, cz_flux_err{0};   // Phi/Phi0 at the CZ point, GHz/Phi0, short-time infidelity
+    double coupler_f_GHz{0}, coupler_J_MHz{0};          // set when the three-transmon idle model runs
     std::string flags;
 };
 struct ChipReport {
@@ -304,7 +389,6 @@ inline ChipReport analyze(const ChipDesign& D, const AnalyzeOptions& opt = {}) {
 
     const double T = D.T_eff_mK * 1e-3;
     auto bose = [&](double f_Hz) { const double x = phys::h * f_Hz / (phys::kB * T); return x > 700 ? 0.0 : 1.0 / std::expm1(x); };
-    const double ln_ir = std::abs(std::log(2 * PI * 1.0 * 10e-6));   // 1/f noise: f_IR = 1 Hz, t = 10 us
 
     // --- per-qubit physics
     R.q.resize(n);
@@ -337,7 +421,7 @@ inline ChipReport analyze(const ChipDesign& D, const AnalyzeOptions& opt = {}) {
         const double G1 = G_diel + G_purcell;
         // dephasing
         const double A = D.flux_noise_uPhi0 * 1e-6;
-        const double G_flux = Q.tunable ? 2 * PI * (A * std::abs(r.df_dflux * 1e9) * std::sqrt(2 * ln_ir) + A * A * std::abs(r.d2f_dflux2 * 1e9) * ln_ir) : 0.0;
+        const double G_flux = Q.tunable ? flux_dephasing_rate(A, r.df_dflux, r.d2f_dflux2, 10e-6) : 0.0;
         const double G_charge = 2 * PI * PI * D.charge_noise_e * r.charge_disp_kHz * 1e3;
         const double delta_r = r.f01 - Q.ro.f_GHz;   // GHz
         const double chi = (Q.ro.g_MHz * 1e-3) * (Q.ro.g_MHz * 1e-3) * r.alpha / (delta_r * (delta_r + r.alpha));   // GHz (Koch)
@@ -418,6 +502,17 @@ inline ChipReport analyze(const ChipDesign& D, const AnalyzeOptions& opt = {}) {
         R.q[i].f01_dressed += (E10 - E00) - qa.f01;
         R.q[j].f01_dressed += (E01 - E00) - qb.f01;
         p.zz_idle_kHz = (des && D.tunable_coupler()) ? D.tc_residual_zz_kHz : p.zz_kHz;
+        if (des && D.tunable_coupler() && D.tc_model) {
+            const auto cn = coupler_exchange_null(qa.levels, qb.levels, g, D.tc_g_qc_MHz * 1e-3, D.tc_coupler_EC);
+            if (cn.ok) {
+                p.coupler_f_GHz = cn.f_GHz;
+                p.coupler_J_MHz = cn.J_MHz;
+                p.zz_idle_kHz = cn.zz_kHz;
+            } else {
+                R.warnings.push_back("pair Q" + std::to_string(qa.id) + "-Q" + std::to_string(qb.id) +
+                                     ": no coupler exchange-null below the qubits; idle ZZ left at the typed residual");
+            }
+        }
 
         if (des) {
             const double geff = D.tunable_coupler() ? tc_g : g;
@@ -432,8 +527,30 @@ inline ChipReport analyze(const ChipDesign& D, const AnalyzeOptions& opt = {}) {
             }
             p.cz_excursion_MHz = (hi.f01 - p.cz_interaction_GHz) * 1e3;
             const double tcz = p.t_cz_ns * 1e-9;
+            if (hiD.tunable) {
+                const double EJsum = EJ_from_Rn_GHz(hiD.Rn_kOhm, D.gap_ueV);
+                auto f_at = [&](double fl) { return transmon_fa(EJ_at_flux(EJsum, hiD.squid_d, fl), hi.EC).f01; };
+                const double f_top = f_at(hiD.flux), f_bot = f_at(0.49);
+                if (p.cz_interaction_GHz < f_top && p.cz_interaction_GHz > f_bot) {
+                    double blo = std::abs(hiD.flux), bhi = 0.49;
+                    for (int b = 0; b < 50; ++b) {
+                        const double mid = 0.5 * (blo + bhi);
+                        (f_at(mid) > p.cz_interaction_GHz ? blo : bhi) = mid;
+                    }
+                    const double flux = 0.5 * (blo + bhi);
+                    const double h1 = 1e-4;
+                    if (flux > 5 * h1) {
+                        const double fp = f_at(flux + h1), fm = f_at(flux - h1), f0 = f_at(flux);
+                        p.cz_flux = flux;
+                        p.cz_df_dflux = (fp - fm) / (2 * h1);
+                        const double d2 = (fp - 2 * f0 + fm) / (h1 * h1);
+                        const double An = D.flux_noise_uPhi0 * 1e-6;
+                        p.cz_flux_err = flux_pulse_infidelity(flux_dephasing_rate(An, p.cz_df_dflux, d2, tcz), tcz);
+                    }
+                }
+            }
             auto rates = [&](const QubitReport& q) { return 1e6 / q.T1_us + (std::isfinite(q.Tphi_us) ? 1e6 / q.Tphi_us : 0.0); };
-            p.err_2q = 0.8 * (tcz / 2) * (rates(qa) + rates(qb)) + D.err_2q_control;
+            p.err_2q = 0.8 * (tcz / 2) * (rates(qa) + rates(qb)) + D.err_2q_control + p.cz_flux_err;
             std::string fl;
             const double win = std::max(0.03, 5 * g);
             if (std::abs(qa.f01 - qb.f01) < win) fl += "DEGENERATE ";

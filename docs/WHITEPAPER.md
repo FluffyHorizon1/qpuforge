@@ -55,6 +55,18 @@ For EC/h = 200 MHz and an idle frequency of 5.90 GHz, idle α is −217 MHz and 
 
 While the pair sits on that resonance, |2⟩ is occupied on purpose. The processor emulator in this repository is still two-level. Leakage during the flux pulse is not integrated; it is folded into the 0.2% CZ control error. That is a model limit, not a measured leakage.
 
+## The coupler has to be a circuit
+
+The previous Alpha-1 file parked every coupler at a typed residual of 5 kHz. That number is not what a capacitive three-transmon circuit produces.
+
+With a direct exchange of 4 MHz and a coupler–qubit coupling of 70 MHz, the bias that cancels the exchange (coupler near 4.23 GHz) still leaves −119 kHz of ZZ. Cutting the direct capacitance to 1 MHz, and setting g_qc = 40 MHz with EC/h = 200 MHz, moves the exchange null to 3.88 GHz on a 5.20/5.90 GHz pair and leaves −7 kHz. Across the 24 Alpha-1 links the nulls lie between 3.787 and 3.967 GHz and the idle ZZ lies between −4.3 and −13.8 kHz. Each coupler junction is sized so that null is its flux sweet spot. The 23 ns gate still takes g_max = 40 MHz from a separate on-state bias. This diagonalisation is three levels on each island. It is not an electromagnetic extract of the AF17.V11 polygons.
+
+## Flux noise during the 23 ns gate
+
+Idle dephasing uses the sweet spot, where df/dΦ is zero and only the second derivative of frequency survives. The CZ does not happen there. On a 5.90 GHz qubit tuned onto a 5.20 GHz partner the gate sits at 0.177 Φ₀, where df/dΦ is −5.5 GHz/Φ₀.
+
+The same 1/f spectrum as the idle model (A = 2 µΦ₀, S_Φ(f) = A²/|f|) then gives a short-time infidelity of 3.2×10⁻⁵ for that pair, and 2.0–4.6×10⁻⁵ across Alpha-1. Phase variance grows as t², so treating the dephasing rate as Markovian and multiplying by 23 ns would overstate the error by about two orders of magnitude. The reported CZ error is 2.43×10⁻³, still the 2.0×10⁻³ control allocation plus decoherence plus this term. The logical-error table below was not recomputed.
+
 ## Alpha-1
 
 Alpha-1 is a rotated distance-3 surface code: 9 data qubits and 8 measure qubits, 24 tunable couplers, three readout feedlines. Data qubits idle at 5.11–5.29 GHz and measure qubits at 5.81–5.99 GHz, all at −220 MHz anharmonicity. Readout is 500 ns with κ = 4 MHz. The round, including a 200 ns active reset, is 853 ns.

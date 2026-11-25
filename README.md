@@ -52,10 +52,10 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Junctions | E_J from normal-state resistance | Ambegaokar–Baratoff; SQUID flux tuning with asymmetry |
 | Capacitance | E_C of every qubit, every coupling, parasitics | Full Maxwell capacitance matrix, inverted |
 | Transmon | f01, anharmonicity, charge dispersion, ⟨i\|n\|j⟩ | Exact diagonalisation in the charge basis |
-| Couplers | Static ZZ, dressed frequencies | Exact diagonalisation of each coupled pair (5 levels each) |
+| Couplers | Static ZZ, dressed frequencies; Alpha-1 idle ZZ | Pair diagonalisation (5 levels). With `model_coupler`, a third transmon parked at the exchange null (3 levels) |
 | Crowding | Exchange between near-degenerate qubits | 2nd-order Schrieffer–Wolff through every other qubit; parked tunable couplers block it |
 | Coherence | T1 = dielectric (Q) + Purcell; Tφ = flux 1/f + charge + thermal photons | Koch 2007, Clerk–Utami; thermal population at T_eff |
-| CZ gate | Duration, interaction point, feasibility | t = shape / (2√2 g) + ramps; the |11⟩–|20⟩ frequency uses α at the tuned EJ, not the idle α |
+| CZ gate | Duration, interaction point, feasibility, flux-pulse error | t = shape / (2√2 g) + ramps; \|11⟩–\|20⟩ uses α at the tuned EJ. Off-sweet-spot 1/f noise uses the short-time t² infidelity |
 | Design rules | Degenerate pairs, \|11⟩–\|20⟩ resonance, ZZ > 1 MHz, infeasible CZ, parasitic resonance | Flags + collision count, used for fab yield |
 | Inverse design | Targets (f01, α, g, χ) → C_shunt, R_n, C_c, resonator coupling | Iterated against the full capacitance-matrix model |
 | Compiler | Layout, SWAP routing, 1q merging, {RZ, SX, X, CZ, measure, reset} | ≤ 2 physical pulses per 1q gate; per-qubit ASAP timelines cut into exact time slices |
@@ -63,7 +63,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Dynamic circuits | Mid-circuit measurement (collapse + assignment error), reset (+ reset error) | Classical record per shot |
 | Error correction | Rotated surface code of any odd d; memory experiment; detector error model; decoder | Pauli-frame Monte Carlo with state-aware decoherence and coherent-ZZ windows; DEM from single-fault enumeration; exact minimum-weight matching |
 
-## Validation (`tests/test_qpuforge.cpp`, 71 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 154 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -102,10 +102,12 @@ The tunable coupler wins clearly. With fixed coupling, faster gates and always-o
 * **Two-level qubits** in the processor and QEC emulation: leakage to |2⟩ during CZ is folded into the control error, not
   simulated. CZ is modelled at gate level (duration plus errors), not as a pulse-level flux trajectory.
 * **No dynamical decoupling.** Static-ZZ penalties for fixed-coupling designs are therefore upper bounds.
-* Tunable couplers are parametric (g_max, residual ZZ), not a full coupler-transmon circuit.
+* Tunable couplers on Alpha-1 are a third transmon: direct g = 1 MHz, g_qc = 40 MHz, idle ZZ −4 to −14 kHz at the exchange
+  null (3.79–3.97 GHz). The AF-9 study still treats residual ZZ as an input. g_max is the on-state scale, not a simulated pulse.
 * Capacitances come from the lumped model. For a real layout they must come from EM simulation (Q3D, Palace, Sonnet).
 * Not modelled: correlated errors (TLS drift, quasiparticle bursts, cosmic rays), measurement-induced dephasing, readout
-  and flux crosstalk, dephasing during flux excursions.
+  and flux crosstalk. Flux noise during the CZ is in the reported two-qubit error (about 2–5 × 10⁻⁵); the logical-error
+  review of 24 November was not re-run for it.
 * Pauli-frame QEC model: accurate for incoherent noise. Strong coherent ZZ (tens of kHz and up) is under-counted, so use
   `--statevector` to cross-check such designs.
 * The statevector backend is practical to about 26–28 qubits; the Pauli-frame backend handles d = 5–7 easily.

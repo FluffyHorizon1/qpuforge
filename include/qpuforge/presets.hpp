@@ -36,12 +36,13 @@ inline ChipDesign gen0_surface17(int d = 3) {
 inline ChipDesign alpha1(int d = 3) {
     GenSpec s = surface_spec(d);
     s.architecture = "tunable-coupler-cz";
-    s.g = 0.004;                                   // bare capacitive coupling; the coupler cancels it at idle
+    s.g = 0.001;                                   // direct capacitance only. The coupler, not this cap, does the gate.
     s.kappa_MHz = 4.0; s.chi_MHz = 4.0;            // 2chi = kappa: optimal readout SNR
     s.purcell_filter = 100;                        // dedicated band-pass Purcell filter per feedline
     ChipDesign D = generate(s);
     D.name = d == 3 ? "Alpha-1 (AF-17)" : "Alpha-1 extended to d=" + std::to_string(d) + " (" + std::to_string(2 * d * d - 1) + " qubits)";
     D.tc_g_max_MHz = 40; D.tc_residual_zz_kHz = 5;
+    D.tc_g_qc_MHz = 40; D.tc_coupler_EC = 0.20; D.tc_model = true;
     D.t_readout_ns = 500; D.readout_sep_err = 0.005;
     D.active_reset = true; D.t_reset_ns = 200; D.reset_err = 0.003;
     D.err_1q_control = 1e-4; D.err_2q_control = 2e-3;

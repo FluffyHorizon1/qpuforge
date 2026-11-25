@@ -76,6 +76,53 @@ static void test_transmon() {
     CHECK(std::abs(EC_from_C_GHz(80e-15) - 0.2421) < 0.001, "E_C(80 fF)");
 }
 
+static void test_coupler_and_flux() {
+    std::puts("[coupler] exchange null is not a ZZ null; CZ flux noise uses the short-time 1/f error");
+    auto levels = [](double f, double alpha) {
+        auto [ej, ec] = solve_EJ_EC(f, alpha);
+        return transmon_levels(ej, ec, 0.0, 4);
+    };
+    const auto A = levels(5.20, -0.22), B = levels(5.90, -0.22);
+    const auto good = coupler_exchange_null(A, B, 0.001, 0.040, 0.20);
+    std::printf("  g_qq=1 MHz g_qc=40 MHz: null %.3f GHz, J %.3f MHz, ZZ %.2f kHz\n", good.f_GHz, good.J_MHz, good.zz_kHz);
+    CHECK(good.ok, "exchange null exists");
+    CHECK(std::abs(good.J_MHz) < 0.05, "exchange cancelled");
+    CHECK(good.f_GHz > 3.6 && good.f_GHz < 4.1, "null below the data band");
+    CHECK(good.zz_kHz < -2 && good.zz_kHz > -20, "ZZ at the null is a few kHz (%.2f)", good.zz_kHz);
+    const auto old = coupler_exchange_null(A, B, 0.004, 0.070, 0.20);
+    std::printf("  g_qq=4 MHz g_qc=70 MHz: null %.3f GHz, ZZ %.1f kHz (typed residual was 5 kHz)\n", old.f_GHz, old.zz_kHz);
+    CHECK(old.ok && old.zz_kHz < -80, "4 MHz direct capacitance does not leave a 5 kHz residual");
+
+    GenSpec s; s.topology = "line"; s.rows = 1; s.cols = 2; s.g = 0.004; s.f_hi = 5.90; s.f_lo = 5.20; s.stagger = 0;
+    s.architecture = "tunable-coupler-cz";
+    const auto R = analyze(generate(s));
+    const auto& p = R.pairs[0];
+    std::printf("  CZ flux %.3f Phi0, df/dPhi %.2f GHz/Phi0, flux infidelity %.3e (e_2q %.3e)\n",
+                p.cz_flux, p.cz_df_dflux, p.cz_flux_err, p.err_2q);
+    CHECK(p.cz_flux > 0.05 && p.cz_flux < 0.45, "CZ sits off the sweet spot");
+    CHECK(std::abs(p.cz_df_dflux) > 1.0, "first-order flux sensitivity at the gate");
+    CHECK(p.cz_flux_err > 1e-6 && p.cz_flux_err < 5e-4, "short-time flux error");
+    const int hi = R.q[0].f01 >= R.q[1].f01 ? 0 : 1;
+    CHECK(std::abs(p.cz_df_dflux) > 100 * std::abs(R.q[hi].df_dflux), "idle sweet spot is first-order insensitive");
+
+    const auto RA = analyze(alpha1(3));
+    double zlo = 1e99, zhi = -1e99, flo = 1e99, fhi = 0, gdev = 0;
+    int nd = 0;
+    for (const auto& q : RA.pairs) if (q.designed) {
+        ++nd;
+        zlo = std::min(zlo, q.zz_idle_kHz); zhi = std::max(zhi, q.zz_idle_kHz);
+        flo = std::min(flo, q.coupler_f_GHz); fhi = std::max(fhi, q.coupler_f_GHz);
+        gdev = std::max(gdev, std::abs(q.g_MHz - 1.0));
+        CHECK(q.coupler_f_GHz > 3.5 && q.coupler_f_GHz < 4.3, "coupler parking %.3f", q.coupler_f_GHz);
+        CHECK(std::abs(q.coupler_J_MHz) < 0.1, "exchange cancelled");
+        CHECK(std::abs(q.zz_idle_kHz) < 25, "idle ZZ %.2f kHz", q.zz_idle_kHz);
+    }
+    std::printf("  Alpha-1: %d links, |g-1 MHz| max %.3f, couplers %.3f–%.3f GHz, ZZ %.2f to %.2f kHz, collisions %d\n",
+                nd, gdev, flo, fhi, zlo, zhi, RA.n_collisions);
+    CHECK(nd == 24 && RA.n_collisions == 0, "Alpha-1 still collision-free");
+    CHECK(gdev < 0.05, "direct coupling realised at 1 MHz");
+}
+
 static void test_zz_and_inverse_design() {
     std::puts("[pair physics] exact two-transmon ZZ vs 2nd-order perturbation theory; inverse design hits targets");
     for (double g : {0.003, 0.006, 0.012}) {
@@ -461,6 +508,7 @@ static void test_frame_vs_statevector() {
 int main() {
     test_decomposition();
     test_transmon();
+    test_coupler_and_flux();
     test_zz_and_inverse_design();
     test_qasm();
     test_compiler();

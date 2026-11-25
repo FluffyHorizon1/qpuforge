@@ -10,7 +10,7 @@ logical qubit, using a physics package that, extended to distance 5, is predicte
 | | |
 |---|---|
 | Qubits | 17 flux-tunable transmons: 9 data, 4 X-stabiliser and 4 Z-stabiliser measure qubits |
-| Coupling | 24 tunable couplers, one per data–measure link, parked at zero coupling (≤ 5 kHz residual ZZ) |
+| Coupling | 24 tunable-coupler transmons, g_qc = 40 MHz, parked at the exchange null (3.79–3.97 GHz). Direct capacitance 0.035 fF (g = 1 MHz). Idle ZZ from the three-body spectrum: −4 to −14 kHz |
 | Native gates | virtual RZ · SX / X (25 ns) · CZ (23 ns, \|11⟩↔\|20⟩ via coupler, g_max 40 MHz) · measure (500 ns) · active reset (200 ns) |
 | Frequencies | data 5.11–5.29 GHz, measure 5.81–5.99 GHz, anharmonicity −220 MHz, all qubits parked at their flux sweet spot |
 | Readout | 17 resonators at 6.90–7.20 GHz on 3 feedlines; κ = 4 MHz, 2χ = κ; one band-pass Purcell filter per feedline |
@@ -36,31 +36,41 @@ frequency, which removes the parasitic and mediated resonances the emulator foun
 
 | Qubit | Role | f01 (GHz) | α (MHz) | E_J/E_C | C_shunt (fF) | R_n (kΩ) | T1 (µs) | T2 (µs) | Readout f (GHz) | Feedline |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Q0 | measure-X | 5.810 | -220 | 111 | 95.7 | 6.26 | 67 | 64 | 6.90 | 1 |
-| Q1 | data | 5.110 | -220 | 89 | 96.8 | 7.93 | 75 | 68 | 6.90 | 2 |
-| Q2 | data | 5.170 | -220 | 91 | 96.6 | 7.76 | 75 | 72 | 7.02 | 1 |
-| Q3 | data | 5.110 | -220 | 89 | 96.8 | 7.93 | 75 | 70 | 6.96 | 1 |
-| Q4 | measure-Z | 5.930 | -220 | 115 | 95.5 | 6.03 | 66 | 74 | 7.20 | 2 |
-| Q5 | measure-X | 5.990 | -220 | 117 | 95.1 | 5.92 | 65 | 65 | 6.96 | 2 |
-| Q6 | measure-Z | 5.930 | -220 | 115 | 95.2 | 6.03 | 66 | 70 | 7.08 | 1 |
-| Q7 | data | 5.230 | -220 | 92 | 96.5 | 7.60 | 74 | 67 | 6.90 | 3 |
-| Q8 | data | 5.290 | -220 | 94 | 96.2 | 7.44 | 73 | 72 | 7.02 | 2 |
-| Q9 | data | 5.230 | -220 | 92 | 96.4 | 7.60 | 74 | 77 | 7.14 | 1 |
-| Q10 | measure-Z | 5.870 | -220 | 113 | 95.3 | 6.14 | 66 | 66 | 6.96 | 3 |
-| Q11 | measure-X | 5.810 | -220 | 111 | 95.4 | 6.26 | 67 | 71 | 7.08 | 2 |
-| Q12 | measure-Z | 5.870 | -220 | 113 | 95.6 | 6.14 | 67 | 75 | 7.20 | 1 |
-| Q13 | data | 5.110 | -220 | 89 | 96.8 | 7.93 | 76 | 75 | 7.08 | 3 |
-| Q14 | data | 5.170 | -220 | 91 | 96.6 | 7.76 | 75 | 72 | 7.02 | 3 |
-| Q15 | data | 5.110 | -220 | 89 | 96.8 | 7.93 | 76 | 77 | 7.14 | 2 |
-| Q16 | measure-X | 5.990 | -220 | 117 | 95.4 | 5.92 | 65 | 72 | 7.14 | 3 |
+| Q0 | measure-X | 5.810 | -220 | 111 | 95.9 | 6.26 | 67 | 64 | 6.90 | 1 |
+| Q1 | data | 5.110 | -220 | 89 | 97.0 | 7.93 | 75 | 68 | 6.90 | 2 |
+| Q2 | data | 5.170 | -220 | 91 | 96.9 | 7.76 | 75 | 72 | 7.02 | 1 |
+| Q3 | data | 5.110 | -220 | 89 | 97.0 | 7.93 | 75 | 70 | 6.96 | 1 |
+| Q4 | measure-Z | 5.930 | -220 | 115 | 95.7 | 6.03 | 66 | 74 | 7.20 | 2 |
+| Q5 | measure-X | 5.990 | -220 | 117 | 95.6 | 5.92 | 65 | 65 | 6.96 | 2 |
+| Q6 | measure-Z | 5.930 | -220 | 115 | 95.6 | 6.03 | 66 | 70 | 7.08 | 1 |
+| Q7 | data | 5.230 | -220 | 92 | 96.8 | 7.60 | 74 | 67 | 6.90 | 3 |
+| Q8 | data | 5.290 | -220 | 94 | 96.6 | 7.44 | 73 | 72 | 7.02 | 2 |
+| Q9 | data | 5.230 | -220 | 92 | 96.8 | 7.60 | 74 | 77 | 7.14 | 1 |
+| Q10 | measure-Z | 5.870 | -220 | 113 | 95.7 | 6.14 | 66 | 66 | 6.96 | 3 |
+| Q11 | measure-X | 5.810 | -220 | 111 | 95.8 | 6.26 | 67 | 71 | 7.08 | 2 |
+| Q12 | measure-Z | 5.870 | -220 | 113 | 95.8 | 6.14 | 67 | 75 | 7.20 | 1 |
+| Q13 | data | 5.110 | -220 | 89 | 97.0 | 7.93 | 76 | 75 | 7.08 | 3 |
+| Q14 | data | 5.170 | -220 | 91 | 96.9 | 7.76 | 75 | 72 | 7.02 | 3 |
+| Q15 | data | 5.110 | -220 | 89 | 97.0 | 7.93 | 76 | 77 | 7.14 | 2 |
+| Q16 | measure-X | 5.990 | -220 | 117 | 95.6 | 5.92 | 65 | 72 | 7.14 | 3 |
 
-Common to all qubits: coupling capacitance 0.14 fF per link (bare g = 4 MHz, cancelled by the coupler at idle). Readout
+Common to all qubits: direct coupling capacitance 0.035 fF per link (bare g = 1 MHz). The coupler, not that capacitor, carries the gate. Readout
 coupling 102–204 MHz, chosen per qubit so that 2χ = κ = 4 MHz. Junctions are Al/AlOx with gap Δ = 180 µeV. Dielectric quality
 factor Q = 3 × 10⁶. Effective temperature 45 mK. 1/f flux noise 2 µΦ₀.
 
-Predicted physical errors: single-qubit gate 2.8 × 10⁻⁴, CZ 2.4 × 10⁻³ (2.0 × 10⁻³ calibration-level control error plus
-decoherence), readout P(0|1) ≈ 0.85 % and P(1|0) 0.5 %, reset 0.3 %. The CZ interaction is solved at the tuned EJ, where |alpha| is about 222 MHz rather than the idle 220 MHz. Those interaction points need 299–658 MHz of flux
-excursion on the measure qubits. The device analysis flags no frequency collisions on any of the 24 links.
+Each coupler is its own transmon, EC/h = 200 MHz, coupled at g_qc = 40 MHz to both qubits with the same sign. Same-sign
+capacitance cancels the direct exchange only when the coupler sits below both qubits. The parking frequencies that do that
+are 3.787–3.967 GHz, and the coupler junction is sized so that frequency is the flux sweet spot of that link. Three-level
+diagonalisation of the three islands then gives the idle ZZ: −4.3 to −13.8 kHz. Exchange at that bias is zero to numerical
+precision. It is not a ZZ null — the same model with the previous 4 MHz direct capacitance (0.14 fF) leaves about −120 kHz,
+which is why the direct cap was cut. The 23 ns CZ still uses g_max = 40 MHz as the on-state scale, with the coupler biased
+away from this idle point. That on-state is not a pulse simulation.
+
+Predicted physical errors: single-qubit gate 2.8 × 10⁻⁴, CZ 2.4 × 10⁻³ (2.0 × 10⁻³ calibration-level control error,
+decoherence, and 2–5 × 10⁻⁵ of flux-noise dephasing while the measure qubit is off its sweet spot). Readout P(0|1) ≈ 0.85 % and P(1|0) 0.5 %, reset 0.3 %. The CZ interaction is solved at the tuned EJ, where |alpha| is about 222 MHz rather than the idle 220 MHz. Those interaction points need 299–658 MHz of flux
+excursion on the measure qubits (0.14–0.21 Φ₀). The device analysis flags no frequency collisions on any of the 24 links.
+The 24 November logical-error review used a typed 5 kHz residual and did not include the flux-pulse term. Both changes sit
+inside the part of the budget that review already found does not move the logical error, and that review was not re-run.
 
 ## 3. Design decisions and the evidence for them
 
@@ -116,7 +126,7 @@ One change at a time from Alpha-1 (logical error per round, d = 3):
 | Residual coupler ZZ 5 → 1 kHz | 0.46 % | 0 % |
 
 The next revision should spend its effort on CZ calibration and leakage control, materials and surface treatment for T1,
-and faster readout combined with better attenuation and filtering of the readout lines. Shaving residual ZZ below 5 kHz buys
+and faster readout combined with better attenuation and filtering of the readout lines. Shaving residual ZZ below about 15 kHz buys
 nothing.
 
 ## 6. Scaling: is the physics below threshold?
@@ -137,12 +147,13 @@ frequency trimming) is enough for Alpha-1's frequency plan.
   rounds is a major error source on real surface-code chips.
 * **Correlated and time-varying errors:** TLS defects drifting in frequency, quasiparticle bursts and cosmic rays,
   measurement-induced dephasing of neighbours, readout crosstalk, flux crosstalk between lines.
-* **Flux-pulse dephasing:** measure qubits leave their sweet spot by up to 660 MHz during CZ, and the extra dephasing during
-  those excursions is not modelled.
+* **Flux-pulse dephasing** is included in the reported CZ error and not in the logical-error table above. With 2 µΦ₀ of 1/f
+  flux noise, the measure qubit at 0.14–0.21 Φ₀ picks up 2.0–4.6 × 10⁻⁵ infidelity per CZ. The phase variance of 1/f noise
+  grows as t², so multiplying the idle-style rate by the 23 ns gate would overstate that by about two orders of magnitude.
 * **Layout electromagnetics:** capacitances come from the lumped model and the inverse design, not from an EM solve of a real
-  layout. Box modes, slotline modes and spurious couplings are absent.
+  layout. Box modes, slotline modes and spurious couplings are absent. The coupler ZZ above is that lumped three-island model.
 * **Pauli-frame approximation:** validated against exact statevector trajectories (amplitude damping, readout, reset, control
-  noise all agree within statistics). Strong coherent ZZ is under-counted, which is negligible at Alpha-1's 5 kHz residual.
+  noise all agree within statistics). Strong coherent ZZ is under-counted, which is negligible at Alpha-1's 4–14 kHz residual.
 * The decoder is minimum-weight matching on the circuit's own detector error model. It is exact for d = 3 and 5 here, and was
   verified to correct every single fault (d = 3) and every pair of faults sampled (d = 5).
 

@@ -179,13 +179,13 @@ int main(int argc, char** argv) {
                         P.g_r_MHz, P.g_r_target_MHz);
             std::printf("   re-null: couplers parked at %.3f GHz (%.0f MHz below sweet spot, df/dPhi %.2f GHz/Phi0) -> residual gap %.3f MHz, ZZ %+.2f kHz\n",
                         P.park_fc_GHz, (V11.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
-            std::printf("   chip %.1f x %.1f mm, DRC %s, %zu etch polygons\n", L.outline.w() / 1e3, L.outline.h() / 1e3, L.problems.empty() ? "clean" : "violations", L.etch.size());
+            std::printf("   chip %.1f x %.1f mm, %zu etch polygons\n   DRC: %s\n", L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), layout::drc_summary(L).c_str());
             Json lj2 = Json::object();
             lj2.set("alpha_measure_MHz", P.alpha_m * 1e3); lj2.set("alpha_data_MHz", P.alpha_d * 1e3); lj2.set("alpha_coupler_MHz", P.alpha_c * 1e3);
             lj2.set("g_qc_MHz", P.g_qc_MHz); lj2.set("g12_MHz", P.g12_MHz); lj2.set("g12_null_MHz", P.g12_null_MHz);
             lj2.set("residual_gap_MHz", P.residual_gap_MHz); lj2.set("spectator_transfer", P.spectator_LZ); lj2.set("zz_park_kHz", P.zz_park_kHz);
             lj2.set("renull_park_fc_GHz", P.park_fc_GHz); lj2.set("renull_gap_MHz", P.park_gap_MHz); lj2.set("renull_zz_kHz", P.park_zz_kHz);
-            lj2.set("readout_g_MHz", P.g_r_MHz); lj2.set("readout_g_design_MHz", P.g_r_target_MHz); lj2.set("drc_clean", L.problems.empty());
+            lj2.set("readout_g_MHz", P.g_r_MHz); lj2.set("readout_g_design_MHz", P.g_r_target_MHz); lj2.set("drc_clean", L.drc_clean()); lj2.set("drc", layout::drc_json(L));
             out.set("layout", lj2);
         } else std::puts("   (no layout_cells.json yet: run `qpuforge gds ... --cells designs/alpha1-v11/layout_cells.json`)");
     }

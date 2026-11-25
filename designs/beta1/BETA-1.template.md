@@ -27,7 +27,7 @@ All performance numbers are **simulation results**. The assumptions are in §7.
 
 1. **Faster readout cancelled the materials upgrade.** With κ = 8 MHz behind the per-feedline Purcell filters, Purcell decay became the T1 limit: mean T1 was 62 µs, below Alpha-1. Individual Purcell filters (suppression 1000) restore a dielectric-limited T1 of {{T1_MEAN}} µs.
 2. **DQLR did not pay.** Data-qubit leakage removal raised the 50-round logical failure from 0.147 to 0.166 at d = 5. It is now an option, not the baseline.
-3. **Two DRC violations in the 49-qubit layout.** Two resonator coupling pads ran into neighbouring coupler buses. The pads now leave the serpentine upwards, and the layout is DRC clean.
+3. **Two DRC violations in the 49-qubit layout.** Two resonator coupling pads ran into neighbouring coupler buses. The pads now leave the serpentine upwards, and the placement/spacing checks are clean. The merged-etch width/space check added in v0.3 still reports violations (§6).
 
 Rev A still met the distance-scaling gate despite its T1 problem (d=3 0.224 %, d=5 0.067 %, Λ = 3.34).
 

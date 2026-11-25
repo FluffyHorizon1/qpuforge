@@ -4,7 +4,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Simulation gate **passed**. Layout first cut (GDSII), DRC clean. Ready for an external EM cross-check and fabrication planning. |
+| **Status** | Simulation gate **passed**. Layout first cut (GDSII): placement and spacing checks clean, mask width/space DRC **not clean** (§5). Ready for an external EM cross-check; the mask needs a DRC clean-up before fabrication. |
 | **Supersedes** | Alpha-1 v1.0 (`designs/alpha1/ALPHA-1.md`, qpuforge v0.2) |
 | **Purpose** | First error-correction-ready chip: 17-qubit distance-3 rotated surface code (memory experiment) |
 | **Tooling** | qpuforge v0.3: `alpha1_v11_review` (1,305 s), `qpuforge gds`, `qpuforge cz` |
@@ -152,7 +152,11 @@ rebuilt from the extracted circuit:
 | 10 | Chip outline |
 | 20 | Labels |
 
-- DRC: 10 µm metal spacing, 4 µm at designed coupling gaps — **clean**.
+- Placement checks (10 µm metal spacing, 4 µm at designed coupling gaps, metal inside the outline): **clean**.
+- Mask DRC, added in qpuforge v0.3: minimum width and space of 4 µm on the merged etch layer, projection metric. It reports **34 width and 202 space violations: not clean.**
+  - Metal is the outline minus etch, so an etch-space violation is a metal neck. Examples are 75 nm and 0.31 µm ground-plane slivers between neighbouring cut-outs.
+  - These are artefacts of how the cut-outs are composed, not intended features: every width violation is below 2 µm.
+  - KLayout's Euclidean metric adds corner-to-corner cases on top of these.
 - All 17 resonators are drawn at their λ/4 length (4.17–4.35 mm).
 - Previews: `AF17_v11_layout.png`, `AF17_v11_detail.png`.
 - Independent reader: `tools/gds_preview.py`.
@@ -165,7 +169,7 @@ rebuilt from the extracted circuit:
 | Logical lifetime vs best T1 | > 2× | 3.3× ✔ |
 | CZ coherent error / leakage | ≤ 5e-4 / ≤ 2e-4 | 7.5e-5 / 5.2e-5 (max 1.3e-4) ✔ |
 | Idle ZZ at park | ≤ 10 kHz | 2.8 kHz (3.7 kHz re-nulled post-layout) ✔ |
-| Layout | DRC clean; E_C within 3 %, couplings within 6 %, exchange re-nullable | clean; 2.0 %; 5.3 %; yes ✔ |
+| Layout | placement/spacing checks clean; E_C within 3 %, couplings within 6 %, exchange re-nullable | clean; 2.0 %; 5.3 %; yes ✔ (mask width/space DRC not clean, not gated) |
 | Fabrication Monte Carlo, 2 % junction spread | ≥ 90 % collision-free | 98 % (v1.0 review; same frequency plan) ✔ |
 
 ## 7. Before tape-out (Alpha fabrication checklist)

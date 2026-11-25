@@ -58,7 +58,7 @@ After this phase the model is calibrated against our own hardware, not just agai
 | Logical lifetime vs best physical T1 | > 2× |
 | CZ coherent error / leakage per gate (pulse simulation) | ≤ 5e-4 / ≤ 2e-4 |
 | Idle ZZ at the coupler park point | ≤ 10 kHz |
-| Layout | DRC clean; extracted E_C within 3%, couplings within 6% of target; residual parked exchange re-nullable |
+| Layout | Placement/spacing checks clean (mask width/space DRC clean before fabrication); extracted E_C within 3%, couplings within 6% of target; residual parked exchange re-nullable |
 | Fabrication Monte Carlo at 2% junction spread | ≥ 90% collision-free |
 
 ### Alpha hardware gate (after fabrication)
@@ -109,7 +109,7 @@ Details are in `designs/beta1/BETA-1.md`.
 | Distance-5 logical lifetime | > 5× best physical T1 |
 | Trimmed fabrication yield (0.5% spread) | ≥ 80% collision-free |
 | Leakage removal over 50 rounds | chosen scheme at least as good as the alternative |
-| Layout | DRC clean |
+| Layout | Placement/spacing checks clean in simulation; mask width/space DRC clean before tape-out |
 
 ### Beta hardware gate
 

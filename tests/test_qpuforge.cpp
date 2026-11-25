@@ -617,7 +617,7 @@ static void test_calibrated_noise_plumbing() {
 }
 
 static void test_layout() {
-    std::puts("[layout] MoM capacitance vs exact results, geometry checks, GDSII round trip, chip DRC");
+    std::puts("[layout] MoM capacitance vs exact results, geometry checks, width/space DRC, GDSII round trip, chip assembly");
     using namespace layout;
     {   // unit square plate: C = 0.3667874 * 4 pi eps0 a (Read 1997)
         Conductor sq; sq.name = "plate"; sq.rects = {{0, 0, 1000, 1000}};
@@ -642,13 +642,25 @@ static void test_layout() {
         Conductor b; b.name = "b"; b.rects = {{5, 5, 20, 20}};
         CHECK(!check_geometry({a, b}).empty(), "overlap not detected");
     }
-    {   // chip assembly: DRC clean, resonators at quarter-wave length, GDSII parses back
+    {   // merged-region width/space check on a synthetic layer with known violations
+        const std::vector<Rect> rs{{0, 0, 10, 10}, {10.5, 0, 20, 10},     // 0.5 um gap: 1 space marker
+                                   {30, 0, 30.3, 10},                     // 0.3 um sliver: 1 width marker
+                                   {40, 0, 50, 10}, {45, 0, 55, 10},      // overlapping rects merge to 15 um: clean
+                                   {60, 0, 70, 10}, {70, 0, 80, 10},      // abutting rects merge: no false 0-width gap
+                                   {100, 20, 100.5, 1000}};               // 0.5 um line through 4 tiles: 1 marker
+        const auto m = detail::width_space_check(rs, 1.0, 1.0, "t");
+        int nw = 0, ns = 0; for (const auto& x : m) (x.rule.find("width") != std::string::npos ? nw : ns)++;
+        std::printf("  width/space check on a synthetic layer: %d width, %d space markers (expected 2, 1)\n", nw, ns);
+        CHECK(nw == 2 && ns == 1, "width/space markers %d/%d", nw, ns);
+    }
+    {   // chip assembly: placement checks clean, resonators at quarter-wave length, GDSII parses back
         const auto D = alpha1_v11(3);
         CellSet cs; cs.meas.L = 129.3; cs.data.L = 131.9; cs.cg.pad = 252.6; cs.cg.l_c = 43.5; cs.cg.l_b = 0.1; cs.meas.r_pad = cs.data.r_pad = 40.9;
         cs.meas.T = cs.data.T = 120; cs.cg.y1 = 32.5;
         const auto L = assemble_chip(D, cs);
         double worst = 0; for (const auto& r : L.resonators) worst = std::max(worst, std::abs(r.drawn_um - r.target_um));
-        CHECK(L.problems.empty(), "chip DRC: %s", L.problems.empty() ? "" : L.problems.front().c_str());
+        CHECK(L.problems.empty(), "chip placement/spacing: %s", L.problems.empty() ? "" : L.problems.front().c_str());
+        std::printf("  AF-17 mask DRC (not asserted; first-cut layout): %s\n", drc_summary(L).c_str());
         CHECK(worst < 1.0 && L.resonators.size() == 17, "resonator lengths");
         write_gds(L, "/tmp/qpuforge_test.gds", "T");
         std::ifstream f("/tmp/qpuforge_test.gds", std::ios::binary);
@@ -661,7 +673,7 @@ static void test_layout() {
             ++records; i += std::size_t(n);
         }
         const std::size_t expect = L.etch.size() + L.jj.size() + L.bumps.size() + 1;
-        std::printf("  AF-17 layout: %zu etch polygons, DRC %s; GDSII: %d records, %d boundaries (expected %zu), ends with ENDLIB: %s\n", L.etch.size(),
+        std::printf("  AF-17 layout: %zu etch polygons, placement %s; GDSII: %d records, %d boundaries (expected %zu), ends with ENDLIB: %s\n", L.etch.size(),
                     L.problems.empty() ? "clean" : "violations", records, boundaries, expect, last == 0x04 ? "yes" : "no");
         CHECK(ok && last == 0x04 && std::size_t(boundaries) == expect, "GDSII stream structure");
     }

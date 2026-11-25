@@ -29,7 +29,7 @@ chip.json ──► device physics ─────────► noise model �
 |---|---|---|
 | Pulse-level CZ | `pulse.hpp` | 3-body qubit–coupler–qubit charge Hamiltonian (exact transmon spectra, smooth sign gauge), piecewise-exact propagation, 3-knob calibration (interaction flux, flat-top length, coupler bias), exchange-free coupler park at the sweet spot, flux-noise and spectator-crossing errors, per-pair calibration of a whole chip with a cache |
 | Leakage-modelled QEC | `qec.hpp` | Per-qubit leakage flag beside the Pauli frame (the decoder does not use leakage information): CZ leakage injection, leaked-partner phase scrambling, transport, seepage (2/T1), \|2⟩ reads as 1, leakage-removing reset, data-qubit leakage removal (DQLR) |
-| Physical layout | `layout.hpp`, `gds.hpp` | Method-of-moments capacitance extraction (validated to 0.04 % / 1.3 %), parametric Xmon/coupler/readout cells, Gauss-Newton synthesis of cell dimensions against circuit targets, chip assembly with readout resonators and control lines, DRC, GDSII writer, post-layout circuit check |
+| Physical layout | `layout.hpp`, `gds.hpp` | Method-of-moments capacitance extraction (validated to 0.04 % / 1.3 %), parametric Xmon/coupler/readout cells, Gauss-Newton synthesis of cell dimensions against circuit targets, chip assembly with readout resonators and control lines, placement/spacing checks and merged-layer width/space DRC, GDSII writer, post-layout circuit check |
 | Fast eigensolver | `core.hpp` | Householder + implicit QL (`sym_eigen_tri`), 5× faster than Jacobi at n = 64 |
 
 ## Build
@@ -114,7 +114,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   and leakage.
 * Layout: unit square plate capacitance vs the accepted value 0.3667874·4πε0·a (−0.04 %). CPW capacitance per length vs
   conformal mapping (−1.3 % on the design mesh, −0.6 % refined). Overlapping conductors are rejected. The AF-17 chip
-  passes DRC, all 17 resonators sit at their quarter-wave lengths, and the GDSII stream parses back record by record.
+  passes the placement and island-spacing checks, all 17 resonators sit at their quarter-wave lengths, and the GDSII stream parses back record by record.
   `tools/gds_preview.py` is an independent Python GDSII reader and renderer.
 
 ## Example: 3×3 chip design study (`examples/design_study.cpp`)

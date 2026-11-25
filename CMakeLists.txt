@@ -6,6 +6,23 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 find_package(OpenMP)
+
+# provenance for the review programs (examples/review_io.hpp): source commit at configure time
+find_package(Git QUIET)
+set(QPUFORGE_GIT_SHA "unknown")
+set(QPUFORGE_GIT_DIRTY 0)
+if(GIT_FOUND)
+  execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse HEAD WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                  OUTPUT_VARIABLE QPUFORGE_GIT_SHA OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE _git_rc)
+  if(NOT _git_rc EQUAL 0)
+    set(QPUFORGE_GIT_SHA "unknown")
+  endif()
+  execute_process(COMMAND ${GIT_EXECUTABLE} status --porcelain --untracked-files=no WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                  OUTPUT_VARIABLE _git_status OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  if(NOT "${_git_status}" STREQUAL "")
+    set(QPUFORGE_GIT_DIRTY 1)
+  endif()
+endif()
 add_library(qpuforge INTERFACE)
 target_include_directories(qpuforge INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(OpenMP_CXX_FOUND)
@@ -24,5 +41,9 @@ foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp de
   endif()
 endforeach()
 set_target_properties(qpuforge_cli PROPERTIES OUTPUT_NAME qpuforge)
+foreach(name alpha1_v11_review beta1_review)
+  target_compile_definitions(${name} PRIVATE QPUFORGE_GIT_SHA="${QPUFORGE_GIT_SHA}" QPUFORGE_GIT_DIRTY=${QPUFORGE_GIT_DIRTY})
+endforeach()
+
 enable_testing()
 add_test(NAME validation COMMAND test_qpuforge)

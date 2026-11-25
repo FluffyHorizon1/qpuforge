@@ -19,7 +19,7 @@ chip.json ──► device physics ─────────► noise model �
 * [`designs/alpha1/ALPHA-1.md`](designs/alpha1/ALPHA-1.md): Alpha-1 v1.0, the first error-correction-ready design
   (17 qubits, distance-3 surface code; v0.2 models).
 * [`designs/alpha1-v11/ALPHA-1-v1.1.md`](designs/alpha1-v11/ALPHA-1-v1.1.md): **Alpha-1 v1.1 (AF-17)**. Physical tunable
-  couplers with pulse-level CZ calibration, leakage-aware QEC, a synthesised layout and GDSII.
+  couplers with pulse-level CZ calibration, leakage-modelled QEC, a synthesised layout and GDSII.
 * [`designs/beta1/BETA-1.md`](designs/beta1/BETA-1.md): **Beta-1 (BF-49)**, a 49-qubit distance-5 processor.
 * [`ROADMAP.md`](ROADMAP.md): programme phases (Alpha → Beta → Gamma → Delta) with simulation and hardware exit criteria.
 
@@ -28,7 +28,7 @@ chip.json ──► device physics ─────────► noise model �
 | Layer | Module | What it does |
 |---|---|---|
 | Pulse-level CZ | `pulse.hpp` | 3-body qubit–coupler–qubit charge Hamiltonian (exact transmon spectra, smooth sign gauge), piecewise-exact propagation, 3-knob calibration (interaction flux, flat-top length, coupler bias), exchange-free coupler park at the sweet spot, flux-noise and spectator-crossing errors, per-pair calibration of a whole chip with a cache |
-| Leakage-aware QEC | `qec.hpp` | Per-qubit leakage flag beside the Pauli frame: CZ leakage injection, leaked-partner phase scrambling, transport, seepage (2/T1), \|2⟩ reads as 1, leakage-removing reset, data-qubit leakage removal (DQLR) |
+| Leakage-modelled QEC | `qec.hpp` | Per-qubit leakage flag beside the Pauli frame (the decoder does not use leakage information): CZ leakage injection, leaked-partner phase scrambling, transport, seepage (2/T1), \|2⟩ reads as 1, leakage-removing reset, data-qubit leakage removal (DQLR) |
 | Physical layout | `layout.hpp`, `gds.hpp` | Method-of-moments capacitance extraction (validated to 0.04 % / 1.3 %), parametric Xmon/coupler/readout cells, Gauss-Newton synthesis of cell dimensions against circuit targets, chip assembly with readout resonators and control lines, DRC, GDSII writer, post-layout circuit check |
 | Fast eigensolver | `core.hpp` | Householder + implicit QL (`sym_eigen_tri`), 5× faster than Jacobi at n = 64 |
 

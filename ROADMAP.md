@@ -32,7 +32,7 @@ assumptions listed in each design spec. They are design targets, not measured pe
   - Device physics; compiler; state-vector and density-matrix emulators.
   - Surface-code QEC with an exact MWPM decoder.
   - Pulse-level tunable-coupler CZ (v0.3).
-  - Leakage-aware QEC (v0.3).
+  - Leakage-modelled QEC (v0.3): leakage is simulated; the decoder is not leakage-aware.
   - Method-of-moments (MoM) capacitance extraction, layout synthesis and GDSII output (v0.3).
 
 ## Phase Alpha — AF-17

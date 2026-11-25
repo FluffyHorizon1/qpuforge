@@ -13,6 +13,7 @@
 #pragma once
 #include "emulator.hpp"
 #include "surface.hpp"
+#include <cstdio>
 #include <unordered_map>
 
 namespace qpuforge {
@@ -327,6 +328,7 @@ struct DetectorErrorModel {
     int n_det{0};
     std::vector<DEMEdge> edges;
     int hyperedge_faults{0};          // faults flipping > 2 decoded detectors (dropped from the graph)
+    double hyperedge_p{0};            // their summed probability (error mass the decoder cannot see)
     int undetectable_logical{0};      // faults flipping the logical but no detector (distance-killing; must be 0)
 };
 
@@ -335,7 +337,7 @@ inline DetectorErrorModel build_dem(const std::vector<FaultSignature>& faults, i
     std::map<std::tuple<int, int, int>, double> acc;
     for (const auto& f : faults) {
         if (f.dets.empty()) { if (f.obs) ++M.undetectable_logical; continue; }
-        if (f.dets.size() > 2) { ++M.hyperedge_faults; continue; }
+        if (f.dets.size() > 2) { ++M.hyperedge_faults; M.hyperedge_p += f.p; continue; }
         const int a = f.dets[0], b = f.dets.size() == 2 ? f.dets[1] : -1;
         auto key = std::make_tuple(a, b, int(f.obs));
         double& p = acc[key];
@@ -428,6 +430,7 @@ struct MemoryResult {
     double detection_rate{0};         // mean fraction of detectors that fire
     double round_ns{0}, total_ns{0};
     int hyperedge_faults{0}, undetectable_logical{0}, ignored_exchange_pairs{0};
+    double hyperedge_p{0};
     double leak_frac_data{0}, leak_frac_meas{0};   // time-averaged fraction of leaked qubits (frame model with leakage)
     double leak_events_per_shot{0};                // leakage injections per shot
 };
@@ -485,8 +488,18 @@ inline MemoryResult summarize(const MemorySetup& M, long shots, long errors, dou
     r.total_ns = M.prog.duration_ns;
     r.round_ns = M.prog.duration_ns / double(r.rounds);
     r.hyperedge_faults = M.dem.hyperedge_faults;
+    r.hyperedge_p = M.dem.hyperedge_p;
     r.undetectable_logical = M.dem.undetectable_logical;
     r.ignored_exchange_pairs = M.frame.ignored_exchange_pairs;
+    // The matching graph only has edges for faults that flip one or two detectors. Say so when the circuit has others:
+    // their errors are still simulated but the decoder has no prior for them, so the logical error is pessimistic for
+    // this decoder and not comparable to a hypergraph decoder.
+    if (r.hyperedge_faults > 0)
+        std::fprintf(stderr, "qec warning: d=%d, %d rounds: %d fault mechanisms flip >2 detectors (total p %.2e) and are missing from the "
+                     "matching graph\n", r.d, r.rounds, r.hyperedge_faults, r.hyperedge_p);
+    if (r.undetectable_logical > 0)
+        std::fprintf(stderr, "qec warning: d=%d, %d rounds: %d fault mechanisms flip the logical without any detector (distance-reducing)\n",
+                     r.d, r.rounds, r.undetectable_logical);
     return r;
 }
 

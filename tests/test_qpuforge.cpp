@@ -523,6 +523,18 @@ static void test_pulse_cz() {
     CHECK(std::abs(R.cphase - PI) < 5e-3, "CZ conditional phase");
     CHECK(R.duration_ns > 30 && R.duration_ns < 60, "CZ duration %.1f", R.duration_ns);
     CHECK(std::abs(Rf.fidelity - R.fidelity) < 2e-6, "time-step convergence");
+    // level-truncation convergence: the calibrated pulse re-simulated with one more coupler / qubit level
+    // (Lc = 3 was not converged: it left ~4e-3 rad of conditional-phase error, hence the default Lc = 4)
+    {
+        CZSystem Tc = S; Tc.Lc = S.Lc + 1;
+        CZSystem Tq = S; Tq.L1 = S.L1 + 1; Tq.L2 = S.L2 + 1;
+        const auto rc = simulate_cz(Tc, P), rq = simulate_cz(Tq, P);
+        std::printf("  truncation L%d/%d/%d: Lc+1 changes F by %.1e, phase by %+.1e rad; L1,L2+1 changes F by %.1e, phase by %+.1e rad\n",
+                    S.L1, S.Lc, S.L2, rc.fidelity - R.fidelity, rc.cphase - R.cphase, rq.fidelity - R.fidelity, rq.cphase - R.cphase);
+        CHECK(S.Lc >= 4, "default coupler truncation Lc = %d", S.Lc);
+        CHECK(std::abs(rc.fidelity - R.fidelity) < 2e-6 && std::abs(rc.cphase - R.cphase) < 5e-4, "coupler-level truncation not converged");
+        CHECK(std::abs(rq.fidelity - R.fidelity) < 2e-6 && std::abs(rq.cphase - R.cphase) < 5e-4, "qubit-level truncation not converged");
+    }
 }
 
 static void test_leakage_frame() {

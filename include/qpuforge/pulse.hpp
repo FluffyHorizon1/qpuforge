@@ -58,7 +58,7 @@ inline ElementSpectrum element_spectrum(const FluxTransmon& t, double flux, int 
 struct CZSystem {
     FluxTransmon q1, c, q2;
     double G1c{0}, G2c{0}, G12{0};       // GHz per (n n)
-    int L1{4}, Lc{3}, L2{4};
+    int L1{4}, Lc{4}, L2{4};             // levels kept per element; Lc = 3 leaves a ~4e-3 rad CZ phase error (see tests)
     double flux1_idle{0}, flux2_idle{0}, fluxc_idle{0.25};
     int dim() const { return L1 * Lc * L2; }
     int index(int i, int k, int j) const { return (i * Lc + k) * L2 + j; }

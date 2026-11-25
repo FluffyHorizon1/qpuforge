@@ -9,9 +9,12 @@
 
 namespace qpuforge {
 
-enum class Op { U, CX, CZ, SWAP, CP, CCX, MEASURE, RESET, BARRIER,
+// Enumerator values are kept stable across releases: new ops are appended at the end (RESET was added in 0.3).
+enum class Op { U, CX, CZ, SWAP, CP, CCX, MEASURE, BARRIER,
                 // native (physical) ops produced by the compiler
-                RZ, SX, X };
+                RZ, SX, X,
+                // mid-circuit reset to |0> (0.3)
+                RESET };
 
 struct Gate {
     Op op{Op::U};

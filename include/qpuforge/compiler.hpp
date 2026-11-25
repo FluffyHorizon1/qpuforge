@@ -123,6 +123,11 @@ inline std::vector<Gate> lower(const Circuit& C, std::vector<std::pair<int, int>
     }
     return out;
 }
+// 0.2-compatible overload (discards the dynamic-circuit flag)
+inline std::vector<Gate> lower(const Circuit& C, std::vector<std::pair<int, int>>& meas) {
+    bool dynamic = false;
+    return lower(C, meas, dynamic);
+}
 
 inline std::vector<int> auto_layout(int nl, const std::vector<Gate>& gs, const ChipGraph& G) {
     std::vector<std::vector<double>> w(nl, std::vector<double>(nl, 0));

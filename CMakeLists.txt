@@ -18,6 +18,10 @@ foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp de
   add_executable(${name} ${src})
   target_link_libraries(${name} PRIVATE qpuforge)
   target_compile_options(${name} PRIVATE -Wall -Wextra -O3)
+  if(NOT OpenMP_CXX_FOUND)
+    # serial build: the '#pragma omp' lines are intentionally ignored
+    target_compile_options(${name} PRIVATE -Wno-unknown-pragmas)
+  endif()
 endforeach()
 set_target_properties(qpuforge_cli PROPERTIES OUTPUT_NAME qpuforge)
 enable_testing()

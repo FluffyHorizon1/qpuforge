@@ -369,7 +369,10 @@ inline CZCalibration calibrate_cz_pair(double f_hi, double a_hi, double f_lo, do
     c.g12_MHz = g12 * 1e3; c.residual_gap_MHz = gap * 1e3;
     c.park_fc_GHz = S.c.f01(S.fluxc_idle);
     c.zz_idle_kHz = S.zz(S.fluxc_idle) * 1e6;
-    auto [P, R] = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval);
+    // named variables, not a structured binding: P is captured by the lambda below (capturing bindings is C++20)
+    const auto opt = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval);
+    const CZPulse P = opt.first;
+    const CZResult R = opt.second;
     c.pulse = P;
     c.fc_on_GHz = S.c.f01(P.fluxc_on);
     c.f_int_GHz = S.q1.f01(P.flux1_int);

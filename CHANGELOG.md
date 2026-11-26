@@ -65,3 +65,9 @@ GDSII output, and the Alpha-1 v1.1 (AF-17) and Beta-1 (BF-49) designs. See the R
 - clang `-Wc++20-extensions` (structured binding captured in a lambda) in `calibrate_cz_pair`.
 - `-Wunknown-pragmas` flood in builds without OpenMP.
 - The test suite no longer writes a fixed `/tmp/qpuforge_test.gds`.
+
+### Known issues
+- Alpha-1 v1.1 pair Q8–Q11 leaks 2.3e-4 per CZ, above the 2e-4 gate limit.
+- The AF-17 and BF-49 first-cut layouts fail the merged-etch width/space DRC (4 µm / 4 µm, projection metric):
+  AF-17 has 34 width + 202 space violations, and BF-49 has 98 width + 602 space violations. The masks are not
+  fabrication-ready.

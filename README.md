@@ -14,21 +14,49 @@ chip.json ──► device physics ─────────► noise model �
                                           reset
 ```
 
-**Alpha-1**, the first error-correction-ready design (17 qubits, distance-3 surface code), is in `designs/alpha1/`. Start with
-[`ALPHA-1.md`](designs/alpha1/ALPHA-1.md). The junction physics and the tuned-anharmonicity correction are written up in
-[`docs/WHITEPAPER.md`](docs/WHITEPAPER.md).
+**Designs** (each folder has a spec, design JSON, review data and, from v1.1, a GDSII layout):
+
+* [`designs/alpha1/ALPHA-1.md`](designs/alpha1/ALPHA-1.md): Alpha-1 v1.0, the first error-correction-ready design
+  (17 qubits, distance-3 surface code; v0.2 models).
+* [`designs/alpha1-v11/ALPHA-1-v1.1.md`](designs/alpha1-v11/ALPHA-1-v1.1.md): **Alpha-1 v1.1 (AF-17)**. Physical tunable
+  couplers with pulse-level CZ calibration, leakage-modelled QEC, a synthesised layout and GDSII.
+* [`designs/beta1/BETA-1.md`](designs/beta1/BETA-1.md): **Beta-1 (BF-49)**, a 49-qubit distance-5 processor.
+* [`ROADMAP.md`](ROADMAP.md): programme phases (Alpha → Beta → Gamma → Delta) with simulation and hardware exit criteria.
+
+### What's new in v0.3
+
+| Layer | Module | What it does |
+|---|---|---|
+| Pulse-level CZ | `pulse.hpp` | 3-body qubit–coupler–qubit charge Hamiltonian (exact transmon spectra, smooth sign gauge), piecewise-exact propagation, 3-knob calibration (interaction flux, flat-top length, coupler bias), exchange-free coupler park at the sweet spot, flux-noise and spectator-crossing errors, per-pair calibration of a whole chip with a cache |
+| Leakage-modelled QEC | `qec.hpp` | Per-qubit leakage flag beside the Pauli frame (the decoder does not use leakage information): CZ leakage injection, leaked-partner phase scrambling, transport, seepage (2/T1), \|2⟩ reads as 1, leakage-removing reset, data-qubit leakage removal (DQLR) |
+| Physical layout | `layout.hpp`, `gds.hpp` | Method-of-moments capacitance extraction (validated to 0.04 % / 1.3 %), parametric Xmon/coupler/readout cells, Gauss-Newton synthesis of cell dimensions against circuit targets, chip assembly with readout resonators and control lines, placement/spacing checks and merged-layer width/space DRC, GDSII writer, post-layout circuit check |
+| Fast eigensolver | `core.hpp` | Householder + implicit QL (`sym_eigen_tri`), 5× faster than Jacobi at n = 64 |
 
 ## Build
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 71 validation checks (~10 min on 2 cores)
+./build/test_qpuforge          # 101 validation checks (~2 min on 8 cores); or: ctest --test-dir build -LE smoke
+./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
+./build/beta1_review 60000     # Beta-1 review        -> designs/beta1/beta1_review.json
 ```
+
+`ctest` runs one entry per test, labelled `unit`, `physics`, `pulse`, `qec`, `layout` and `smoke`.
+
+- The two `smoke` entries run both review programs end to end with 200 shots. They write into the build tree and leave
+  the committed outputs untouched.
+- Each review program also takes `--out DIR`, `--cache FILE` and `--smoke`; see `examples/review_io.hpp`.
+- Committed review outputs record their source commit, compiler, seeds and date (`results/PROVENANCE.md`).
 
 ## CLI
 
 ```bash
 qpuforge new chip.json --preset alpha1                      # Alpha-1 (add --distance 5 for the 49-qubit extension)
+qpuforge new chip.json --preset alpha1v11                   # Alpha-1 v1.1 (physical couplers, leakage model)
+qpuforge new chip.json --preset beta1                       # Beta-1 (distance 5, 49 qubits)
+qpuforge cz chip.json --cache results/cz_cache.json --out cal.json      # pulse-level CZ calibration of every pair
+qpuforge qec chip.json --leakage-removal lrr|lrr+dqlr|none --cache results/cz_cache.json
+qpuforge gds chip.json chip.gds --cells cells.json [--synthesize]       # layout synthesis + DRC + GDSII
 qpuforge new chip.json --surface 3 --arch tunable           # any surface-code chip
 qpuforge new chip.json --grid 3x3 --arch tunable --g-MHz 4  # grid / line / ring chips
 qpuforge analyze chip.json                                  # device report + design-rule check
@@ -52,10 +80,10 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Junctions | E_J from normal-state resistance | Ambegaokar–Baratoff; SQUID flux tuning with asymmetry |
 | Capacitance | E_C of every qubit, every coupling, parasitics | Full Maxwell capacitance matrix, inverted |
 | Transmon | f01, anharmonicity, charge dispersion, ⟨i\|n\|j⟩ | Exact diagonalisation in the charge basis |
-| Couplers | Static ZZ, dressed frequencies; Alpha-1 idle ZZ | Pair diagonalisation (5 levels). With `model_coupler`, a third transmon parked at the exchange null (3 levels) |
+| Couplers | Static ZZ, dressed frequencies; Alpha-1 idle ZZ | Pair diagonalisation (5 levels). With `model_coupler`, a third transmon is parked at the exchange null (3 levels) |
 | Crowding | Exchange between near-degenerate qubits | 2nd-order Schrieffer–Wolff through every other qubit; parked tunable couplers block it |
 | Coherence | T1 = dielectric (Q) + Purcell; Tφ = flux 1/f + charge + thermal photons | Koch 2007, Clerk–Utami; thermal population at T_eff |
-| CZ gate | Duration, interaction point, feasibility, flux-pulse error | t = shape / (2√2 g) + ramps; \|11⟩–\|20⟩ uses α at the tuned EJ. Off-sweet-spot 1/f noise uses the short-time t² infidelity |
+| CZ gate | Duration, interaction point, feasibility, flux-pulse error | t = shape / (2√2 g) + ramps; off-sweet-spot 1/f noise uses the short-time t² infidelity |
 | Design rules | Degenerate pairs, \|11⟩–\|20⟩ resonance, ZZ > 1 MHz, infeasible CZ, parasitic resonance | Flags + collision count, used for fab yield |
 | Inverse design | Targets (f01, α, g, χ) → C_shunt, R_n, C_c, resonator coupling | Iterated against the full capacitance-matrix model |
 | Compiler | Layout, SWAP routing, 1q merging, {RZ, SX, X, CZ, measure, reset} | ≤ 2 physical pulses per 1q gate; per-qubit ASAP timelines cut into exact time slices |
@@ -63,7 +91,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Dynamic circuits | Mid-circuit measurement (collapse + assignment error), reset (+ reset error) | Classical record per shot |
 | Error correction | Rotated surface code of any odd d; memory experiment; detector error model; decoder | Pauli-frame Monte Carlo with state-aware decoherence and coherent-ZZ windows; DEM from single-fault enumeration; exact minimum-weight matching |
 
-## Validation (`tests/test_qpuforge.cpp`, 154 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 186 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -80,7 +108,24 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   experiments give zero detection events.
 * Circuit distance: every single fault is corrected at d = 3 (6,434 faults). At d = 5 every single fault (12,975) and 20,000
   random fault pairs are corrected.
-* Pauli-frame model vs exact statevector trajectories: detection rates and logical error agree within statistics.
+* Pauli-frame model vs exact statevector trajectories (1,000): detection rates and logical error agree within statistics
+  (P_L 0.0240 ± 0.0048 vs 0.0243).
+* Eigensolver: Householder + QL vs Jacobi on random symmetric matrices (eigenvalues to 1e-13, orthogonality 4e-15).
+* Pulse-level CZ: charge matrix elements stay continuous over a 0–0.32 Φ0 flux sweep (no sign flips). Idle evolution
+  reproduces the static ZZ phase to 1e-14 rad. The |11⟩–|20⟩ gap with the coupler on matches 2nd-order perturbation theory
+  (36.2 vs 34.9 MHz). The designed g12 nulls the parked exchange (< 1e-5 MHz). Calibrated CZ: 40 ns, 1−F = 1.0e-4,
+  leakage 6.6e-5, |φ−π| < 2e-3. Halving dt changes F by 6e-7. With 4/4/4 levels, one more coupler level changes the CZ
+  phase by 6e-5 rad and one more qubit level by 2e-4 rad. The earlier default of 3 coupler levels was off by 4e-3 rad.
+* Leakage frame model: bit-identical to the leakage-free model when all rates are zero. Gate-leakage plus seepage
+  populations match the two-state Markov solution (within 3.5 %). A leakage-removing reset clears measure-qubit leakage
+  (5× lower) and DQLR clears data-qubit leakage (3× lower).
+* Per-pair calibration reaches the noise model and the frame program: overridden pairs carry their own control error
+  and leakage.
+* Layout: unit square plate capacitance vs the accepted value 0.3667874·4πε0·a (−0.04 %). CPW capacitance per length vs
+  conformal mapping (−1.3 % on the design mesh, −0.6 % refined). Overlapping conductors are rejected. The AF-17 chip
+  passes the placement and island-spacing checks, all 17 resonators sit at their quarter-wave lengths, and the GDSII stream parses back record by record.
+  A synthetic layer exercises the merged-etch width/space DRC; the AF-17 first-cut layout is not clean on that check (34 width + 202 space violations at 4 µm).
+  `tools/gds_preview.py` is an independent Python GDSII reader and renderer.
 
 ## Example: 3×3 chip design study (`examples/design_study.cpp`)
 
@@ -97,27 +142,61 @@ distance 5 gives 0.18 % (Λ ≈ 2.6). Full data is in `results/` and `designs/al
 
 The tunable coupler wins clearly. With fixed coupling, faster gates and always-on ZZ crosstalk trade against each other.
 
+**v0.3 results** (simulation; see the design specs for assumptions):
+
+| Design | Code distance | Logical error per round | Notes |
+|---|---|---|---|
+| Alpha-1 v1.1 (AF-17) | 3 | **0.368 %** | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 252 µs = 3.3× best T1 |
+| Alpha-1 v1.1 physics | 5 | 0.123 % | Λ(3→5) = 3.12 |
+| Beta-1 (BF-49) | 3 / 5 / 7 | 0.0827 % / **0.0155 %** / 0.0046 % | Λ(3→5) = 5.3 ± 0.4, Λ(5→7) = 4.0 ± 0.8 (matched-model best case); d = 5 logical lifetime 4.7 ms = 30× best T1 |
+
 ## Limitations (read before trusting numbers)
 
-* **Two-level qubits** in the processor and QEC emulation: leakage to |2⟩ during CZ is folded into the control error, not
-  simulated. CZ is modelled at gate level (duration plus errors), not as a pulse-level flux trajectory.
+* **CZ residual control error is an assumption.** The pulse simulation gives the coherent error (≈ 1e-4), leakage, and
+  flux-noise terms. Pulse distortion, calibration drift, TLS defects and crosstalk are not simulated. They enter as one
+  allowance: 1e-3 for Alpha-1 v1.1 and 5e-4 for Beta-1. This allowance dominates the CZ error and is the single most
+  important number to measure on hardware.
+* Pulse simulation is closed-system: T1 and Tφ during the gate are applied by the processor and QEC emulators, and the
+  1/f flux noise at the excursion point is added analytically (quasi-static). Spectator crossings use a Landau-Zener
+  estimate, not a many-qubit pulse simulation.
+* Leakage is modelled at the frame level (flags, phase scrambling, transport, seepage, removal), not with 3-level
+  dynamics in the QEC circuits. The decoder is leakage-unaware: no heralding from 3-state readout.
+* **Capacitances come from a quasi-static MoM on an infinitely thick substrate.** Box modes, airbridges, the
+  flip-chip interposer, kinetic inductance, flux and readout crosstalk, and participation ratios (TLS loss) are not
+  extracted. Before tape-out, cross-check the cells with a full-wave/FEM tool (Palace, Sonnet, Q3D).
+* The extraction assembles each qubit's self-capacitance from a star cell and the pair couplings from a pair cell,
+  i.e. nearest-neighbour locality. Boundary qubits with fewer couplers have up to ~5 % different E_C. Their junctions are
+  retargeted, but α shifts slightly.
+* The GDSII layout is a first cut. It has no wiring to the chip edge: all control lines end on flip-chip bump pads,
+  and feedlines live on the interposer, which is not drawn. There are no airbridges, test structures, alignment marks or
+  dicing lanes.
 * **No dynamical decoupling.** Static-ZZ penalties for fixed-coupling designs are therefore upper bounds.
-* Tunable couplers on Alpha-1 are a third transmon: direct g = 1 MHz, g_qc = 40 MHz, idle ZZ −4 to −14 kHz at the exchange
-  null (3.79–3.97 GHz). The AF-9 study still treats residual ZZ as an input. g_max is the on-state scale, not a simulated pulse.
-* Capacitances come from the lumped model. For a real layout they must come from EM simulation (Q3D, Palace, Sonnet).
-* Not modelled: correlated errors (TLS drift, quasiparticle bursts, cosmic rays), measurement-induced dephasing, readout
-  and flux crosstalk. Flux noise during the CZ is in the reported two-qubit error (about 2–5 × 10⁻⁵); the logical-error
-  review of 24 November was not re-run for it.
+* Not modelled: correlated errors (quasiparticle bursts, cosmic rays), measurement-induced dephasing, readout and flux
+  crosstalk.
 * Pauli-frame QEC model: accurate for incoherent noise. Strong coherent ZZ (tens of kHz and up) is under-counted, so use
-  `--statevector` to cross-check such designs.
+  `--statevector` to cross-check such designs. The MWPM decoder is exact up to 22 defects and greedy beyond. Distance-7
+  results with many defects are therefore pessimistic.
 * The statevector backend is practical to about 26–28 qubits; the Pauli-frame backend handles d = 5–7 easily.
 
-## Roadmap toward tape-out
+## Roadmap
 
-1. **Pulse level:** a multi-level transmon and coupler Lindblad simulation of CZ and DRAG pulses, giving leakage and coherent
-   errors. Feed the resulting process matrices into the processor and QEC layers.
-2. **EM loop:** import capacitance matrices and participation ratios from FEM of a GDS layout (Palace / KLayout).
-3. **Leakage-aware QEC:** leakage tracking and leakage-reduction units in the memory experiment, plus correlated-error models.
-4. **Cross-resonance architecture** (fixed-frequency) with its collision rules.
-5. **Materials loop:** atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1 → logical error.
+See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on the tooling side:
+
+1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
+2. Multi-qubit pulse simulation of spectator crossings; flux-pulse distortion and predistortion model.
+3. Leakage heralding (3-state readout) and a leakage-aware decoder; a decoder for large defect counts (union-find /
+   sparse blossom) for d ≥ 7; correlated-error models.
+4. Multi-patch circuits (lattice surgery) for Phase Gamma.
+5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.
+
+## Licence
+
+Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
+
+This is proprietary software of Secured Cyber Solutions Ltd, licensed under the
+[Secured Cyber Solutions Proprietary Software Licence v1.0](LICENSE). It is **not open source**:
+no use, copying, modification or distribution is permitted without written permission from SCS.
+Third-party components are listed in [NOTICE](NOTICE).
+
+Licensing enquiries: https://securedcybersolutions.co.uk

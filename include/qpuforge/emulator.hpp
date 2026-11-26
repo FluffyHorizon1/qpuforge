@@ -25,7 +25,17 @@ struct NoiseModel {
     std::map<std::pair<int, int>, double> zz_GHz;     // physical pair (min,max) -> conditional-phase rate
     // near-degenerate pairs (|detuning| < 10 g): resonant flip-flop exchange is simulated explicitly
     std::map<std::pair<int, int>, std::array<double, 3>> exchange;   // (min,max) -> {g, f_min, f_max} GHz
+    std::map<std::pair<int, int>, double> err_2q_pair;               // (min,max) -> per-pair control error (overrides err_2q_ctrl)
+    std::map<std::pair<int, int>, std::pair<int, double>> leak_cz;    // (min,max) -> (qubit that leaks, probability per CZ)
+    double err_2q(int a, int b) const {
+        auto it = err_2q_pair.find({std::min(a, b), std::max(a, b)});
+        return it == err_2q_pair.end() ? err_2q_ctrl : it->second;
+    }
     bool T1{true}, Tphi{true}, thermal{true}, zz{true}, exchange_on{true}, control{true}, readout{true}, reset{true};
+    // leakage (Pauli-frame QEC model only; the state-vector emulator is qubit-only)
+    bool leakage{false};
+    double leak_1q{0}, leak_transport{0}, dqlr_eff{0}, dqlr_err{0};
+    bool reset_removes_leakage{false}, dqlr{false};
 
     // switch a named source off ("T1", "Tphi", "thermal", "zz", "control", "readout", "all")
     void disable(const std::string& s) {
@@ -37,8 +47,9 @@ struct NoiseModel {
         if (s == "control" || s == "all") control = false;
         if (s == "readout" || s == "all") readout = false;
         if (s == "reset" || s == "all") reset = false;
+        if (s == "leakage" || s == "all") leakage = false;
     }
-    void only(const std::string& s) { disable("all"); if (s == "T1") T1 = true; else if (s == "Tphi") Tphi = true; else if (s == "thermal") thermal = true; else if (s == "zz") zz = true; else if (s == "exchange") exchange_on = true; else if (s == "control") control = true; else if (s == "readout") readout = true; else if (s == "reset") reset = true; }
+    void only(const std::string& s) { disable("all"); if (s == "T1") T1 = true; else if (s == "Tphi") Tphi = true; else if (s == "thermal") thermal = true; else if (s == "zz") zz = true; else if (s == "exchange") exchange_on = true; else if (s == "control") control = true; else if (s == "readout") readout = true; else if (s == "reset") reset = true; else if (s == "leakage") leakage = true; }
 };
 
 inline NoiseModel noise_model(const ChipDesign& D, const ChipReport& R) {
@@ -54,9 +65,15 @@ inline NoiseModel noise_model(const ChipDesign& D, const ChipReport& R) {
     N.err_1q_ctrl = D.err_1q_control;
     N.err_2q_ctrl = D.err_2q_control;
     N.reset_err = D.reset_err;
+    N.leakage = D.leakage.model;
+    N.leak_1q = D.leakage.leak_1q; N.leak_transport = D.leakage.transport;
+    N.reset_removes_leakage = D.leakage.reset_removes_leakage;
+    N.dqlr = D.leakage.dqlr; N.dqlr_eff = D.leakage.dqlr_eff; N.dqlr_err = D.leakage.dqlr_err;
     for (const auto& p : R.pairs) {
         const int a = D.index_of(p.a), b = D.index_of(p.b);
         N.zz_GHz[{std::min(a, b), std::max(a, b)}] = p.zz_idle_kHz * 1e-6;
+        if (p.designed && p.err_2q_ctrl >= 0) N.err_2q_pair[{std::min(a, b), std::max(a, b)}] = p.err_2q_ctrl;
+        if (p.designed && p.leak_2q > 0 && p.leak_qubit >= 0) N.leak_cz[{std::min(a, b), std::max(a, b)}] = {D.index_of(p.leak_qubit), p.leak_2q};
         const double g = p.g_MHz * 1e-3;
         const bool coupler_off = p.designed && D.tunable_coupler();   // tunable couplers idle at zero coupling
         if (!coupler_off && std::abs(p.delta_MHz) * 1e-3 < 10 * g) {
@@ -71,7 +88,7 @@ inline ChipGraph chip_graph(const ChipDesign& D, const ChipReport& R) {
     ChipGraph G;
     G.n = int(D.qubits.size());
     G.adj.assign(G.n, {});
-    G.t_1q_ns = D.t_1q_ns; G.t_ro_ns = D.t_readout_ns; G.t_reset_ns = D.t_reset_ns;
+    G.t_1q_ns = D.t_1q_ns; G.t_ro_ns = D.t_readout_ns; G.t_reset_ns = D.t_reset_ns + (D.leakage.model && D.leakage.dqlr ? D.leakage.dqlr_ns : 0.0);
     for (const auto& p : R.pairs) {
         if (!p.designed) continue;
         const int a = D.index_of(p.a), b = D.index_of(p.b);
@@ -142,7 +159,7 @@ void execute(B& S, const Compiled& prog, const std::vector<int>& sim, const Nois
         if (nm.control)
             for (const auto& g : m.ops) {
                 if (g.op == Op::SX || g.op == Op::X) S.pauli1(sim[g.q[0]], p1, rng);
-                else if (g.op == Op::CZ) S.pauli2(sim[g.q[0]], sim[g.q[1]], p2, rng);
+                else if (g.op == Op::CZ) S.pauli2(sim[g.q[0]], sim[g.q[1]], nm.err_2q_pair.empty() ? p2 : 1.25 * nm.err_2q(g.q[0], g.q[1]), rng);
             }
         if (nm.zz) {
             std::vector<std::pair<std::size_t, cplx>> terms;

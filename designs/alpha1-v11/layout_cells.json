@@ -1,0 +1,76 @@
+{
+  "pitch_um": 900,
+  "measure_qubit": {
+    "arm_length_um": 129.309597488,
+    "arm_width_um": 16,
+    "gap_um": 30,
+    "tbar_thickness_um": 12,
+    "tbar_length_um": 120,
+    "readout_pad_um": 40.916071938,
+    "claw_gap_um": 5,
+    "claw_width_um": 10,
+    "squid_stub_um": 16
+  },
+  "data_qubit": {
+    "arm_length_um": 131.881669733,
+    "arm_width_um": 16,
+    "gap_um": 30,
+    "tbar_thickness_um": 12,
+    "tbar_length_um": 120,
+    "readout_pad_um": 40.916071938,
+    "claw_gap_um": 5,
+    "claw_width_um": 10,
+    "squid_stub_um": 16
+  },
+  "coupler": {
+    "tbar_gap_um": 5,
+    "tbar_thickness_um": 12,
+    "offset_um": 32.5,
+    "coupler_tbar_um": 43.4825515608,
+    "body_width_um": 10,
+    "gap_um": 20,
+    "pad_um": 252.550731473,
+    "bus_tbar_um": 0.075,
+    "bus_width_um": 6,
+    "bus_gap_um": 15
+  },
+  "achieved_fine_mesh": {
+    "EC_measure_GHz": 0.198211726279,
+    "EC_data_GHz": 0.195789521592,
+    "EC_coupler_GHz": 0.124431740806,
+    "G_measure_coupler_GHz": 0.0597706141327,
+    "G_coupler_data_GHz": 0.0579444598391,
+    "G_measure_data_GHz": 0.00567641846374,
+    "C_qubit_readout_fF": 9.35931578075,
+    "C_sigma_measure_fF": 97.9813120121,
+    "C_sigma_data_fF": 99.1781203107,
+    "C_coupler_fF": 156.665044052,
+    "C_qubit_coupler_fF": 5.71814951971,
+    "C_qubit_bus_fF": 1.45957857741,
+    "C_bus_fF": 65.6317681406,
+    "C_qubit_qubit_fF": 0.10526783411,
+    "C_qubit_ground_fF": 59.2226371938
+  },
+  "targets": {
+    "EC_measure_GHz": 0.202171586927,
+    "EC_data_GHz": 0.199743942133,
+    "EC_coupler_GHz": 0.12559252211,
+    "G_measure_coupler_GHz": 0.0576091681345,
+    "G_coupler_data_GHz": 0.0611731434581,
+    "G_measure_data_GHz": 0.00555469170564,
+    "C_qubit_readout_fF": 9.14746473079
+  },
+  "synthesis_log": [
+    "start              L_m  130.0 L_d  130.0 pad  150.0 l_c  52.0 l_b  30.0 r  40.0 | EC_m 0.1915 EC_d 0.1915 EC_c 0.1575 G 0.0690 G_md 0.00791 C_qr 8.80",
+    "  gauss-newton 1   L_m  126.3 L_d  128.8 pad  195.0 l_c  48.1 l_b  21.0 r  40.5 | EC_m 0.1976 EC_d 0.1952 EC_c 0.1378 G 0.0619 G_md 0.00708 C_qr 8.92",
+    "  gauss-newton 2   L_m  127.1 L_d  129.5 pad  228.8 l_c  47.2 l_b  14.7 r  41.7 | EC_m 0.1984 EC_d 0.1960 EC_c 0.1321 G 0.0620 G_md 0.00680 C_qr 9.09",
+    "  gauss-newton 3   L_m  128.6 L_d  131.0 pad  252.7 l_c  43.6 l_b  10.2 r  41.7 | EC_m 0.1988 EC_d 0.1965 EC_c 0.1258 G 0.0586 G_md 0.00627 C_qr 9.11",
+    "  gauss-newton 4   L_m  128.7 L_d  131.1 pad  253.5 l_c  43.8 l_b   5.7 r  41.7 | EC_m 0.2001 EC_d 0.1978 EC_c 0.1256 G 0.0589 G_md 0.00603 C_qr 9.12",
+    "  gauss-newton 5   L_m  129.8 L_d  132.2 pad  253.8 l_c  44.0 l_b   1.2 r  41.8 | EC_m 0.2003 EC_d 0.1981 EC_c 0.1256 G 0.0591 G_md 0.00582 C_qr 9.14",
+    "fine-mesh check    L_m  129.8 L_d  132.2 pad  253.8 l_c  44.0 l_b   1.2 r  41.8 | EC_m 0.1966 EC_d 0.1945 EC_c 0.1241 G 0.0587 G_md 0.00576 C_qr 9.46",
+    "pass 2 start       L_m  129.8 L_d  132.2 pad  253.8 l_c  44.0 l_b   1.2 r  41.8 | EC_m 0.2003 EC_d 0.1981 EC_c 0.1256 G 0.0591 G_md 0.00582 C_qr 9.14",
+    "  gauss-newton 1   L_m  129.3 L_d  131.9 pad  252.6 l_c  43.5 l_b   0.1 r  40.9 | EC_m 0.2020 EC_d 0.1994 EC_c 0.1260 G 0.0592 G_md 0.00573 C_qr 9.03",
+    "final (fine mesh)  L_m  129.3 L_d  131.9 pad  252.6 l_c  43.5 l_b   0.1 r  40.9 | EC_m 0.1982 EC_d 0.1958 EC_c 0.1244 G 0.0589 G_md 0.00568 C_qr 9.36"
+  ],
+  "max_rel_err": 0.02315953722640951
+}

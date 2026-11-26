@@ -23,6 +23,7 @@ inline constexpr double e = 1.602176634e-19;         // C
 inline constexpr double kB = 1.380649e-23;           // J/K
 inline constexpr double Phi0 = h / (2 * e);          // Wb
 inline constexpr double ueV = 1e-6 * e;              // J
+inline constexpr double eps0 = 8.8541878128e-12;     // F/m
 } // namespace phys
 
 // ------------------------------------------------------------------ 2x2 complex matrices
@@ -148,6 +149,104 @@ inline void tridiag_eigen(std::vector<double>& d, std::vector<double> e_off, std
         for (int k = 0; k < n; ++k) z2[std::size_t(k) * n + j] = z[std::size_t(k) * n + idx[j]];
     }
     d.swap(d2); z.swap(z2);
+}
+
+// Householder tridiagonalisation + implicit QL with eigenvector accumulation (O(n^3), fast for n ~ 10-200).
+// Returns ascending eigenvalues; V (n x n, row-major) holds the eigenvectors as columns.
+inline std::vector<double> sym_eigen_tri(std::vector<double> a, int n, std::vector<double>& V) {
+    auto A = [&](int i, int j) -> double& { return a[std::size_t(i) * n + j]; };
+    std::vector<double> d(n, 0.0), e(n, 0.0);
+    for (int i = n - 1; i > 0; --i) {
+        const int l = i - 1;
+        double h = 0, scale = 0;
+        if (l > 0) {
+            for (int k = 0; k <= l; ++k) scale += std::abs(A(i, k));
+            if (scale == 0.0) e[i] = A(i, l);
+            else {
+                for (int k = 0; k <= l; ++k) { A(i, k) /= scale; h += A(i, k) * A(i, k); }
+                double f = A(i, l);
+                double g = f >= 0 ? -std::sqrt(h) : std::sqrt(h);
+                e[i] = scale * g; h -= f * g; A(i, l) = f - g; f = 0;
+                for (int j = 0; j <= l; ++j) {
+                    A(j, i) = A(i, j) / h;
+                    g = 0;
+                    for (int k = 0; k <= j; ++k) g += A(j, k) * A(i, k);
+                    for (int k = j + 1; k <= l; ++k) g += A(k, j) * A(i, k);
+                    e[j] = g / h;
+                    f += e[j] * A(i, j);
+                }
+                const double hh = f / (h + h);
+                for (int j = 0; j <= l; ++j) {
+                    f = A(i, j);
+                    e[j] = g = e[j] - hh * f;
+                    for (int k = 0; k <= j; ++k) A(j, k) -= (f * e[k] + g * A(i, k));
+                }
+            }
+        } else e[i] = A(i, l);
+        d[i] = h;
+    }
+    d[0] = 0; e[0] = 0;
+    for (int i = 0; i < n; ++i) {
+        const int l = i - 1;
+        if (d[i] != 0.0) {
+            for (int j = 0; j <= l; ++j) {
+                double g = 0;
+                for (int k = 0; k <= l; ++k) g += A(i, k) * A(k, j);
+                for (int k = 0; k <= l; ++k) A(k, j) -= g * A(k, i);
+            }
+        }
+        d[i] = A(i, i);
+        A(i, i) = 1;
+        for (int j = 0; j <= l; ++j) A(j, i) = A(i, j) = 0;
+    }
+    // implicit QL on (d, e) accumulating into the Householder transform held in a
+    for (int i = 1; i < n; ++i) e[i - 1] = e[i];
+    e[n - 1] = 0;
+    for (int l = 0; l < n; ++l) {
+        int iter = 0, m;
+        do {
+            for (m = l; m < n - 1; ++m) {
+                const double dd = std::abs(d[m]) + std::abs(d[m + 1]);
+                if (std::abs(e[m]) <= 1e-15 * dd) break;
+            }
+            if (m != l) {
+                if (iter++ == 100) throw std::runtime_error("sym_eigen_tri: no convergence");
+                double g = (d[l + 1] - d[l]) / (2.0 * e[l]);
+                double r = std::hypot(g, 1.0);
+                g = d[m] - d[l] + e[l] / (g + (g >= 0 ? std::abs(r) : -std::abs(r)));
+                double s = 1, c = 1, p = 0;
+                int i;
+                for (i = m - 1; i >= l; --i) {
+                    double f = s * e[i];
+                    const double b = c * e[i];
+                    e[i + 1] = (r = std::hypot(f, g));
+                    if (r == 0.0) { d[i + 1] -= p; e[m] = 0; break; }
+                    s = f / r; c = g / r;
+                    g = d[i + 1] - p;
+                    r = (d[i] - g) * s + 2.0 * c * b;
+                    d[i + 1] = g + (p = s * r);
+                    g = c * r - b;
+                    for (int k = 0; k < n; ++k) {
+                        f = A(k, i + 1);
+                        A(k, i + 1) = s * A(k, i) + c * f;
+                        A(k, i) = c * A(k, i) - s * f;
+                    }
+                }
+                if (r == 0.0 && i >= l) continue;
+                d[l] -= p; e[l] = g; e[m] = 0;
+            }
+        } while (m != l);
+    }
+    std::vector<int> idx(n);
+    std::iota(idx.begin(), idx.end(), 0);
+    std::sort(idx.begin(), idx.end(), [&](int x, int y) { return d[x] < d[y]; });
+    std::vector<double> ev(n);
+    V.assign(std::size_t(n) * n, 0.0);
+    for (int j = 0; j < n; ++j) {
+        ev[j] = d[idx[j]];
+        for (int k = 0; k < n; ++k) V[std::size_t(k) * n + j] = A(k, idx[j]);
+    }
+    return ev;
 }
 
 // Cyclic Jacobi for a dense real symmetric matrix A (n x n row-major). Returns ascending eigenvalues; V columns = eigenvectors.

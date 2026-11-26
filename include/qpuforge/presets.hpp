@@ -36,16 +36,56 @@ inline ChipDesign gen0_surface17(int d = 3) {
 inline ChipDesign alpha1(int d = 3) {
     GenSpec s = surface_spec(d);
     s.architecture = "tunable-coupler-cz";
-    s.g = 0.001;                                   // direct capacitance only. The coupler, not this cap, does the gate.
+    s.g = 0.001;                                   // direct capacitance only; the coupler supplies the gate coupling
     s.kappa_MHz = 4.0; s.chi_MHz = 4.0;            // 2chi = kappa: optimal readout SNR
     s.purcell_filter = 100;                        // dedicated band-pass Purcell filter per feedline
     ChipDesign D = generate(s);
     D.name = d == 3 ? "Alpha-1 (AF-17)" : "Alpha-1 extended to d=" + std::to_string(d) + " (" + std::to_string(2 * d * d - 1) + " qubits)";
     D.tc_g_max_MHz = 40; D.tc_residual_zz_kHz = 5;
-    D.tc_g_qc_MHz = 40; D.tc_coupler_EC = 0.20; D.tc_model = true;
+    D.coupler.g_qc_MHz = 40; D.tc_coupler_EC = 0.20; D.tc_model = true;
     D.t_readout_ns = 500; D.readout_sep_err = 0.005;
     D.active_reset = true; D.t_reset_ns = 200; D.reset_err = 0.003;
     D.err_1q_control = 1e-4; D.err_2q_control = 2e-3;
+    return D;
+}
+
+// Alpha-1 v1.1: the same chip with the abstract couplers replaced by physical coupler transmons (calibrated pulse-level
+// CZ, per-pair direct coupling for an exchange-free park point at the coupler sweet spot) and a leakage model.
+inline ChipDesign alpha1_v11(int d = 3) {
+    ChipDesign D = alpha1(d);
+    D.name = d == 3 ? "Alpha-1 v1.1 (AF-17)" : "Alpha-1 v1.1 extended to d=" + std::to_string(d);
+    D.tc_model = false;
+    D.coupler.physical = true;
+    D.coupler.f_max_GHz = 8.5; D.coupler.alpha_GHz = -0.13; D.coupler.g_qc_MHz = 160;
+    D.coupler.f_on_GHz = 6.1; D.coupler.t_rise_ns = 7; D.coupler.residual_ctrl_err = 1e-3;
+    D.leakage.model = true;
+    D.leakage.reset_removes_leakage = true;    // multi-level (|2> -> |0>) measure-qubit reset
+    D.leakage.dqlr = false;
+    return D;
+}
+
+// Beta-1 (BF-49): distance-5 surface-code processor. Alpha-1 v1.1 architecture plus the upgrades the Alpha-1 reviews
+// ranked highest:
+//   materials        dielectric loss halved (Q 3e6 -> 6e6: tantalum base layer, improved substrate cleaning)
+//   thermalisation   effective qubit temperature 45 -> 35 mK (IR-tight shielding, better line filtering)
+//   readout          300 ns (kappa = 2 chi = 8 MHz) behind individual Purcell filters (suppression 1000): the rev-A review
+//                    showed that the stronger readout coupling behind the per-feedline filters (100) made Purcell decay
+//                    the T1 limit and cancelled the materials upgrade
+//   CZ               residual control error 1e-3 -> 5e-4 (flux-pulse predistortion, closed-loop recalibration)
+//   leakage          multi-level (leakage-removing) reset; DQLR is kept as an option only: the rev-A review showed it
+//                    costs more than it saves at d = 5 over 50 rounds
+//   fabrication      junction trimming (laser anneal) to 0.5% resistance spread
+inline ChipDesign beta1(int d = 5) {
+    ChipDesign D = alpha1_v11(d);
+    D.name = d == 5 ? "Beta-1 (BF-49)" : "Beta-1 physics at d=" + std::to_string(d);
+    D.Q_dielectric = 6e6;
+    D.T_eff_mK = 35;
+    D.t_readout_ns = 300;
+    tune_readout(D, 8.0, 8.0, 1000);
+    D.coupler.residual_ctrl_err = 5e-4;
+    D.leakage.reset_removes_leakage = true;
+    D.leakage.dqlr = false;
+    D.Rn_spread_pct = 0.5;
     return D;
 }
 

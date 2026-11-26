@@ -13,6 +13,7 @@
 #pragma once
 #include "emulator.hpp"
 #include "surface.hpp"
+#include <cstdio>
 #include <unordered_map>
 
 namespace qpuforge {
@@ -82,13 +83,16 @@ struct Xoshiro256 {
 
 // ================================================================== Pauli-frame program
 struct FrameProgram {
-    struct FOp { Op op; int a{-1}, b{-1}; int quarter{0}; int cbit{-1}; double p{0}; };  // p: readout flip / reset error
+    // p: readout flip / reset error; ref: noiseless outcome (-1 random); mover/pleak: CZ leakage injection
+    struct FOp { Op op; int a{-1}, b{-1}; int quarter{0}; int cbit{-1}; double p{0}; int ref{-1}; int mover{-1}; double pleak{0}; };
+    struct Ctrl2 { int a, b; double p; };
     struct ZZTwirl { int a, b; double pa, pb, pab; };                                    // Z_a, Z_b, Z_aZ_b probabilities
     struct Pauli1 { int q; double px, py, pz; };
     struct FMoment {
         std::vector<FOp> ops;
         std::vector<int> ctrl1;
-        std::vector<std::pair<int, int>> ctrl2;
+        std::vector<Ctrl2> ctrl2;
+        std::vector<int> dqlr;            // data qubits whose leakage-removal pulse follows this slice
         std::vector<ZZTwirl> zz;
         std::vector<Pauli1> deco;
         double duration_ns{0};
@@ -98,12 +102,17 @@ struct FrameProgram {
     std::vector<FMoment> moments;
     int ignored_exchange_pairs{0};
     double duration_ns{0};
+    // leakage model
+    bool leakage{false}, reset_removes_leakage{false};
+    double leak_1q{0}, transport{0}, dqlr_eff{0}, dqlr_err{0};
+    std::vector<double> seep_rate;        // per sim qubit, 1/ns (|2> -> |1> decay, ~2/T1 for a transmon)
 };
 
 // reference[cbit] (optional): noiseless outcome if deterministic, used to pick the asymmetric readout flip
 // probability P(1|0) or P(0|1); random outcomes use the average.
 inline FrameProgram build_frame_program(const Compiled& prog, const NoiseModel& nm, bool noisy = true,
-                                        const std::vector<int>& reference = {}) {
+                                        const std::vector<int>& reference = {},
+                                        const std::map<int, std::vector<int>>& dqlr_partners = {}) {
     // Noise is converted to Pauli channels with two refinements that matter for QEC circuits:
     //  * state-aware decoherence: while a qubit is in a known computational basis state of the noiseless circuit
     //    (after RESET, before its next non-diagonal gate), amplitude damping is exactly a classical bit flip
@@ -117,6 +126,16 @@ inline FrameProgram build_frame_program(const Compiled& prog, const NoiseModel& 
     F.nclbits = prog.nclbits;
     F.p1 = (noisy && nm.control) ? 1.5 * nm.err_1q_ctrl : 0.0;
     F.p2 = (noisy && nm.control) ? 1.25 * nm.err_2q_ctrl : 0.0;
+    F.leakage = noisy && nm.leakage;
+    if (F.leakage) {
+        F.leak_1q = nm.leak_1q; F.transport = nm.leak_transport; F.reset_removes_leakage = nm.reset_removes_leakage;
+        F.dqlr_eff = nm.dqlr ? nm.dqlr_eff : 0.0; F.dqlr_err = nm.dqlr ? nm.dqlr_err : 0.0;
+        F.seep_rate.assign(std::size_t(F.n), 0.0);
+        for (int k = 0; k < F.n; ++k) {
+            const double T1 = nm.T1_ns[std::size_t(prog.active[std::size_t(k)])];
+            F.seep_rate[std::size_t(k)] = std::isfinite(T1) ? 2.0 / T1 : 0.0;
+        }
+    }
     struct ZZPair { int a, b; double rate, phi; };
     std::vector<ZZPair> zz;
     if (noisy && nm.zz)
@@ -166,7 +185,11 @@ inline FrameProgram build_frame_program(const Compiled& prog, const NoiseModel& 
             case Op::X: if (noisy) fm.ctrl1.push_back(o.a); if (kn[std::size_t(o.a)] < 2) kn[std::size_t(o.a)] ^= 1; break;
             case Op::CZ:
                 o.b = sim[g.q[1]];
-                if (noisy) fm.ctrl2.push_back({o.a, o.b});
+                if (noisy) fm.ctrl2.push_back({o.a, o.b, nm.control ? 1.25 * nm.err_2q(g.q[0], g.q[1]) : 0.0});
+                if (F.leakage) {
+                    auto it = nm.leak_cz.find({std::min(g.q[0], g.q[1]), std::max(g.q[0], g.q[1])});
+                    if (it != nm.leak_cz.end()) { o.mover = sim[it->second.first]; o.pleak = it->second.second; }
+                }
                 if (std::find(busy.begin(), busy.end(), std::make_pair(std::min(o.a, o.b), std::max(o.a, o.b))) == busy.end())
                     busy.push_back({std::min(o.a, o.b), std::max(o.a, o.b)});
                 break;
@@ -177,8 +200,14 @@ inline FrameProgram build_frame_program(const Compiled& prog, const NoiseModel& 
                     const double p01 = nm.ro01[std::size_t(g.q[0])], p10 = nm.ro10[std::size_t(g.q[0])];
                     o.p = ref == 0 ? p01 : (ref == 1 ? p10 : 0.5 * (p01 + p10));
                 }
+                o.ref = (g.cbit >= 0 && std::size_t(g.cbit) < reference.size()) ? reference[std::size_t(g.cbit)] : -1;
                 break;
-            case Op::RESET: o.p = (noisy && nm.reset) ? nm.reset_err : 0.0; kn[std::size_t(o.a)] = 0; break;
+            case Op::RESET: {
+                o.p = (noisy && nm.reset) ? nm.reset_err : 0.0; kn[std::size_t(o.a)] = 0;
+                auto it = dqlr_partners.find(g.q[0]);
+                if (F.leakage && nm.dqlr && it != dqlr_partners.end()) for (int dq : it->second) if (sim[dq] >= 0) fm.dqlr.push_back(sim[dq]);
+                break;
+            }
             default: throw std::runtime_error("frame program: unexpected op");
             }
             fm.ops.push_back(o);
@@ -272,13 +301,14 @@ inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const
             if (o.op == Op::RESET) inject(m, {{1, o.a}}, o.p, "reset error q" + std::to_string(o.a));
         }
         for (int q : fm.ctrl1) for (int P = 1; P <= 3; ++P) inject(m, {{P, q}}, F.p1 / 3, "1q control q" + std::to_string(q));
-        for (auto [a, b] : fm.ctrl2)
+        for (const auto& c2 : fm.ctrl2)
             for (int k = 1; k < 16; ++k) {
                 std::vector<std::pair<int, int>> ps;
-                if (k % 4) ps.push_back({k % 4, a});
-                if (k / 4) ps.push_back({k / 4, b});
-                inject(m, ps, F.p2 / 15, "CZ control q" + std::to_string(a) + ",q" + std::to_string(b));
+                if (k % 4) ps.push_back({k % 4, c2.a});
+                if (k / 4) ps.push_back({k / 4, c2.b});
+                inject(m, ps, c2.p / 15, "CZ control q" + std::to_string(c2.a) + ",q" + std::to_string(c2.b));
             }
+        if (F.dqlr_err > 0) for (int q : fm.dqlr) for (int P = 1; P <= 3; ++P) inject(m, {{P, q}}, F.dqlr_err / 3, "DQLR q" + std::to_string(q));
         for (const auto& t : fm.zz) {
             inject(m, {{3, t.a}}, t.pa, "ZZ");
             inject(m, {{3, t.b}}, t.pb, "ZZ");
@@ -298,6 +328,7 @@ struct DetectorErrorModel {
     int n_det{0};
     std::vector<DEMEdge> edges;
     int hyperedge_faults{0};          // faults flipping > 2 decoded detectors (dropped from the graph)
+    double hyperedge_p{0};            // their summed probability (error mass the decoder cannot see)
     int undetectable_logical{0};      // faults flipping the logical but no detector (distance-killing; must be 0)
 };
 
@@ -306,7 +337,7 @@ inline DetectorErrorModel build_dem(const std::vector<FaultSignature>& faults, i
     std::map<std::tuple<int, int, int>, double> acc;
     for (const auto& f : faults) {
         if (f.dets.empty()) { if (f.obs) ++M.undetectable_logical; continue; }
-        if (f.dets.size() > 2) { ++M.hyperedge_faults; continue; }
+        if (f.dets.size() > 2) { ++M.hyperedge_faults; M.hyperedge_p += f.p; continue; }
         const int a = f.dets[0], b = f.dets.size() == 2 ? f.dets[1] : -1;
         auto key = std::make_tuple(a, b, int(f.obs));
         double& p = acc[key];
@@ -399,6 +430,9 @@ struct MemoryResult {
     double detection_rate{0};         // mean fraction of detectors that fire
     double round_ns{0}, total_ns{0};
     int hyperedge_faults{0}, undetectable_logical{0}, ignored_exchange_pairs{0};
+    double hyperedge_p{0};
+    double leak_frac_data{0}, leak_frac_meas{0};   // time-averaged fraction of leaked qubits (frame model with leakage)
+    double leak_events_per_shot{0};                // leakage injections per shot
 };
 
 inline double eps_from_PL(double PL, int R) { return PL < 0.5 ? 0.5 * (1 - std::pow(1 - 2 * PL, 1.0 / R)) : 0.5; }
@@ -410,6 +444,7 @@ struct MemorySetup {
     FrameProgram frame;
     DetectorErrorModel dem;
     std::unique_ptr<MatchingDecoder> decoder;
+    std::vector<char> is_data;                 // by sim index
 };
 
 inline MemorySetup prepare_memory(const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, int rounds) {
@@ -420,7 +455,24 @@ inline MemorySetup prepare_memory(const ChipDesign& D, const ChipReport& R, cons
     CompileOptions co; co.layout = "trivial";
     M.prog = compile(M.exp.circuit, chip_graph(D, R), co);
     if (M.prog.n_swaps) throw std::runtime_error("surface-code circuit needed SWAPs: couplers do not match the code layout");
-    M.frame = build_frame_program(M.prog, nm, true, M.exp.reference);
+    // data-qubit leakage removal: each data qubit is paired with a neighbouring measure qubit (least-loaded first)
+    std::map<int, std::vector<int>> partners;
+    if (nm.leakage && nm.dqlr) {
+        std::map<int, int> load;
+        for (std::size_t k = 0; k < M.code.data.size(); ++k) {
+            int best = -1;
+            for (const auto& st : M.code.stabs)
+                if (std::find(st.support.begin(), st.support.end(), int(k)) != st.support.end())
+                    if (best < 0 || load[st.qubit] < load[best]) best = st.qubit;
+            if (best >= 0) { ++load[best]; partners[D.index_of(best)].push_back(D.index_of(M.code.data[k].qubit)); }
+        }
+    }
+    M.frame = build_frame_program(M.prog, nm, true, M.exp.reference, partners);
+    {
+        const auto sim = sim_index(M.prog);
+        M.is_data.assign(std::size_t(M.frame.n), 0);
+        for (const auto& dq : M.code.data) { const int s = sim[std::size_t(D.index_of(dq.qubit))]; if (s >= 0) M.is_data[std::size_t(s)] = 1; }
+    }
     M.dem = build_dem(enumerate_faults(M.frame, M.exp), int(M.exp.detectors.size()));
     M.decoder = std::make_unique<MatchingDecoder>(M.dem);
     return M;
@@ -436,39 +488,87 @@ inline MemoryResult summarize(const MemorySetup& M, long shots, long errors, dou
     r.total_ns = M.prog.duration_ns;
     r.round_ns = M.prog.duration_ns / double(r.rounds);
     r.hyperedge_faults = M.dem.hyperedge_faults;
+    r.hyperedge_p = M.dem.hyperedge_p;
     r.undetectable_logical = M.dem.undetectable_logical;
     r.ignored_exchange_pairs = M.frame.ignored_exchange_pairs;
+    // The matching graph only has edges for faults that flip one or two detectors. Say so when the circuit has others:
+    // their errors are still simulated but the decoder has no prior for them, so the logical error is pessimistic for
+    // this decoder and not comparable to a hypergraph decoder.
+    if (r.hyperedge_faults > 0)
+        std::fprintf(stderr, "qec warning: d=%d, %d rounds: %d fault mechanisms flip >2 detectors (total p %.2e) and are missing from the "
+                     "matching graph\n", r.d, r.rounds, r.hyperedge_faults, r.hyperedge_p);
+    if (r.undetectable_logical > 0)
+        std::fprintf(stderr, "qec warning: d=%d, %d rounds: %d fault mechanisms flip the logical without any detector (distance-reducing)\n",
+                     r.d, r.rounds, r.undetectable_logical);
     return r;
 }
 
-// Fast Monte Carlo with Pauli frames.
+// Fast Monte Carlo with Pauli frames (+ leakage: a per-qubit flag outside the frame).
+//  * CZ leakage: with the pair's probability the moving qubit leaves the subspace (|11> -> |20>); its partner is
+//    projected, modelled as random X and Z.
+//  * a leaked qubit ignores single-qubit gates; a CZ with a leaked partner applies an uncontrolled conditional phase
+//    (random Z on the partner) and, with probability `transport`, moves the leakage to the partner;
+//  * a leaked qubit reads out as |1>; RESET removes leakage only if the reset is leakage-removing;
+//  * seepage |2> -> |1> at ~2/T1 returns the qubit in a random computational state; DQLR does so on demand.
 inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint64_t seed) {
     const auto& F = M.frame;
-    long errors = 0; double fired_sum = 0;
-#pragma omp parallel reduction(+ : errors, fired_sum)
+    long errors = 0; double fired_sum = 0, leak_d = 0, leak_m = 0, leak_ev = 0;
+    int n_data = 0; for (char c : M.is_data) n_data += c;
+    const int n_meas = F.n - n_data;
+#pragma omp parallel reduction(+ : errors, fired_sum, leak_d, leak_m, leak_ev)
     {
         int tid = 0, nth = 1;
 #ifdef _OPENMP
         tid = omp_get_thread_num(); nth = omp_get_num_threads();
 #endif
         Xoshiro256 rng(seed * 0x9E3779B97F4A7C15ULL + std::uint64_t(tid) * 7919ULL + 1);
-        std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1)));
+        std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
         std::vector<int> fired; std::vector<double> cost; std::vector<int> choice;
+        auto randomize = [&](int q) { x[std::size_t(q)] = rng.uniform() < 0.5; z[std::size_t(q)] = rng.uniform() < 0.5; };
         for (long s = tid; s < shots; s += nth) {
             std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0);
+            std::fill(L.begin(), L.end(), 0);
+            int nleaked = 0;
             for (const auto& fm : F.moments) {
                 for (const auto& o : fm.ops) {
-                    frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                    if (nleaked == 0 || !F.leakage) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                    else {
+                        const bool la = L[std::size_t(o.a)] != 0;
+                        if (o.op == Op::CZ) {
+                            const bool lb = L[std::size_t(o.b)] != 0;
+                            if (!la && !lb) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                            else if (la != lb) {
+                                const int leaked = la ? o.a : o.b, other = la ? o.b : o.a;
+                                if (rng.uniform() < 0.5) z[std::size_t(other)] ^= 1;
+                                if (F.transport > 0 && rng.uniform() < F.transport) { L[std::size_t(leaked)] = 0; randomize(leaked); L[std::size_t(other)] = 1; }
+                            }
+                        } else if (o.op == Op::MEASURE) {
+                            if (la) flips[std::size_t(o.cbit)] = o.ref >= 0 ? std::uint8_t(1 ^ o.ref) : std::uint8_t(rng.uniform() < 0.5);
+                            else frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                        } else if (o.op == Op::RESET) {
+                            if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                            else if (F.reset_removes_leakage) { L[std::size_t(o.a)] = 0; --nleaked; frame_detail::apply_op(o, x.data(), z.data(), flips.data()); }
+                        } else if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                    }
                     if (o.p > 0 && rng.uniform() < o.p) {
                         if (o.op == Op::MEASURE) flips[std::size_t(o.cbit)] ^= 1;
                         else if (o.op == Op::RESET) x[std::size_t(o.a)] ^= 1;
                     }
+                    if (F.leakage) {
+                        if (o.op == Op::CZ && o.pleak > 0 && !L[std::size_t(o.mover)] && rng.uniform() < o.pleak) {
+                            const int other = o.mover == o.a ? o.b : o.a;
+                            L[std::size_t(o.mover)] = 1; ++nleaked; leak_ev += 1;
+                            if (!L[std::size_t(other)]) randomize(other);
+                        } else if ((o.op == Op::SX || o.op == Op::X) && F.leak_1q > 0 && !L[std::size_t(o.a)] && rng.uniform() < F.leak_1q) {
+                            L[std::size_t(o.a)] = 1; ++nleaked; leak_ev += 1;
+                        }
+                    }
                 }
                 if (F.p1 > 0) for (int q : fm.ctrl1) if (rng.uniform() < F.p1) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
-                if (F.p2 > 0) for (auto [a, b] : fm.ctrl2) if (rng.uniform() < F.p2) {
+                for (const auto& c2 : fm.ctrl2) if (c2.p > 0 && rng.uniform() < c2.p) {
                     const int k = 1 + int(rng.uniform() * 15);
-                    if (k % 4) frame_detail::apply_pauli(k % 4, a, x.data(), z.data());
-                    if (k / 4) frame_detail::apply_pauli(k / 4, b, x.data(), z.data());
+                    if (k % 4) frame_detail::apply_pauli(k % 4, c2.a, x.data(), z.data());
+                    if (k / 4) frame_detail::apply_pauli(k / 4, c2.b, x.data(), z.data());
                 }
                 for (const auto& t : fm.zz) {
                     const double r = rng.uniform();
@@ -482,6 +582,21 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                     else if (r < dq.px + dq.py) { x[std::size_t(dq.q)] ^= 1; z[std::size_t(dq.q)] ^= 1; }
                     else if (r < dq.px + dq.py + dq.pz) z[std::size_t(dq.q)] ^= 1;
                 }
+                if (F.leakage) {
+                    for (int q : fm.dqlr) {
+                        if (L[std::size_t(q)] && rng.uniform() < F.dqlr_eff) { L[std::size_t(q)] = 0; --nleaked; randomize(q); }
+                        if (F.dqlr_err > 0 && rng.uniform() < F.dqlr_err) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
+                    }
+                    if (nleaked > 0) {
+                        int nd = 0, nmq = 0;
+                        for (int q = 0; q < F.n; ++q) if (L[std::size_t(q)]) { if (M.is_data[std::size_t(q)]) ++nd; else ++nmq; }
+                        leak_d += fm.duration_ns * nd; leak_m += fm.duration_ns * nmq;
+                        for (int q = 0; q < F.n; ++q)
+                            if (L[std::size_t(q)] && rng.uniform() < 1 - std::exp(-fm.duration_ns * F.seep_rate[std::size_t(q)])) {
+                                L[std::size_t(q)] = 0; --nleaked; randomize(q);
+                            }
+                    }
+                }
             }
             fired.clear();
             for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) {
@@ -493,7 +608,12 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
             if (M.decoder->decode(fired, cost, choice) != obs) ++errors;
         }
     }
-    return summarize(M, shots, errors, fired_sum);
+    auto r = summarize(M, shots, errors, fired_sum);
+    const double T = std::max(M.frame.duration_ns, 1e-12) * double(shots);
+    r.leak_frac_data = n_data ? leak_d / T / n_data : 0.0;
+    r.leak_frac_meas = n_meas ? leak_m / T / n_meas : 0.0;
+    r.leak_events_per_shot = leak_ev / double(shots);
+    return r;
 }
 
 // Exact-noise cross-check: statevector trajectories with mid-circuit measurement (one per shot).

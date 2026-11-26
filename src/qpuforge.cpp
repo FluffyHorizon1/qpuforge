@@ -1,9 +1,12 @@
 // qpuforge CLI — design, analyse and emulate superconducting QPU chips
 #include "qpuforge/qpuforge.hpp"
+#include "qpuforge/layout.hpp"
 #include <chrono>
 #include <cstdio>
+#include <fstream>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 
 using namespace qpuforge;
 
@@ -21,11 +24,21 @@ static void usage() {
         "  qpuforge qec <chip.json> [--rounds 2,4,6,8,10] [--shots N] [--statevector N] [--off SRC,..]\n"
         "                surface-code memory experiment: logical error per round (needs a surface layout)\n"
         "  qpuforge layout <chip.json> <out.svg>             chip floor-plan\n"
-        "  qpuforge new <chip.json> --preset alpha1|gen0 [--distance D]    named designs\n"
+        "  qpuforge cz <chip.json> [--out cal.json] [--cache file] [--g-qc MHz] [--f-on GHz] [--rise ns]\n"
+        "                pulse-level CZ calibration of every pair (physical tunable coupler)\n"
+        "  qpuforge gds <chip.json> <out.gds> [--cells cells.json] [--synthesize] [--cell NAME]\n"
+        "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, GDSII\n"
+        "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gen0 [--distance D]    named designs\n"
         "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"
         "\n"
         "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"
-        "  noise sources: T1 Tphi thermal zz exchange control readout");
+        "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage\n"
+        "  qec/cz on a chip with a physical coupler calibrate CZs first (--cache file reuses calibrations)");
+}
+
+static bool has_flag(int argc, char** argv, const char* key) {
+    for (int i = 1; i < argc; ++i) if (!std::strcmp(argv[i], key)) return true;
+    return false;
 }
 
 static std::string arg(int argc, char** argv, const char* key, const std::string& def = "") {
@@ -82,7 +95,8 @@ static int cmd_new(int argc, char** argv) {
     if (argc < 3) { usage(); return 1; }
     if (auto pre = arg(argc, argv, "--preset"); !pre.empty()) {
         const int d = std::stoi(arg(argc, argv, "--distance", "3"));
-        ChipDesign D = pre == "alpha1" ? alpha1(d) : (pre == "gen0" ? gen0_surface17(d) : throw std::runtime_error("unknown preset " + pre));
+        ChipDesign D = pre == "alpha1" ? alpha1(d) : pre == "alpha1v11" ? alpha1_v11(d) : pre == "beta1" ? beta1(d)
+                     : (pre == "gen0" ? gen0_surface17(d) : throw std::runtime_error("unknown preset " + pre));
         save_design(D, argv[2]);
         std::printf("wrote %s (%zu qubits, %zu couplers)\n", argv[2], D.qubits.size(), D.couplings.size());
         print_report(D, analyze(D));
@@ -231,10 +245,97 @@ static int cmd_layout(int argc, char** argv) {
     return 0;
 }
 
+static int cmd_cz(int argc, char** argv) {
+    if (argc < 3) { usage(); return 1; }
+    auto D = load_design(argv[2]);
+    D.coupler.physical = true;
+    if (auto v = arg(argc, argv, "--g-qc"); !v.empty()) D.coupler.g_qc_MHz = std::stod(v);
+    if (auto v = arg(argc, argv, "--f-on"); !v.empty()) D.coupler.f_on_GHz = std::stod(v);
+    if (auto v = arg(argc, argv, "--rise"); !v.empty()) D.coupler.t_rise_ns = std::stod(v);
+    auto R = analyze(D);
+    const auto cal = calibrate_chip_cz(D, R, true, arg(argc, argv, "--cache"));
+    std::printf("\n%s — pulse-level CZ calibration (coupler: f_max %.2f GHz, alpha %.0f MHz, g_qc %.0f MHz, on ~%.2f GHz, %.0f ns ramps)\n",
+                D.name.c_str(), D.coupler.f_max_GHz, D.coupler.alpha_GHz * 1e3, D.coupler.g_qc_MHz, D.coupler.f_on_GHz, D.coupler.t_rise_ns);
+    std::printf("  pair   mover  f_m/f_t GHz   g12 MHz  ZZ@park kHz  f_int  fc_on  t_cz ns  1-F coh  leak     flux     ctrl     total\n");
+    for (const auto& c : cal)
+        std::printf("  %2d-%-2d   q%-3d %.3f/%.3f   %6.2f    %+6.2f     %.3f  %.3f  %6.1f   %.1e  %.1e  %.1e  %.1e  %.1e\n", c.a, c.b, c.mover,
+                    c.f_mover, c.f_target, c.g12_MHz, c.zz_idle_kHz, c.f_int_GHz, c.fc_on_GHz, c.t_cz_ns, c.err_coherent, c.leakage + c.leak_spectators,
+                    c.err_flux_local + c.err_flux_quasistatic, c.err_ctrl, c.err_total);
+    double mt = 0, me = 0, ml = 0; for (const auto& c : cal) { mt += c.t_cz_ns; me += c.err_total; ml += c.leakage + c.leak_spectators; }
+    const double n = std::max<std::size_t>(cal.size(), 1);
+    std::printf("  mean: t_cz %.1f ns, CZ error %.2e (incl. decoherence), leakage %.1e per CZ\n", mt / n, me / n, ml / n);
+    if (auto out = arg(argc, argv, "--out"); !out.empty()) { std::ofstream f(out); cz_calibration_json(cal).dump(f); f << "\n"; std::printf("  wrote %s\n", out.c_str()); }
+    return 0;
+}
+
+static int cmd_gds(int argc, char** argv) {
+    if (argc < 4) { usage(); return 1; }
+    using namespace layout;
+    auto D = load_design(argv[2]);
+    auto R = analyze(D);
+    const std::string cells_path = arg(argc, argv, "--cells");
+    CellSet C; LayoutMetrics m; SynthesisLog log;
+    const auto T = targets_from_design(D, R);
+    bool have = false;
+    if (!cells_path.empty()) {
+        std::ifstream f(cells_path);
+        if (f && !has_flag(argc, argv, "--synthesize")) {
+            std::stringstream ss; ss << f.rdbuf();
+            const Json j = Json::parse(ss.str());
+            C = cells_from_json(j); have = true;
+            std::printf("loaded cell geometry from %s\n", cells_path.c_str());
+        }
+    }
+    if (!have) {
+        std::printf("synthesising cell geometry against the circuit targets (method of moments; ~5-10 min)...\n");
+        C.pitch = 900;
+        C = synthesize_cells(C, T, &log);
+        for (const auto& s : log.lines) std::printf("  %s\n", s.c_str());
+    }
+    m = evaluate_cells(C, MeshOptions{1.5, 50.0, 1.6});
+    if (!cells_path.empty()) {
+        Json j = cells_json(C, m, T, have ? nullptr : &log);
+        if (have) {                                   // keep the provenance of the loaded geometry
+            std::ifstream f0(cells_path); std::stringstream s0; s0 << f0.rdbuf();
+            const Json old = Json::parse(s0.str());
+            if (old.has("synthesis_log")) j.set("synthesis_log", old["synthesis_log"]);
+            if (old.has("max_rel_err")) j.set("max_rel_err", old["max_rel_err"]);
+        }
+        std::ofstream f(cells_path); j.dump(f); f << "\n";
+    }
+    const auto L = assemble_chip(D, C);
+    write_gds(L, argv[3], arg(argc, argv, "--cell", "TOP"));
+    std::printf("\n%s — layout: %.1f x %.1f mm, %zu etch polygons, %zu junction regions, %zu bump pads -> %s\n", D.name.c_str(),
+                L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), L.jj.size(), L.bumps.size(), argv[3]);
+    std::printf("  DRC: %s\n", drc_summary(L).c_str());
+    for (const auto& s : L.problems) std::printf("    %s\n", s.c_str());
+    for (std::size_t i = 0; i < L.drc.size() && i < 10; ++i)
+        std::printf("    %s %.3f um at (%.3f, %.3f) um\n", L.drc[i].rule.c_str(), L.drc[i].value, L.drc[i].box.cx(), L.drc[i].box.cy());
+    std::printf("  extracted circuit (fine mesh) vs targets:\n");
+    auto row = [](const char* n, double a, double t) { std::printf("    %-28s %10.5f  target %10.5f  (%+.2f%%)\n", n, a, t, 100 * (a / t - 1)); };
+    row("E_C measure (GHz)", m.EC_m, T.EC_m); row("E_C data (GHz)", m.EC_d, T.EC_d); row("E_C coupler (GHz)", m.EC_c, T.EC_c);
+    row("G measure-coupler (GHz/nn)", m.G_mc, T.G_mc); row("G coupler-data (GHz/nn)", m.G_cd, T.G_cd); row("G measure-data (GHz/nn)", m.G_md, T.G_md);
+    row("C qubit-readout (fF)", m.C_qr_fF, T.C_qr_fF);
+    const auto P = post_layout(D, R, m);
+    std::printf("  post-layout circuit: alpha m/d/c %.1f/%.1f/%.1f MHz, g_qc %.1f MHz, g12 %.2f MHz (exchange-free park needs %.2f),\n"
+                "    residual parked |11>-|20> gap %.3f MHz -> spectator transfer %.1e per crossing, ZZ at park %+.2f kHz, readout g %.1f MHz (design %.1f)\n",
+                P.alpha_m * 1e3, P.alpha_d * 1e3, P.alpha_c * 1e3, P.g_qc_MHz, P.g12_MHz, P.g12_null_MHz, P.residual_gap_MHz, P.spectator_LZ, P.zz_park_kHz,
+                P.g_r_MHz, P.g_r_target_MHz);
+    std::printf("  re-null by parking the couplers at %.3f GHz (%.0f MHz below the sweet spot, df/dPhi %.2f GHz/Phi0): residual gap %.3f MHz, ZZ %+.2f kHz\n",
+                P.park_fc_GHz, (D.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
+    for (const auto& r : L.resonators) if (std::abs(r.drawn_um - r.target_um) > 1) std::printf("    resonator R%d length %.0f um vs target %.0f um\n", r.qubit, r.drawn_um, r.target_um);
+    return L.drc_clean() ? 0 : 2;
+}
+
 static int cmd_qec(int argc, char** argv) {
     if (argc < 3) { usage(); return 1; }
-    const auto D = load_design(argv[2]);
-    const auto R = analyze(D);
+    auto D = load_design(argv[2]);
+    if (auto v = arg(argc, argv, "--leakage-removal"); !v.empty()) {
+        D.leakage.reset_removes_leakage = v == "lrr" || v == "lrr+dqlr";
+        D.leakage.dqlr = v == "dqlr" || v == "lrr+dqlr";
+    }
+    auto R = analyze(D);
+    if (D.coupler.physical) calibrate_chip_cz(D, R, true, arg(argc, argv, "--cache"));
     auto nm = noise_model(D, R);
     if (auto off = arg(argc, argv, "--off"); !off.empty()) { std::stringstream ss(off); std::string s; while (std::getline(ss, s, ',')) nm.disable(s); }
     std::vector<int> rounds;
@@ -249,7 +350,9 @@ static int cmd_qec(int argc, char** argv) {
         const auto M = prepare_memory(D, R, nm, r);
         const auto res = run_memory_frame(M, shots, seed + unsigned(r));
         all.push_back(res);
-        std::printf("  %5d   %8.0f   %8.4f    %.5f +- %.5f   %.5f\n", r, res.round_ns, res.detection_rate, res.p_logical, res.p_logical_sem, res.eps_per_round);
+        std::printf("  %5d   %8.0f   %8.4f    %.5f +- %.5f   %.5f", r, res.round_ns, res.detection_rate, res.p_logical, res.p_logical_sem, res.eps_per_round);
+        if (M.frame.leakage) std::printf("   leaked: data %.1e meas %.1e", res.leak_frac_data, res.leak_frac_meas);
+        std::printf("\n");
         if (res.ignored_exchange_pairs) std::printf("    ! %d near-degenerate exchange pair(s) not modelled by the Pauli-frame simulator\n", res.ignored_exchange_pairs);
         if (sv_shots > 0 && r == rounds.front()) {
             const auto sv = run_memory_statevector(M, nm, sv_shots, seed);
@@ -276,6 +379,8 @@ int main(int argc, char** argv) {
         if (cmd == "fab") return cmd_fab(argc, argv);
         if (cmd == "qec") return cmd_qec(argc, argv);
         if (cmd == "layout") return cmd_layout(argc, argv);
+        if (cmd == "cz") return cmd_cz(argc, argv);
+        if (cmd == "gds") return cmd_gds(argc, argv);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 2;

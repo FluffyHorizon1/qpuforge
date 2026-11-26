@@ -9,4 +9,5 @@
 #include "emulator.hpp"
 #include "surface.hpp"
 #include "qec.hpp"
+#include "pulse.hpp"
 #include "presets.hpp"

@@ -22,3 +22,7 @@ endforeach()
 set_target_properties(qpuforge_cli PROPERTIES OUTPUT_NAME qpuforge)
 enable_testing()
 add_test(NAME validation COMMAND test_qpuforge)
+# CTest ignores the process exit code when a PASS_REGULAR_EXPRESSION is set,
+# so the harness summary is the gate: any non-zero failure count fails the test.
+set_tests_properties(validation PROPERTIES
+  PASS_REGULAR_EXPRESSION "[0-9]+ checks passed, 0 failed")

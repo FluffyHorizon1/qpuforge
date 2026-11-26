@@ -36,10 +36,17 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 96 validation checks (~6 min on 2 cores)
+./build/test_qpuforge          # 101 validation checks (~2 min on 8 cores); or: ctest --test-dir build -LE smoke
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
-./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
+./build/beta1_review 60000     # Beta-1 review        -> designs/beta1/beta1_review.json
 ```
+
+`ctest` runs one entry per test, labelled `unit`, `physics`, `pulse`, `qec`, `layout` and `smoke`.
+
+- The two `smoke` entries run both review programs end to end with 200 shots. They write into the build tree and leave
+  the committed outputs untouched.
+- Each review program also takes `--out DIR`, `--cache FILE` and `--smoke`; see `examples/review_io.hpp`.
+- Committed review outputs record their source commit, compiler, seeds and date (`results/PROVENANCE.md`).
 
 ## CLI
 
@@ -84,7 +91,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Dynamic circuits | Mid-circuit measurement (collapse + assignment error), reset (+ reset error) | Classical record per shot |
 | Error correction | Rotated surface code of any odd d; memory experiment; detector error model; decoder | Pauli-frame Monte Carlo with state-aware decoherence and coherent-ZZ windows; DEM from single-fault enumeration; exact minimum-weight matching |
 
-## Validation (`tests/test_qpuforge.cpp`, 96 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 101 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -101,12 +108,14 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   experiments give zero detection events.
 * Circuit distance: every single fault is corrected at d = 3 (6,434 faults). At d = 5 every single fault (12,975) and 20,000
   random fault pairs are corrected.
-* Pauli-frame model vs exact statevector trajectories: detection rates and logical error agree within statistics.
+* Pauli-frame model vs exact statevector trajectories (1,000): detection rates and logical error agree within statistics
+  (P_L 0.0240 ± 0.0048 vs 0.0243).
 * Eigensolver: Householder + QL vs Jacobi on random symmetric matrices (eigenvalues to 1e-13, orthogonality 4e-15).
 * Pulse-level CZ: charge matrix elements stay continuous over a 0–0.32 Φ0 flux sweep (no sign flips). Idle evolution
   reproduces the static ZZ phase to 1e-14 rad. The |11⟩–|20⟩ gap with the coupler on matches 2nd-order perturbation theory
   (36.2 vs 34.9 MHz). The designed g12 nulls the parked exchange (< 1e-5 MHz). Calibrated CZ: 40 ns, 1−F = 1.0e-4,
-  leakage 6.8e-5, |φ−π| < 2e-3. Halving dt changes F by 6e-7.
+  leakage 6.6e-5, |φ−π| < 2e-3. Halving dt changes F by 6e-7. With 4/4/4 levels, one more coupler level changes the CZ
+  phase by 6e-5 rad and one more qubit level by 2e-4 rad. The earlier default of 3 coupler levels was off by 4e-3 rad.
 * Leakage frame model: bit-identical to the leakage-free model when all rates are zero. Gate-leakage plus seepage
   populations match the two-state Markov solution (within 3.5 %). A leakage-removing reset clears measure-qubit leakage
   (5× lower) and DQLR clears data-qubit leakage (3× lower).
@@ -115,6 +124,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 * Layout: unit square plate capacitance vs the accepted value 0.3667874·4πε0·a (−0.04 %). CPW capacitance per length vs
   conformal mapping (−1.3 % on the design mesh, −0.6 % refined). Overlapping conductors are rejected. The AF-17 chip
   passes the placement and island-spacing checks, all 17 resonators sit at their quarter-wave lengths, and the GDSII stream parses back record by record.
+  A synthetic layer exercises the merged-etch width/space DRC; the AF-17 first-cut layout is not clean on that check (34 width + 202 space violations at 4 µm).
   `tools/gds_preview.py` is an independent Python GDSII reader and renderer.
 
 ## Example: 3×3 chip design study (`examples/design_study.cpp`)
@@ -136,9 +146,9 @@ The tunable coupler wins clearly. With fixed coupling, faster gates and always-o
 
 | Design | Code distance | Logical error per round | Notes |
 |---|---|---|---|
-| Alpha-1 v1.1 (AF-17) | 3 | **0.370 %** | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 251 µs = 3.3× best T1 |
-| Alpha-1 v1.1 physics | 5 | 0.128 % | Λ(3→5) = 2.89 |
-| Beta-1 (BF-49) | 3 / 5 / 7 | 0.0815 % / **0.0172 %** / 0.0057 % | Λ(3→5) = 4.75, Λ(5→7) = 3.1; d = 5 logical lifetime 4.3 ms = 27× best T1 |
+| Alpha-1 v1.1 (AF-17) | 3 | **0.368 %** | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 252 µs = 3.3× best T1 |
+| Alpha-1 v1.1 physics | 5 | 0.123 % | Λ(3→5) = 3.12 |
+| Beta-1 (BF-49) | 3 / 5 / 7 | 0.0827 % / **0.0155 %** / 0.0046 % | Λ(3→5) = 5.3 ± 0.4, Λ(5→7) = 4.0 ± 0.8 (matched-model best case); d = 5 logical lifetime 4.7 ms = 30× best T1 |
 
 ## Limitations (read before trusting numbers)
 

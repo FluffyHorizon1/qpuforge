@@ -371,7 +371,7 @@ inline CZCalibration calibrate_cz_pair(double f_hi, double a_hi, double f_lo, do
     // quasi-static flux noise on the mover and the coupler: curvature of 1 - F (local Z phases are corrected away in F,
     // so this captures conditional-phase and leakage sensitivity)
     const double h = 2e-4;
-    auto inf = [&](double d1, double dc) { CZPulse q = P; q.flux1_int += d1; q.fluxc_on += dc; return 1 - simulate_cz(S, q).fidelity; };
+    auto inf = [&, Pc = P](double d1, double dc) { CZPulse q = Pc; q.flux1_int += d1; q.fluxc_on += dc; return 1 - simulate_cz(S, q).fidelity; };
     const double e0 = c.err_coherent;
     const double c1 = (inf(h, 0) - 2 * e0 + inf(-h, 0)) / (h * h), cc = (inf(0, h) - 2 * e0 + inf(0, -h)) / (h * h);
     c.err_flux_quasistatic = std::max(0.0, c1) + std::max(0.0, cc);   // times sigma^2 / 2 later (needs the chip's A)

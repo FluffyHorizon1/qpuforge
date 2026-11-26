@@ -1,13 +1,23 @@
 // qpuforge validation suite — every layer checked against independent physics or an independent computation
 #include "qpuforge/qpuforge.hpp"
 #include "qpuforge/layout.hpp"
-#include <fstream>
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
 
 using namespace qpuforge;
 static int g_fail = 0, g_pass = 0;
 #define CHECK(cond, ...) do { if (cond) { ++g_pass; } else { ++g_fail; std::printf("  FAIL %s:%d  ", __FILE__, __LINE__); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)
+
+// unique scratch path in the system temp directory (no fixed /tmp names: parallel ctest runs and non-POSIX systems)
+static std::string temp_path(const std::string& name) {
+    static const std::string tag = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    return (std::filesystem::temp_directory_path() / ("qpuforge_" + tag + "_" + name)).string();
+}
 
 static M2 random_unitary(std::mt19937& rng) {
     std::uniform_real_distribution<double> U(0, 2 * PI);
@@ -439,12 +449,17 @@ static void test_frame_vs_statevector() {
     const auto R = analyze(D); auto nm = noise_model(D, R); nm.only("T1");
     const auto M = prepare_memory(D, R, nm, 2);
     const auto fr = run_memory_frame(M, 200000, 5);
-    const auto sv = run_memory_statevector(M, nm, 240, 9);
-    const double sem = std::sqrt(sv.detection_rate * (1 - sv.detection_rate) / (240.0 * double(M.exp.detectors.size())));
-    std::printf("  detection rate: statevector %.4f +- %.4f | Pauli frame %.4f ; P_L statevector %.4f +- %.4f | frame %.4f\n",
-                sv.detection_rate, sem, fr.detection_rate, sv.p_logical, sv.p_logical_sem, fr.p_logical);
-    CHECK(std::abs(sv.detection_rate - fr.detection_rate) < 4 * sem + 0.004, "frame model detection rate");
-    CHECK(std::abs(sv.p_logical - fr.p_logical) < 4 * sv.p_logical_sem + 0.005, "frame model logical error");
+    // 1000 trajectories: P_L standard error ~0.005 (was 240 shots, +-0.012, which could not resolve a 2x model error).
+    // The frame model Pauli-twirls amplitude damping, so a small systematic offset (~0.003 in detection rate) is allowed.
+    const long nsv = 1000;
+    const auto sv = run_memory_statevector(M, nm, nsv, 9);
+    const double sem = std::sqrt(sv.detection_rate * (1 - sv.detection_rate) / (double(nsv) * double(M.exp.detectors.size())));
+    const double sem_pl = std::hypot(sv.p_logical_sem, fr.p_logical_sem);
+    std::printf("  detection rate: statevector %.4f +- %.4f | Pauli frame %.4f ; P_L statevector %.4f +- %.4f | frame %.4f +- %.4f\n",
+                sv.detection_rate, sem, fr.detection_rate, sv.p_logical, sv.p_logical_sem, fr.p_logical, fr.p_logical_sem);
+    CHECK(std::abs(sv.detection_rate - fr.detection_rate) < 3 * sem + 0.004, "frame model detection rate");
+    CHECK(std::abs(sv.p_logical - fr.p_logical) < 3 * sem_pl + 0.003, "frame model logical error |%.4f - %.4f| vs %.4f", sv.p_logical, fr.p_logical,
+          3 * sem_pl + 0.003);
 }
 
 static void test_eigensolver() {
@@ -510,8 +525,11 @@ static void test_pulse_cz() {
         const double g1c = S.G1c * s1.n(0, 1) * sc.n(0, 1), g2c = S.G2c * s2.n(0, 1) * sc.n(0, 1), g12e = S.G12 * s1.n(0, 1) * s2.n(0, 1);
         const double fc = S.c.f01(xc), f2 = S.q2.f01(0.0);
         const double pert = 2 * std::sqrt(2.0) * std::abs(g12e + g1c * g2c / (f2 - fc));
-        std::printf("  coupler on at %.2f GHz: |11>-|20> gap %.2f MHz, perturbative %.2f MHz\n", fc, gap * 1e3, pert * 1e3);
-        CHECK(std::abs(gap - pert) < 0.2 * pert, "gap vs perturbation theory");
+        // the neglected next order is O((g/Delta)^2) relative; allow 1.5x the larger of the two dispersive ratios (was a flat 20 %)
+        const double f1 = S.q1.f01(x1), nlo = std::max(std::pow(g1c / (f1 - fc), 2), std::pow(g2c / (f2 - fc), 2));
+        std::printf("  coupler on at %.2f GHz: |11>-|20> gap %.2f MHz, perturbative %.2f MHz (%+.1f%%; next order ~%.1f%%)\n", fc, gap * 1e3, pert * 1e3,
+                    100 * (gap / pert - 1), 100 * nlo);
+        CHECK(std::abs(gap - pert) < 1.5 * nlo * pert, "gap vs perturbation theory");
     }
     // calibration of the 3 knobs
     const auto [P, R] = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns);
@@ -523,6 +541,18 @@ static void test_pulse_cz() {
     CHECK(std::abs(R.cphase - PI) < 5e-3, "CZ conditional phase");
     CHECK(R.duration_ns > 30 && R.duration_ns < 60, "CZ duration %.1f", R.duration_ns);
     CHECK(std::abs(Rf.fidelity - R.fidelity) < 2e-6, "time-step convergence");
+    // level-truncation convergence: the calibrated pulse re-simulated with one more coupler / qubit level
+    // (Lc = 3 was not converged: it left ~4e-3 rad of conditional-phase error, hence the default Lc = 4)
+    {
+        CZSystem Tc = S; Tc.Lc = S.Lc + 1;
+        CZSystem Tq = S; Tq.L1 = S.L1 + 1; Tq.L2 = S.L2 + 1;
+        const auto rc = simulate_cz(Tc, P), rq = simulate_cz(Tq, P);
+        std::printf("  truncation L%d/%d/%d: Lc+1 changes F by %.1e, phase by %+.1e rad; L1,L2+1 changes F by %.1e, phase by %+.1e rad\n",
+                    S.L1, S.Lc, S.L2, rc.fidelity - R.fidelity, rc.cphase - R.cphase, rq.fidelity - R.fidelity, rq.cphase - R.cphase);
+        CHECK(S.Lc >= 4, "default coupler truncation Lc = %d", S.Lc);
+        CHECK(std::abs(rc.fidelity - R.fidelity) < 2e-6 && std::abs(rc.cphase - R.cphase) < 5e-4, "coupler-level truncation not converged");
+        CHECK(std::abs(rq.fidelity - R.fidelity) < 2e-6 && std::abs(rq.cphase - R.cphase) < 5e-4, "qubit-level truncation not converged");
+    }
 }
 
 static void test_leakage_frame() {
@@ -569,13 +599,15 @@ static void test_leakage_frame() {
             return run_memory_frame(prepare_memory(D, R, nm, 15), 20000, 13);
         };
         const auto none = run(false, false), lrr = run(true, false), both = run(true, true);
-        std::printf("  CZ leakage 2e-3 (15 rounds): leaked measure fraction %.1e -> %.1e with leakage-removing reset;"
+        std::printf("  CZ leakage 2e-3 (15 rounds): leaked measure fraction %.1e -> %.1e with leakage-removing reset (%.1e with DQLR too);"
                     " data %.1e -> %.1e with DQLR; detection %.4f / %.4f / %.4f\n",
-                    none.leak_frac_meas, lrr.leak_frac_meas, lrr.leak_frac_data, both.leak_frac_data, none.detection_rate, lrr.detection_rate,
-                    both.detection_rate);
-        CHECK(lrr.leak_frac_meas < 0.3 * none.leak_frac_meas, "LRR does not remove measure-qubit leakage");
-        CHECK(both.leak_frac_data < 0.5 * lrr.leak_frac_data, "DQLR does not remove data leakage");
-        CHECK(lrr.detection_rate < none.detection_rate, "leakage removal should reduce detection events");
+                    none.leak_frac_meas, lrr.leak_frac_meas, both.leak_frac_meas, lrr.leak_frac_data, both.leak_frac_data, none.detection_rate,
+                    lrr.detection_rate, both.detection_rate);
+        // observed ratios: 0.19 (LRR, measure), 0.29 (DQLR, data), 0.63 (detection); bounds leave ~30 % margin
+        CHECK(lrr.leak_frac_meas < 0.25 * none.leak_frac_meas, "LRR does not remove measure-qubit leakage");
+        CHECK(both.leak_frac_data < 0.4 * lrr.leak_frac_data, "DQLR does not remove data leakage");
+        CHECK(lrr.detection_rate < 0.8 * none.detection_rate, "leakage removal should reduce detection events");
+        CHECK(both.leak_frac_meas <= 1.2 * lrr.leak_frac_meas, "DQLR should not add measure-qubit leakage");
     }
 }
 
@@ -605,7 +637,7 @@ static void test_calibrated_noise_plumbing() {
 }
 
 static void test_layout() {
-    std::puts("[layout] MoM capacitance vs exact results, geometry checks, GDSII round trip, chip DRC");
+    std::puts("[layout] MoM capacitance vs exact results, geometry checks, width/space DRC, GDSII round trip, chip assembly");
     using namespace layout;
     {   // unit square plate: C = 0.3667874 * 4 pi eps0 a (Read 1997)
         Conductor sq; sq.name = "plate"; sq.rects = {{0, 0, 1000, 1000}};
@@ -630,16 +662,29 @@ static void test_layout() {
         Conductor b; b.name = "b"; b.rects = {{5, 5, 20, 20}};
         CHECK(!check_geometry({a, b}).empty(), "overlap not detected");
     }
-    {   // chip assembly: DRC clean, resonators at quarter-wave length, GDSII parses back
+    {   // merged-region width/space check on a synthetic layer with known violations
+        const std::vector<Rect> rs{{0, 0, 10, 10}, {10.5, 0, 20, 10},     // 0.5 um gap: 1 space marker
+                                   {30, 0, 30.3, 10},                     // 0.3 um sliver: 1 width marker
+                                   {40, 0, 50, 10}, {45, 0, 55, 10},      // overlapping rects merge to 15 um: clean
+                                   {60, 0, 70, 10}, {70, 0, 80, 10},      // abutting rects merge: no false 0-width gap
+                                   {100, 20, 100.5, 1000}};               // 0.5 um line through 4 tiles: 1 marker
+        const auto m = detail::width_space_check(rs, 1.0, 1.0, "t");
+        int nw = 0, ns = 0; for (const auto& x : m) (x.rule.find("width") != std::string::npos ? nw : ns)++;
+        std::printf("  width/space check on a synthetic layer: %d width, %d space markers (expected 2, 1)\n", nw, ns);
+        CHECK(nw == 2 && ns == 1, "width/space markers %d/%d", nw, ns);
+    }
+    {   // chip assembly: placement checks clean, resonators at quarter-wave length, GDSII parses back
         const auto D = alpha1_v11(3);
         CellSet cs; cs.meas.L = 129.3; cs.data.L = 131.9; cs.cg.pad = 252.6; cs.cg.l_c = 43.5; cs.cg.l_b = 0.1; cs.meas.r_pad = cs.data.r_pad = 40.9;
         cs.meas.T = cs.data.T = 120; cs.cg.y1 = 32.5;
         const auto L = assemble_chip(D, cs);
         double worst = 0; for (const auto& r : L.resonators) worst = std::max(worst, std::abs(r.drawn_um - r.target_um));
-        CHECK(L.problems.empty(), "chip DRC: %s", L.problems.empty() ? "" : L.problems.front().c_str());
+        CHECK(L.problems.empty(), "chip placement/spacing: %s", L.problems.empty() ? "" : L.problems.front().c_str());
+        std::printf("  AF-17 mask DRC (not asserted; first-cut layout): %s\n", drc_summary(L).c_str());
         CHECK(worst < 1.0 && L.resonators.size() == 17, "resonator lengths");
-        write_gds(L, "/tmp/qpuforge_test.gds", "T");
-        std::ifstream f("/tmp/qpuforge_test.gds", std::ios::binary);
+        const std::string gds_path = temp_path("af17.gds");
+        write_gds(L, gds_path, "T");
+        std::ifstream f(gds_path, std::ios::binary);
         std::vector<unsigned char> b((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         std::size_t i = 0; int boundaries = 0, records = 0; bool ok = true; int last = -1;
         while (i + 4 <= b.size()) {
@@ -649,32 +694,48 @@ static void test_layout() {
             ++records; i += std::size_t(n);
         }
         const std::size_t expect = L.etch.size() + L.jj.size() + L.bumps.size() + 1;
-        std::printf("  AF-17 layout: %zu etch polygons, DRC %s; GDSII: %d records, %d boundaries (expected %zu), ends with ENDLIB: %s\n", L.etch.size(),
+        std::printf("  AF-17 layout: %zu etch polygons, placement %s; GDSII: %d records, %d boundaries (expected %zu), ends with ENDLIB: %s\n", L.etch.size(),
                     L.problems.empty() ? "clean" : "violations", records, boundaries, expect, last == 0x04 ? "yes" : "no");
         CHECK(ok && last == 0x04 && std::size_t(boundaries) == expect, "GDSII stream structure");
     }
 }
 
-int main() {
-    test_decomposition();
-    test_transmon();
-    test_zz_and_inverse_design();
-    test_qasm();
-    test_compiler();
-    test_decoherence();
-    test_exchange();
-    test_trajectories_vs_exact();
-    test_ghz_metric();
-    test_xeb();
-    test_dynamic_circuits();
-    test_surface_geometry();
-    test_qec_circuits();
-    test_frame_vs_statevector();
-    test_eigensolver();
-    test_pulse_cz();
-    test_leakage_frame();
-    test_calibrated_noise_plumbing();
-    test_layout();
+static const std::vector<std::pair<const char*, void (*)()>> kTests = {
+    {"decomposition", test_decomposition},
+    {"transmon", test_transmon},
+    {"zz_and_inverse_design", test_zz_and_inverse_design},
+    {"qasm", test_qasm},
+    {"compiler", test_compiler},
+    {"decoherence", test_decoherence},
+    {"exchange", test_exchange},
+    {"trajectories_vs_exact", test_trajectories_vs_exact},
+    {"ghz_metric", test_ghz_metric},
+    {"xeb", test_xeb},
+    {"dynamic_circuits", test_dynamic_circuits},
+    {"surface_geometry", test_surface_geometry},
+    {"qec_circuits", test_qec_circuits},
+    {"frame_vs_statevector", test_frame_vs_statevector},
+    {"eigensolver", test_eigensolver},
+    {"pulse_cz", test_pulse_cz},
+    {"leakage_frame", test_leakage_frame},
+    {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
+    {"layout", test_layout},
+};
+
+// test_qpuforge            run every test
+// test_qpuforge NAME...    run the named tests (CTest runs one test per entry, see CMakeLists.txt)
+// test_qpuforge --list     print the test names
+int main(int argc, char** argv) {
+    std::vector<std::string> want(argv + 1, argv + argc);
+    if (want.size() == 1 && want[0] == "--list") { for (const auto& t : kTests) std::puts(t.first); return 0; }
+    int ran = 0;
+    for (const auto& [name, fn] : kTests) {
+        if (!want.empty() && std::find(want.begin(), want.end(), name) == want.end()) continue;
+        const auto t0 = std::chrono::steady_clock::now();
+        fn(); ++ran;
+        std::printf("  (%s: %.1f s)\n", name, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+    }
+    if (ran == 0 || (!want.empty() && ran != int(want.size()))) { std::printf("unknown test name(s)\n"); return 2; }
     std::printf("\n%d checks passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -307,8 +307,10 @@ static int cmd_gds(int argc, char** argv) {
     write_gds(L, argv[3], arg(argc, argv, "--cell", "TOP"));
     std::printf("\n%s — layout: %.1f x %.1f mm, %zu etch polygons, %zu junction regions, %zu bump pads -> %s\n", D.name.c_str(),
                 L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), L.jj.size(), L.bumps.size(), argv[3]);
-    std::printf("  DRC (10 um spacing, 4 um at designed coupling gaps): %s\n", L.problems.empty() ? "clean" : "VIOLATIONS");
+    std::printf("  DRC: %s\n", drc_summary(L).c_str());
     for (const auto& s : L.problems) std::printf("    %s\n", s.c_str());
+    for (std::size_t i = 0; i < L.drc.size() && i < 10; ++i)
+        std::printf("    %s %.3f um at (%.3f, %.3f) um\n", L.drc[i].rule.c_str(), L.drc[i].value, L.drc[i].box.cx(), L.drc[i].box.cy());
     std::printf("  extracted circuit (fine mesh) vs targets:\n");
     auto row = [](const char* n, double a, double t) { std::printf("    %-28s %10.5f  target %10.5f  (%+.2f%%)\n", n, a, t, 100 * (a / t - 1)); };
     row("E_C measure (GHz)", m.EC_m, T.EC_m); row("E_C data (GHz)", m.EC_d, T.EC_d); row("E_C coupler (GHz)", m.EC_c, T.EC_c);
@@ -322,7 +324,7 @@ static int cmd_gds(int argc, char** argv) {
     std::printf("  re-null by parking the couplers at %.3f GHz (%.0f MHz below the sweet spot, df/dPhi %.2f GHz/Phi0): residual gap %.3f MHz, ZZ %+.2f kHz\n",
                 P.park_fc_GHz, (D.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
     for (const auto& r : L.resonators) if (std::abs(r.drawn_um - r.target_um) > 1) std::printf("    resonator R%d length %.0f um vs target %.0f um\n", r.qubit, r.drawn_um, r.target_um);
-    return L.problems.empty() ? 0 : 2;
+    return L.drc_clean() ? 0 : 2;
 }
 
 static int cmd_qec(int argc, char** argv) {

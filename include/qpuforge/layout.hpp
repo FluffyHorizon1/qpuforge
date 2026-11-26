@@ -605,7 +605,90 @@ inline std::vector<Rect> subtract(const Rect& a, const Rect& b) {
     if (b.x1 < a.x1) out.push_back({b.x1, y0, a.x1, y1});
     return out;
 }
+
+// Exact minimum-width / minimum-space check of a merged Manhattan region (union of rects), projection metric: in every
+// horizontal strip between consecutive edge coordinates the region is a set of disjoint x-intervals; an interval shorter
+// than min_width is a width violation and a gap between neighbouring intervals shorter than min_space is a space
+// violation (likewise in vertical strips). Corner-to-corner (Euclidean) spacing is not checked. Runs in tiles with a halo;
+// markers that continue across strips or tiles are merged, so one violation = one marker.
+struct DrcMarker { std::string rule; Rect box; double value; };
+inline std::vector<DrcMarker> width_space_check(const std::vector<Rect>& region, double min_width, double min_space,
+                                                const std::string& name, double tile = 250) {
+    std::vector<DrcMarker> raw;
+    if (region.empty()) return raw;
+    const Rect ext = bbox_of(region);
+    const double halo = std::max(min_width, min_space) + 1, eps = 1e-7;
+    for (int dir = 0; dir < 2; ++dir) {                           // dir 0: x-intervals in horizontal strips; 1: transposed
+        std::vector<Rect> rs;
+        for (const auto& r : region) rs.push_back(dir ? Rect{r.y0, r.x0, r.y1, r.x1} : r);
+        const Rect E = dir ? Rect{ext.y0, ext.x0, ext.y1, ext.x1} : ext;
+        std::sort(rs.begin(), rs.end(), [](const Rect& a, const Rect& b) { return a.y0 < b.y0; });
+        const int ntx = std::max(1, int(std::ceil(E.w() / tile))), nty = std::max(1, int(std::ceil(E.h() / tile)));
+        for (int ty = 0; ty < nty; ++ty) for (int tx = 0; tx < ntx; ++tx) {
+            const Rect core{E.x0 + tx * tile, E.y0 + ty * tile, E.x0 + (tx + 1) * tile, E.y0 + (ty + 1) * tile};
+            const Rect win = core.grow(halo);
+            std::vector<Rect> w;
+            for (const auto& r : rs) {
+                if (r.y0 >= win.y1) break;
+                if (!r.intersects(win)) continue;
+                w.push_back({std::max(r.x0, win.x0), std::max(r.y0, win.y0), std::min(r.x1, win.x1), std::min(r.y1, win.y1)});
+            }
+            std::vector<double> ys;
+            for (const auto& r : w) { ys.push_back(r.y0); ys.push_back(r.y1); }
+            std::sort(ys.begin(), ys.end());
+            ys.erase(std::unique(ys.begin(), ys.end(), [&](double a, double b) { return b - a < eps; }), ys.end());
+            for (std::size_t k = 0; k + 1 < ys.size(); ++k) {
+                const double ya = ys[k], yb = ys[k + 1], ym = 0.5 * (ya + yb);
+                if (yb - ya < eps || ym < core.y0 || ym >= core.y1) continue;
+                std::vector<std::pair<double, double>> iv;
+                for (const auto& r : w) if (r.y0 < ym && r.y1 > ym) iv.push_back({r.x0, r.x1});
+                std::sort(iv.begin(), iv.end());
+                std::vector<std::pair<double, double>> m;
+                for (const auto& v : iv) { if (!m.empty() && v.first <= m.back().second + eps) m.back().second = std::max(m.back().second, v.second); else m.push_back(v); }
+                auto emit = [&](const char* rule, double a, double b) {
+                    const double xm = 0.5 * (a + b);
+                    if (xm < core.x0 || xm >= core.x1) return;
+                    const Rect bx = dir ? Rect{ya, a, yb, b} : Rect{a, ya, b, yb};
+                    raw.push_back({name + (dir ? ".v." : ".h.") + rule, bx, b - a});
+                };
+                for (std::size_t i = 0; i < m.size(); ++i) {
+                    const bool clipped = m[i].first <= win.x0 + eps || m[i].second >= win.x1 - eps;
+                    if (!clipped && m[i].second - m[i].first < min_width - eps) emit("width", m[i].first, m[i].second);
+                    if (i + 1 < m.size() && m[i + 1].first - m[i].second < min_space - eps) emit("space", m[i].second, m[i + 1].first);
+                }
+            }
+        }
+    }
+    // merge markers that continue into the next strip / tile (same rule and interval, touching boxes)
+    std::sort(raw.begin(), raw.end(), [](const DrcMarker& a, const DrcMarker& b) {
+        const bool va = a.rule.find(".v.") != std::string::npos;
+        const double a0 = va ? a.box.y0 : a.box.x0, b0 = va ? b.box.y0 : b.box.x0;
+        if (a.rule != b.rule) return a.rule < b.rule;
+        if (std::abs(a0 - b0) > 1e-7) return a0 < b0;
+        if (std::abs(a.value - b.value) > 1e-7) return a.value < b.value;
+        return (va ? a.box.x0 : a.box.y0) < (va ? b.box.x0 : b.box.y0);
+    });
+    std::vector<DrcMarker> out;
+    for (const auto& r : raw) {
+        if (!out.empty()) {
+            auto& o = out.back();
+            const bool v = r.rule.find(".v.") != std::string::npos;
+            const bool same = o.rule == r.rule && std::abs(o.value - r.value) < 1e-7 &&
+                              std::abs((v ? o.box.y0 : o.box.x0) - (v ? r.box.y0 : r.box.x0)) < 1e-7;
+            const bool touch = v ? r.box.x0 <= o.box.x1 + 1e-7 : r.box.y0 <= o.box.y1 + 1e-7;
+            if (same && touch) { o.box.x1 = std::max(o.box.x1, r.box.x1); o.box.y1 = std::max(o.box.y1, r.box.y1); continue; }
+        }
+        out.push_back(r);
+    }
+    return out;
+}
 } // namespace detail
+
+// Width / space rules on the fabricated etch layer (layer 1). Metal is the outline minus etch, so the etch-space rule is
+// also the minimum metal (island and ground-plane) width, and the etch-width rule the minimum metal-to-metal gap.
+// Default: the 4 um process minimum that assemble_chip already uses for designed coupling gaps.
+struct DrcRules { double etch_min_width_um{4.0}, etch_min_space_um{4.0}; };
+using detail::DrcMarker;
 
 struct ChipLayout {
     std::string name;
@@ -615,11 +698,18 @@ struct ChipLayout {
     std::vector<std::pair<std::string, std::pair<double, double>>> labels;
     struct Resonator { int qubit; double f_GHz, target_um, drawn_um; int rows; };
     std::vector<Resonator> resonators;
-    std::vector<std::string> problems;
+    std::vector<std::string> problems;                 // placement / spacing / outline problems found during assembly
+    std::vector<DrcMarker> drc;                         // width / space violations on the merged etch layer
+    DrcRules rules;
     double etch_area_mm2{0};
+    int drc_count(const std::string& rule_suffix) const {
+        int n = 0; for (const auto& m : drc) if (m.rule.size() >= rule_suffix.size() && m.rule.compare(m.rule.size() - rule_suffix.size(), rule_suffix.size(), rule_suffix) == 0) ++n;
+        return n;
+    }
+    bool drc_clean() const { return problems.empty() && drc.empty(); }
 };
 
-inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double eps_r = 11.45, double min_space_um = 10) {
+inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double eps_r = 11.45, double min_space_um = 10, const DrcRules& rules = {}) {
     using detail::cpw_path; using detail::stair;
     ChipLayout L; L.name = D.name;
     const double p = cs.pitch, eps_eff = 0.5 * (eps_r + 1);
@@ -776,8 +866,28 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         for (const auto& pc : pieces) if (pc.w() > 1e-6 && pc.h() > 1e-6) { L.etch.push_back(pc); area += pc.area(); }
     }
     L.etch_area_mm2 = area * 1e-6;   // with overlaps between cut-outs counted twice (upper bound)
+    // minimum width / space on the merged etch layer (what the mask actually contains)
+    L.rules = rules;
+    L.drc = detail::width_space_check(L.etch, rules.etch_min_width_um, rules.etch_min_space_um, "etch");
     (void)nc;
     return L;
+}
+
+// One-line DRC summary and the JSON block the review programs write.
+inline std::string drc_summary(const ChipLayout& L) {
+    char b[400];
+    std::snprintf(b, sizeof b, "placement/island-spacing checks %s (%zu problems); merged-etch width/space (%.0f/%.0f um, projection metric): "
+                  "%d width + %d space violations", L.problems.empty() ? "clean" : "FAIL", L.problems.size(), L.rules.etch_min_width_um,
+                  L.rules.etch_min_space_um, L.drc_count("width"), L.drc_count("space"));
+    return b;
+}
+inline Json drc_json(const ChipLayout& L) {
+    Json j = Json::object();
+    j.set("placement_clean", L.problems.empty()); j.set("placement_problems", int(L.problems.size()));
+    j.set("etch_min_width_um", L.rules.etch_min_width_um); j.set("etch_min_space_um", L.rules.etch_min_space_um);
+    j.set("etch_width_violations", L.drc_count("width")); j.set("etch_space_violations", L.drc_count("space"));
+    j.set("metric", "projection"); j.set("clean", L.drc_clean());
+    return j;
 }
 
 inline void write_gds(const ChipLayout& L, const std::string& path, const std::string& cell = "TOP") {

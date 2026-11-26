@@ -9,6 +9,7 @@
 // Writes designs/alpha1-v11/alpha1_v11_review.json and prints a report.
 #include "qpuforge/qpuforge.hpp"
 #include "qpuforge/layout.hpp"
+#include "review_io.hpp"
 #include <chrono>
 #include <cstdio>
 #include <fstream>
@@ -17,14 +18,14 @@
 
 using namespace qpuforge;
 
-static const char* kCache = "results/cz_cache.json";
+static review::Options g_opt;   // command line (review_io.hpp)
 
 struct QecPoint { double eps{0}, eps_err{0}, det{0}, round_ns{0}, leak_d{0}, leak_m{0}, p_last{0}; int r_last{0}; };
 using Tweak = std::function<void(NoiseModel&)>;
 
 static ChipReport prepared_report(const ChipDesign& D) {
     auto R = analyze(D);
-    if (D.coupler.physical) calibrate_chip_cz(D, R, false, kCache);
+    if (D.coupler.physical) calibrate_chip_cz(D, R, false, g_opt.cache);
     return R;
 }
 static QecPoint qec(const ChipDesign& D, const std::vector<int>& rounds, long shots, unsigned seed, const Tweak& tw = {}) {
@@ -49,19 +50,20 @@ static Json jq(const QecPoint& q) {
 }
 
 int main(int argc, char** argv) {
-    const long shots = argc > 1 ? std::atol(argv[1]) : 100000;
+    g_opt = review::parse(argc, argv, 100000);
+    const long shots = g_opt.shots;
     const auto t0 = std::chrono::steady_clock::now();
     Json out = Json::object();
     const std::vector<int> R5{5, 10, 15, 20, 25};
 
     const ChipDesign V10 = alpha1(3);
     const ChipDesign V11 = alpha1_v11(3);
-    save_design(V11, "designs/alpha1-v11/alpha1_v11.json");
+    save_design(V11, g_opt.path("designs/alpha1-v11/alpha1_v11.json"));
 
     // ------------------------------------------------------------------ 1. CZ calibration
     std::puts("1. Pulse-level CZ calibration (physical tunable couplers, 3-knob calibration per pair)");
     auto R11 = analyze(V11);
-    const auto cal = calibrate_chip_cz(V11, R11, true, kCache);
+    const auto cal = calibrate_chip_cz(V11, R11, true, g_opt.cache);
     {
         double tmin = 1e9, tmax = 0, tm = 0, coh = 0, lk = 0, lkmax = 0, ctrl = 0, tot = 0, zz = 0, fl = 0;
         for (const auto& c : cal) {
@@ -179,20 +181,23 @@ int main(int argc, char** argv) {
                         P.g_r_MHz, P.g_r_target_MHz);
             std::printf("   re-null: couplers parked at %.3f GHz (%.0f MHz below sweet spot, df/dPhi %.2f GHz/Phi0) -> residual gap %.3f MHz, ZZ %+.2f kHz\n",
                         P.park_fc_GHz, (V11.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
-            std::printf("   chip %.1f x %.1f mm, DRC %s, %zu etch polygons\n", L.outline.w() / 1e3, L.outline.h() / 1e3, L.problems.empty() ? "clean" : "violations", L.etch.size());
+            std::printf("   chip %.1f x %.1f mm, %zu etch polygons\n   DRC: %s\n", L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), layout::drc_summary(L).c_str());
             Json lj2 = Json::object();
             lj2.set("alpha_measure_MHz", P.alpha_m * 1e3); lj2.set("alpha_data_MHz", P.alpha_d * 1e3); lj2.set("alpha_coupler_MHz", P.alpha_c * 1e3);
             lj2.set("g_qc_MHz", P.g_qc_MHz); lj2.set("g12_MHz", P.g12_MHz); lj2.set("g12_null_MHz", P.g12_null_MHz);
             lj2.set("residual_gap_MHz", P.residual_gap_MHz); lj2.set("spectator_transfer", P.spectator_LZ); lj2.set("zz_park_kHz", P.zz_park_kHz);
             lj2.set("renull_park_fc_GHz", P.park_fc_GHz); lj2.set("renull_gap_MHz", P.park_gap_MHz); lj2.set("renull_zz_kHz", P.park_zz_kHz);
-            lj2.set("readout_g_MHz", P.g_r_MHz); lj2.set("readout_g_design_MHz", P.g_r_target_MHz); lj2.set("drc_clean", L.problems.empty());
+            lj2.set("readout_g_MHz", P.g_r_MHz); lj2.set("readout_g_design_MHz", P.g_r_target_MHz); lj2.set("drc_clean", L.drc_clean()); lj2.set("drc", layout::drc_json(L));
             out.set("layout", lj2);
         } else std::puts("   (no layout_cells.json yet: run `qpuforge gds ... --cells designs/alpha1-v11/layout_cells.json`)");
     }
 
     const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     out.set("shots", double(shots)); out.set("runtime_s", secs);
-    std::ofstream f("designs/alpha1-v11/alpha1_v11_review.json"); out.dump(f); f << "\n";
-    std::printf("\nreview complete in %.0f s -> designs/alpha1-v11/alpha1_v11_review.json\n", secs);
+    out.set("provenance", review::provenance(g_opt, "frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 202/303/404 + rounds (leakage schemes), "
+                                                    "505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5)"));
+    const std::string jpath = g_opt.path("designs/alpha1-v11/alpha1_v11_review.json");
+    std::ofstream f(jpath); out.dump(f); f << "\n";
+    std::printf("\nreview complete in %.0f s -> %s\n", secs, jpath.c_str());
     return 0;
 }

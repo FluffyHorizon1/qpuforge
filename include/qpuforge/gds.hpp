@@ -5,7 +5,10 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <ctime>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -32,12 +35,32 @@ inline void real8(std::vector<std::uint8_t>& b, double v) {
     }
     for (int s = 56; s >= 0; s -= 8) b.push_back(std::uint8_t((out >> s) & 0xff));
 }
+// GDSII record length is an unsigned 16-bit byte count including the 4-byte header and must be even, so a record holds
+// at most 65530 bytes of data (e.g. a BOUNDARY of at most 8190 vertices plus the closing point). Refuse anything longer
+// instead of silently wrapping the length field.
+inline constexpr std::size_t kMaxRecordData = 65530;
 inline void record(std::vector<std::uint8_t>& b, std::uint8_t type, std::uint8_t dtype, const std::vector<std::uint8_t>& data) {
+    if (data.size() > kMaxRecordData || data.size() % 2)
+        throw std::runtime_error("gds: record type " + std::to_string(int(type)) + " has " + std::to_string(data.size()) +
+                                 " data bytes (must be even and <= " + std::to_string(kMaxRecordData) + "); split the polygon");
     u16(b, std::uint16_t(4 + data.size())); b.push_back(type); b.push_back(dtype); b.insert(b.end(), data.begin(), data.end());
+}
+// database units (nm) of a coordinate in um, range-checked against the signed 32-bit XY field
+inline std::int32_t dbu(double um) {
+    const double v = std::round(um * 1000);
+    if (!(std::abs(v) <= 2147483647.0)) throw std::runtime_error("gds: coordinate " + std::to_string(um) + " um out of int32 range");
+    return std::int32_t(v);
 }
 inline std::vector<std::uint8_t> ascii(const std::string& s) { std::vector<std::uint8_t> d(s.begin(), s.end()); if (d.size() % 2) d.push_back(0); return d; }
 inline std::vector<std::uint8_t> shorts(std::initializer_list<int> v) { std::vector<std::uint8_t> d; for (int x : v) u16(d, std::uint16_t(x)); return d; }
-inline std::vector<std::uint8_t> date() { return shorts({2026, 11, 25, 12, 0, 0, 2026, 11, 25, 12, 0, 0}); }
+// modification / access time (UTC) for BGNLIB / BGNSTR: now, or SOURCE_DATE_EPOCH if set (reproducible output)
+inline std::vector<std::uint8_t> date() {
+    std::time_t t = std::time(nullptr);
+    if (const char* e = std::getenv("SOURCE_DATE_EPOCH")) t = std::time_t(std::strtoll(e, nullptr, 10));
+    const std::tm u = *std::gmtime(&t);
+    const int Y = u.tm_year + 1900, M = u.tm_mon + 1;
+    return shorts({Y, M, u.tm_mday, u.tm_hour, u.tm_min, u.tm_sec, Y, M, u.tm_mday, u.tm_hour, u.tm_min, u.tm_sec});
+}
 } // namespace detail
 
 inline void write(const std::string& path, const std::string& libname, const std::vector<Structure>& cells) {
@@ -56,8 +79,8 @@ inline void write(const std::string& path, const std::string& libname, const std
             record(b, 0x0D, 0x02, shorts({p.layer}));      // LAYER
             record(b, 0x0E, 0x02, shorts({p.datatype}));   // DATATYPE
             std::vector<std::uint8_t> d;
-            for (const auto& [x, y] : p.pts) { i32(d, std::int32_t(std::llround(x * 1000))); i32(d, std::int32_t(std::llround(y * 1000))); }
-            i32(d, std::int32_t(std::llround(p.pts[0].first * 1000))); i32(d, std::int32_t(std::llround(p.pts[0].second * 1000)));
+            for (const auto& [x, y] : p.pts) { i32(d, dbu(x)); i32(d, dbu(y)); }
+            i32(d, dbu(p.pts[0].first)); i32(d, dbu(p.pts[0].second));
             record(b, 0x10, 0x03, d);                      // XY
             record(b, 0x11, 0x00, {});                     // ENDEL
         }
@@ -65,7 +88,7 @@ inline void write(const std::string& path, const std::string& libname, const std
             record(b, 0x0C, 0x00, {});                     // TEXT
             record(b, 0x0D, 0x02, shorts({t.layer}));
             record(b, 0x16, 0x02, shorts({0}));            // TEXTTYPE
-            std::vector<std::uint8_t> d; i32(d, std::int32_t(std::llround(t.x * 1000))); i32(d, std::int32_t(std::llround(t.y * 1000)));
+            std::vector<std::uint8_t> d; i32(d, dbu(t.x)); i32(d, dbu(t.y));
             record(b, 0x10, 0x03, d);
             record(b, 0x19, 0x06, ascii(t.s));             // STRING
             record(b, 0x11, 0x00, {});

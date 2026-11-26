@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 
 using namespace qpuforge;
 static int g_fail = 0, g_pass = 0;
@@ -700,6 +701,241 @@ static void test_layout() {
     }
 }
 
+// ---------------------------------------------------------------- json: the parser/writer behind every design and cache file
+static std::string json_text(const Json& j, int indent = 2) { std::ostringstream o; j.dump(o, indent); return o.str(); }
+static bool json_throws(const std::string& text) { try { Json::parse(text); } catch (const std::runtime_error&) { return true; } return false; }
+
+static void test_json() {
+    std::puts("[json] parser/writer round trips, accessors, error paths, and the design-file round trip for every preset");
+    // scalars and containers
+    const Json v = Json::parse("{\"n\": -1.5e2, \"i\": 42, \"b\": true, \"f\": false, \"z\": null, \"s\": \"a\\\"b\\\\c\\nd\\te\", \"a\": [1, [2, 3], {\"k\": []}], \"o\": {}}");
+    CHECK(v.is_obj() && v.size() == 8 && v["n"].num() == -150.0 && v["i"].num() == 42 && v["b"].boolean() && !v["f"].boolean() && v["z"].is_null(), "scalar members");
+    CHECK(v["s"].str() == std::string("a\"b\\c\nd\te"), "string escapes decode to '%s'", v["s"].str().c_str());
+    CHECK(v["a"].is_arr() && v["a"].size() == 3 && v["a"][1].size() == 2 && v["a"][1][1].num() == 3 && v["a"][2]["k"].is_arr() && v["a"][2]["k"].size() == 0 && v["o"].is_obj() && v["o"].size() == 0, "nested containers");
+    // lookups: has / missing keys give null, get() defaults, typed accessors throw on the wrong type
+    CHECK(v.has("n") && !v.has("nope") && v["nope"].is_null() && v["nope"]["deeper"].is_null(), "has / missing key");
+    CHECK(v.get("i", 7.0) == 42 && v.get("nope", 7.0) == 7.0 && v.get("s", 7.0) == 7.0, "get(double) falls back on missing or mistyped");
+    CHECK(v.get("b", false) && !v.get("nope", false) && v.get("nope", true) && v.get("i", true), "get(bool) falls back on missing or mistyped");
+    CHECK(v.get("s", "dflt") == std::string("a\"b\\c\nd\te") && v.get("nope", "dflt") == "dflt" && v.get("i", "dflt") == "dflt", "get(string) falls back on missing or mistyped");
+    bool t1 = false, t2 = false, t3 = false, t4 = false;
+    try { v["s"].num(); } catch (const std::runtime_error&) { t1 = true; }
+    try { v["i"].str(); } catch (const std::runtime_error&) { t2 = true; }
+    try { v["i"].boolean(); } catch (const std::runtime_error&) { t3 = true; }
+    try { v["a"][9]; } catch (const std::out_of_range&) { t4 = true; }
+    CHECK(t1 && t2 && t3 && t4, "wrong-type accessors and out-of-range index must throw (%d %d %d %d)", t1, t2, t3, t4);
+    // objects keep insertion order; set() replaces in place
+    Json o = Json::object(); o.set("z", 1); o.set("a", 2); o.set("m", 3); o.set("a", 20);
+    CHECK(o.size() == 3 && o.items()[0].first == "z" && o.items()[1].first == "a" && o.items()[1].second.num() == 20 && o.items()[2].first == "m", "insertion order / overwrite");
+    // comments and whitespace
+    CHECK(Json::parse("  // header\n [1, // one\n 2]\n").size() == 2 && Json::parse("\t\n{ }\n").is_obj(), "// comments and whitespace");
+    // dump -> parse is the identity (structure and values), at several indents, and dump is a fixed point
+    Json w = Json::object();
+    w.set("name", "q\"uote\\back\nnl"); w.set("pi", 3.14159265358979); w.set("tiny", 1.25e-17); w.set("big", 6.02e23); w.set("neg", -0.5); w.set("yes", true); w.set("none", Json());
+    Json arr = Json::array(); for (int k = 0; k < 5; ++k) arr.push(k * 0.25); arr.push(Json::array()); arr.push(Json::object());
+    w.set("list", arr);
+    Json inner = Json::object(); inner.set("x", 1); inner.set("y", Json::array()); w.set("inner", inner);
+    for (int indent : {0, 1, 2, 4}) {
+        const std::string t = json_text(w, indent);
+        const Json back = Json::parse(t);
+        CHECK(json_text(back, indent) == t, "dump(parse(dump(x))) differs at indent %d", indent);
+        CHECK(back["name"].str() == w["name"].str() && std::abs(back["pi"].num() - 3.14159265358979) < 1e-11 && std::abs(back["tiny"].num() / 1.25e-17 - 1) < 1e-11 &&
+              std::abs(back["big"].num() / 6.02e23 - 1) < 1e-11 && back["yes"].boolean() && back["none"].is_null() && back["list"].size() == 7 && back["list"][4].num() == 1.0,
+              "values after round trip at indent %d", indent);
+    }
+    // JSON has no inf/nan: the writer emits null so a file always parses
+    Json nf = Json::array(); nf.push(std::nan("")); nf.push(HUGE_VAL); nf.push(-HUGE_VAL); nf.push(1.0);
+    const std::string nft = json_text(nf, 0);
+    const Json nb = Json::parse(nft);
+    CHECK(nft == "[null, null, null, 1]" && nb.size() == 4 && nb[0].is_null() && nb[3].num() == 1.0, "non-finite numbers are written as null: %s", nft.c_str());
+    // 12 significant digits survive (the precision the design and cache files rely on)
+    for (double x : {0.0352055795967, 123456.789012, 1.0 / 3.0, -2.718281828459, 5.81, 1e-9}) {
+        const double y = Json::parse(json_text(Json(x), 0)).num();
+        CHECK(std::abs(y - x) <= 1e-11 * std::abs(x), "number %.15g became %.15g", x, y);
+    }
+    // malformed input must throw, never crash or accept
+    const char* bad[] = {"", "   ", "{", "[", "[1", "[1,", "[1,]", "{\"a\"}", "{\"a\":}", "{\"a\" 1}", "{a: 1}", "{\"a\": 1,}", "{\"a\": 1 \"b\": 2}", "[1 2]", "\"abc",
+                         "tru", "nul", "[truex]", "1 2", "{} {}", "[1]]", "}", "]", ":", "--1", "[,1]"};
+    int accepted = 0;
+    for (const char* b : bad) if (!json_throws(b)) { ++accepted; std::printf("  accepted malformed JSON: '%s'\n", b); }
+    CHECK(accepted == 0, "%d malformed documents were accepted", accepted);
+    // a plain top-level scalar is fine
+    CHECK(Json::parse("12").num() == 12 && Json::parse("\"x\"").str() == "x" && Json::parse("true").boolean() && Json::parse("null").is_null(), "top-level scalars");
+    // duplicate keys: last one wins, no duplicate member is created
+    const Json dup = Json::parse("{\"a\": 1, \"a\": 2}");
+    CHECK(dup.size() == 1 && dup["a"].num() == 2, "duplicate key handling");
+
+    // design files: JSON round trip must be lossless for every preset (field written but not read back would show up here)
+    struct P { const char* name; ChipDesign D; };
+    const P presets[] = {{"gen0_surface17", gen0_surface17(3)}, {"alpha1", alpha1(3)}, {"alpha1_v11", alpha1_v11(3)}, {"beta1", beta1(5)}};
+    for (const auto& p : presets) {
+        const std::string a = json_text(design_to_json(p.D));
+        const ChipDesign D2 = design_from_json(Json::parse(a));
+        const std::string b = json_text(design_to_json(D2));
+        CHECK(a == b, "%s: design JSON changes after a read/write cycle", p.name);
+        CHECK(D2.qubits.size() == p.D.qubits.size() && D2.couplings.size() == p.D.couplings.size() && D2.surface_d == p.D.surface_d && D2.name == p.D.name &&
+              D2.leakage.model == p.D.leakage.model && D2.coupler.physical == p.D.coupler.physical && D2.active_reset == p.D.active_reset,
+              "%s: structure after round trip (qubits %zu/%zu, couplings %zu/%zu)", p.name, D2.qubits.size(), p.D.qubits.size(), D2.couplings.size(), p.D.couplings.size());
+    }
+    {   // a design saved to disk and loaded back analyses identically
+        const ChipDesign D = gen0_surface17(3);
+        const std::string path = temp_path("design_rt.json");
+        save_design(D, path);
+        const ChipDesign L = load_design(path);
+        std::remove(path.c_str());
+        const auto R0 = analyze(D), R1 = analyze(L);
+        double df = 0; for (std::size_t i = 0; i < R0.q.size(); ++i) df = std::max(df, std::abs(R0.q[i].f01 - R1.q[i].f01));
+        CHECK(R0.q.size() == R1.q.size() && df < 1e-9 && R0.n_collisions == R1.n_collisions && std::abs(R0.mean_err_2q - R1.mean_err_2q) <= 1e-8 * R0.mean_err_2q,
+              "analysis after save/load: max f01 diff %.2e GHz, collisions %d/%d", df, R0.n_collisions, R1.n_collisions);
+        bool threw = false;
+        try { load_design(temp_path("does_not_exist.json")); } catch (const std::runtime_error& e) { threw = std::string(e.what()).find("cannot open") != std::string::npos; }
+        CHECK(threw, "load_design of a missing file must throw 'cannot open'");
+    }
+    // sparse design file: defaults apply for everything omitted
+    const ChipDesign S = design_from_json(Json::parse("{\"qubits\": [{\"C_fF\": 90}, {\"Rn_kOhm\": 12}], \"couplings\": [{\"a\": 0, \"b\": 1}]}"));
+    CHECK(S.qubits.size() == 2 && S.qubits[0].id == 0 && S.qubits[1].id == 1 && S.qubits[0].C_fF == 90 && S.qubits[1].Rn_kOhm == 12 && S.couplings.size() == 1 &&
+          S.couplings[0].C_fF == 1.0 && S.name == "chip" && S.surface_d == 0, "sparse design uses documented defaults");
+}
+
+// ---------------------------------------------------------------- gds: byte-level checks of the stream writer
+struct GdsRec { int type{0}, dtype{0}; std::vector<unsigned char> data; };
+static bool gds_read(const std::string& path, std::vector<GdsRec>& out) {
+    std::ifstream f(path, std::ios::binary);
+    std::vector<unsigned char> b((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    out.clear();
+    std::size_t i = 0;
+    while (i + 4 <= b.size()) {
+        const std::size_t len = (std::size_t(b[i]) << 8) | b[i + 1];
+        if (len < 4 || len % 2 || i + len > b.size()) return false;
+        GdsRec r; r.type = b[i + 2]; r.dtype = b[i + 3]; r.data.assign(b.begin() + long(i) + 4, b.begin() + long(i + len));
+        out.push_back(std::move(r));
+        i += len;
+    }
+    return i == b.size();
+}
+static double gds_real8(const unsigned char* p) {
+    const int e = (p[0] & 0x7f) - 64;
+    std::uint64_t m = 0; for (int k = 1; k < 8; ++k) m = (m << 8) | p[k];
+    return (p[0] & 0x80 ? -1.0 : 1.0) * double(m) / std::pow(2.0, 56) * std::pow(16.0, e);
+}
+static int gds_i32(const std::vector<unsigned char>& d, std::size_t at) { return int((std::uint32_t(d[at]) << 24) | (std::uint32_t(d[at + 1]) << 16) | (std::uint32_t(d[at + 2]) << 8) | d[at + 3]); }
+static int gds_u16(const std::vector<unsigned char>& d, std::size_t at) { return (d[at] << 8) | d[at + 1]; }
+
+static void test_gds() {
+    std::puts("[gds] GDSII stream writer: record framing, UNITS encoding, XY coordinates, guards for oversize records and coordinates, reproducible dates");
+    gds::Structure c; c.name = "TOP";
+    gds::Polygon tri; tri.layer = 1; tri.datatype = 0; tri.pts = {{0, 0}, {10, 0}, {0.5, 7.25}};
+    gds::Polygon neg; neg.layer = 2; neg.datatype = 5; neg.pts = {{-1.5, -2.0}, {1.5, -2.0}, {1.5, 2.0}, {-1.5, 2.0}};
+    gds::Polygon degenerate; degenerate.layer = 3; degenerate.pts = {{0, 0}, {1, 1}};   // fewer than 3 points: skipped
+    c.polys = {tri, degenerate, neg};
+    gds::Text t; t.layer = 20; t.x = 2.5; t.y = -3.25; t.s = "ODD";   // odd length: padded to even with a NUL
+    c.texts = {t};
+    gds::Structure c2; c2.name = "B";
+    const std::string path = temp_path("rt.gds");
+    gds::write(path, "LIBX", {c, c2});
+    std::vector<GdsRec> R;
+    CHECK(gds_read(path, R), "stream is not a sequence of well-formed records");
+    if (R.size() < 10) { std::remove(path.c_str()); CHECK(false, "only %zu records", R.size()); return; }
+    CHECK(R.front().type == 0x00 && R.front().dtype == 0x02 && gds_u16(R.front().data, 0) == 600, "HEADER version 600");
+    CHECK(R.back().type == 0x04 && R.back().data.empty(), "stream ends with ENDLIB");
+    CHECK(R[1].type == 0x01 && R[1].data.size() == 24, "BGNLIB carries two 12-byte timestamps (%zu bytes)", R[1].data.size());
+    CHECK(R[2].type == 0x02 && std::string(R[2].data.begin(), R[2].data.end()) == "LIBX", "LIBNAME");
+    CHECK(R[3].type == 0x03 && R[3].data.size() == 16, "UNITS is two 8-byte reals");
+    if (R[3].data.size() == 16) {
+        const double uu = gds_real8(R[3].data.data()), dbu = gds_real8(R[3].data.data() + 8);
+        CHECK(std::abs(uu / 1e-3 - 1) < 1e-14 && std::abs(dbu / 1e-9 - 1) < 1e-14, "UNITS decode to %.17g / %.17g", uu, dbu);
+        // GDSII spec example bytes: 1e-3 user unit per dbu = 3E 41 89 37 4B C6 A7 F0, 1e-9 m = 39 44 B8 2F A0 9B 5A 54
+        const unsigned char e1[8] = {0x3E, 0x41, 0x89, 0x37, 0x4B, 0xC6, 0xA7, 0xF0}, e2[8] = {0x39, 0x44, 0xB8, 0x2F, 0xA0, 0x9B, 0x5A, 0x54};
+        CHECK(std::memcmp(R[3].data.data(), e1, 8) == 0 && std::memcmp(R[3].data.data() + 8, e2, 8) == 0, "UNITS bytes differ from the GDSII reference encoding");
+    }
+    int boundaries = 0, texts = 0, strs = 0, endstr = 0;
+    std::vector<std::vector<int>> xys; std::vector<std::pair<int, int>> layer_dt; std::string text_string; int text_layer = -1;
+    int cur_layer = -1, cur_dt = -1; bool in_text = false;
+    std::vector<std::string> names;
+    for (const auto& r : R) {
+        switch (r.type) {
+        case 0x05: ++strs; break;
+        case 0x06: { std::string n(r.data.begin(), r.data.end()); while (!n.empty() && n.back() == '\0') n.pop_back(); names.push_back(n); break; }   // odd-length names are NUL-padded
+        case 0x07: ++endstr; break;
+        case 0x08: ++boundaries; in_text = false; break;
+        case 0x0C: ++texts; in_text = true; break;
+        case 0x0D: cur_layer = gds_u16(r.data, 0); if (in_text) text_layer = cur_layer; break;
+        case 0x0E: cur_dt = gds_u16(r.data, 0); layer_dt.emplace_back(cur_layer, cur_dt); break;
+        case 0x10: { std::vector<int> v; for (std::size_t k = 0; k + 4 <= r.data.size(); k += 4) v.push_back(gds_i32(r.data, k)); xys.push_back(v); break; }
+        case 0x19: text_string.assign(r.data.begin(), r.data.end()); break;
+        default: break;
+        }
+    }
+    CHECK(strs == 2 && endstr == 2 && names.size() == 2 && names[0] == "TOP" && names[1] == "B", "two structures with names (%d, %d)", strs, endstr);
+    CHECK(boundaries == 2 && texts == 1, "degenerate polygon skipped: %d boundaries, %d texts", boundaries, texts);
+    CHECK(layer_dt.size() == 2 && layer_dt[0] == std::make_pair(1, 0) && layer_dt[1] == std::make_pair(2, 5), "layer/datatype pairs");
+    CHECK(xys.size() == 3, "XY records: %zu", xys.size());
+    if (xys.size() == 3) {
+        const std::vector<int> e0 = {0, 0, 10000, 0, 500, 7250, 0, 0};                                         // closed ring, nm
+        const std::vector<int> e1 = {-1500, -2000, 1500, -2000, 1500, 2000, -1500, 2000, -1500, -2000};
+        const std::vector<int> e2 = {2500, -3250};
+        CHECK(xys[0] == e0 && xys[1] == e1 && xys[2] == e2, "XY coordinates in database units (um * 1000, ring closed, signed)");
+    }
+    CHECK(text_layer == 20 && text_string.size() == 4 && text_string.substr(0, 3) == "ODD" && text_string[3] == '\0', "TEXT layer and NUL-padded string (len %zu)", text_string.size());
+
+    // guards: the failing write must throw and leave no file behind
+    auto write_throws = [&](const gds::Structure& s, const char* what) {
+        const std::string p = temp_path("bad.gds");
+        std::remove(p.c_str());
+        bool threw = false; std::string msg;
+        try { gds::write(p, "L", {s}); } catch (const std::runtime_error& e) { threw = true; msg = e.what(); }
+        const bool left = std::filesystem::exists(p);
+        std::remove(p.c_str());
+        CHECK(threw && !left && msg.find("gds:") == 0, "%s: threw=%d file left=%d msg='%s'", what, threw, left, msg.c_str());
+    };
+    auto ring = [](int n) { gds::Structure s; s.name = "R"; gds::Polygon p; for (int k = 0; k < n; ++k) p.pts.push_back({double(k % 100), double(k / 100)}); s.polys = {p}; return s; };
+    {   // exactly at the limit: 8190 vertices + closing point = 8191 points = 65528 data bytes
+        const std::string p = temp_path("max.gds");
+        bool threw = false; try { gds::write(p, "L", {ring(8190)}); } catch (const std::runtime_error&) { threw = true; }
+        std::vector<GdsRec> Rm; const bool parsed = !threw && gds_read(p, Rm);
+        std::size_t xy = 0; for (const auto& r : Rm) if (r.type == 0x10) xy = r.data.size();
+        std::remove(p.c_str());
+        CHECK(!threw && parsed && xy == 65528, "8190-vertex polygon fits one record (threw=%d, XY bytes %zu)", threw, xy);
+    }
+    write_throws(ring(8191), "8191-vertex polygon exceeds the 65530-byte record limit");
+    { gds::Structure s = ring(4); s.polys[0].pts[2].first = 3.0e6; write_throws(s, "coordinate 3e6 um = 3e9 dbu exceeds int32"); }
+    { gds::Structure s = ring(4); s.polys[0].pts[1].second = -3.0e6; write_throws(s, "coordinate -3e6 um exceeds int32"); }
+    { gds::Structure s = ring(4); s.polys[0].pts[0].first = std::nan(""); write_throws(s, "NaN coordinate"); }
+    { gds::Structure s = ring(4); s.polys[0].pts[0].second = HUGE_VAL; write_throws(s, "infinite coordinate"); }
+    { gds::Structure s; s.name = "T"; gds::Text tx; tx.x = 5e6; tx.s = "x"; s.texts = {tx}; write_throws(s, "text position out of range"); }
+    {   // the largest representable coordinate still works
+        gds::Structure s = ring(4); s.polys[0].pts[0].first = 2147483.0;
+        const std::string p = temp_path("edge.gds"); bool threw = false;
+        try { gds::write(p, "L", {s}); } catch (const std::runtime_error&) { threw = true; }
+        std::vector<GdsRec> Re; const bool ok = !threw && gds_read(p, Re); std::remove(p.c_str());
+        CHECK(ok, "coordinate 2147483 um (2147483000 dbu) is accepted");
+    }
+    // dates: SOURCE_DATE_EPOCH makes the stream reproducible byte for byte
+#if !defined(_WIN32)
+    {
+        const char* old = std::getenv("SOURCE_DATE_EPOCH"); const std::string saved = old ? old : "";
+        setenv("SOURCE_DATE_EPOCH", "1700000000", 1);   // 2023-11-14 22:13:20 UTC
+        const std::string p1 = temp_path("d1.gds"), p2 = temp_path("d2.gds");
+        gds::write(p1, "L", {c}); gds::write(p2, "L", {c});
+        std::ifstream f1(p1, std::ios::binary), f2(p2, std::ios::binary);
+        const std::string b1((std::istreambuf_iterator<char>(f1)), std::istreambuf_iterator<char>()), b2((std::istreambuf_iterator<char>(f2)), std::istreambuf_iterator<char>());
+        std::vector<GdsRec> Rd; gds_read(p1, Rd);
+        std::remove(p1.c_str()); std::remove(p2.c_str());
+        CHECK(!b1.empty() && b1 == b2, "two writes with a fixed SOURCE_DATE_EPOCH differ");
+        if (Rd.size() > 1 && Rd[1].data.size() == 24) {
+            const int y = gds_u16(Rd[1].data, 0), mo = gds_u16(Rd[1].data, 2), d = gds_u16(Rd[1].data, 4), h = gds_u16(Rd[1].data, 6), mi = gds_u16(Rd[1].data, 8), s = gds_u16(Rd[1].data, 10);
+            CHECK(y == 2023 && mo == 11 && d == 14 && h == 22 && mi == 13 && s == 20, "BGNLIB date %04d-%02d-%02d %02d:%02d:%02d, expected 2023-11-14 22:13:20", y, mo, d, h, mi, s);
+        } else CHECK(false, "BGNLIB record missing");
+        unsetenv("SOURCE_DATE_EPOCH");
+        const std::string p3 = temp_path("d3.gds"); gds::write(p3, "L", {c});
+        std::vector<GdsRec> Rn; gds_read(p3, Rn); std::remove(p3.c_str());
+        const int yy = Rn.size() > 1 && Rn[1].data.size() >= 2 ? gds_u16(Rn[1].data, 0) : 0;
+        CHECK(yy >= 2024 && yy < 2200, "without SOURCE_DATE_EPOCH the stamp is the current year (got %d)", yy);
+        if (old) setenv("SOURCE_DATE_EPOCH", saved.c_str(), 1);
+    }
+#endif
+    std::remove(path.c_str());
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -720,6 +956,8 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"leakage_frame", test_leakage_frame},
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
+    {"json", test_json},
+    {"gds", test_gds},
 };
 
 // test_qpuforge            run every test

@@ -14,7 +14,7 @@ struct ChipGraph {
     int n{0};
     std::vector<std::vector<int>> adj;
     std::map<std::pair<int, int>, double> t_cz_ns;   // key (min,max)
-    double t_1q_ns{25}, t_ro_ns{800};
+    double t_1q_ns{25}, t_ro_ns{800}, t_reset_ns{200};
     std::vector<std::vector<int>> dist;
 
     void finalize() {
@@ -42,18 +42,23 @@ struct ChipGraph {
     }
 };
 
+// A time slice of the schedule: ops listed here START at the beginning of the slice (virtual RZ frame updates
+// come before the physical op on the same qubit). Ops may last longer than the slice (e.g. readout); every qubit
+// keeps decohering through every slice. `busy` lists the CZ pairs that are executing during the slice.
 struct Moment {
-    std::vector<Gate> ops;      // virtual RZ frame updates are listed before the physical op on the same qubit
+    std::vector<Gate> ops;
     double duration_ns{0};
+    std::vector<std::pair<int, int>> busy;   // physical (min,max) pairs with a CZ in progress
 };
 
 struct Compiled {
     int n_phys{0}, nclbits{0};
+    bool dynamic{false};                              // mid-circuit measurement / reset present: MEASURE & RESET are scheduled ops
     std::vector<int> layout_initial, layout_final;   // logical -> physical
     std::vector<Moment> moments;
     std::vector<std::pair<int, int>> measures;       // (physical qubit, classical bit)
     std::vector<int> active;                          // physical qubits that must be simulated (sorted)
-    int n_swaps{0}, n_cz{0}, n_pulses{0}, n_virtual_rz{0};
+    int n_swaps{0}, n_cz{0}, n_pulses{0}, n_virtual_rz{0}, n_measure{0}, n_reset{0};
     double duration_ns{0};
 };
 
@@ -82,16 +87,18 @@ inline std::vector<Gate> native_1q(int q, const M2& U) {
 }
 inline bool is_identity(const M2& U) { return phase_distance(U, gates::I()) < 1e-12; }
 
-// Lower to {U, CX, CZ}; collect terminal measurements.
-inline std::vector<Gate> lower(const Circuit& C, std::vector<std::pair<int, int>>& meas) {
+// Lower to {U, CX, CZ, MEASURE, RESET}. A circuit is "dynamic" if anything acts on a qubit after it was
+// measured, or it contains RESET; otherwise all measurements are terminal and are sampled at the end.
+inline std::vector<Gate> lower(const Circuit& C, std::vector<std::pair<int, int>>& meas, bool& dynamic) {
     std::vector<Gate> out;
     std::vector<int> measured(C.n, 0);
+    dynamic = false;
     auto U = [&](int q, const M2& m) { out.push_back({Op::U, {q}, m, 0, -1, "u"}); };
     auto CX = [&](int c, int t) { out.push_back({Op::CX, {c, t}, {}, 0, -1, "cx"}); };
     for (const auto& g : C.gates) {
         for (int q : g.q) if (q < 0 || q >= C.n) throw std::runtime_error("gate on qubit out of range");
-        if (g.op != Op::MEASURE && g.op != Op::BARRIER)
-            for (int q : g.q) if (measured[q]) throw std::runtime_error("mid-circuit measurement is not supported yet (gate after measure on q" + std::to_string(q) + ")");
+        if (g.op != Op::BARRIER) for (int q : g.q) if (measured[q]) dynamic = true;
+        if (g.op == Op::RESET) dynamic = true;
         switch (g.op) {
         case Op::U: U(g.q[0], g.u); break;
         case Op::CX: CX(g.q[0], g.q[1]); break;
@@ -108,12 +115,18 @@ inline std::vector<Gate> lower(const Circuit& C, std::vector<std::pair<int, int>
             U(b, gates::T()); U(c, gates::T()); U(c, gates::H()); CX(a, b); U(a, gates::T()); U(b, gates::Tdg()); CX(a, b);
             break;
         }
-        case Op::MEASURE: meas.push_back({g.q[0], g.cbit}); measured[g.q[0]] = 1; break;
+        case Op::MEASURE: meas.push_back({g.q[0], g.cbit}); measured[g.q[0]] = 1; out.push_back(g); break;
+        case Op::RESET: out.push_back(g); break;
         case Op::BARRIER: break;
         default: throw std::runtime_error("lower: unexpected native op in logical circuit");
         }
     }
     return out;
+}
+// 0.2-compatible overload (discards the dynamic-circuit flag)
+inline std::vector<Gate> lower(const Circuit& C, std::vector<std::pair<int, int>>& meas) {
+    bool dynamic = false;
+    return lower(C, meas, dynamic);
 }
 
 inline std::vector<int> auto_layout(int nl, const std::vector<Gate>& gs, const ChipGraph& G) {
@@ -161,7 +174,11 @@ inline Compiled compile(const Circuit& C, const ChipGraph& G, const CompileOptio
     if (C.n > G.n) throw std::runtime_error("circuit needs " + std::to_string(C.n) + " qubits, chip has " + std::to_string(G.n));
     Compiled out; out.n_phys = G.n; out.nclbits = C.nclbits;
     std::vector<std::pair<int, int>> meas_logical;
-    const auto lowered = lower(C, meas_logical);
+    bool dynamic = false;
+    auto lowered = lower(C, meas_logical, dynamic);
+    out.dynamic = dynamic;
+    if (!dynamic)   // all measurements terminal: drop them from the gate stream, sample the final state instead
+        lowered.erase(std::remove_if(lowered.begin(), lowered.end(), [](const Gate& g) { return g.op == Op::MEASURE; }), lowered.end());
 
     // ---- layout
     std::vector<int> l2p(C.n);
@@ -196,7 +213,7 @@ inline Compiled compile(const Circuit& C, const ChipGraph& G, const CompileOptio
         ++out.n_swaps;
     };
     for (const auto& g : lowered) {
-        if (g.q.size() == 1) { phys.push_back({Op::U, {l2p[g.q[0]]}, g.u, 0, -1, "u"}); continue; }
+        if (g.q.size() == 1) { phys.push_back({g.op, {l2p[g.q[0]]}, g.u, g.theta, g.cbit, g.name}); continue; }
         const int la = g.q[0], lb = g.q[1];
         while (G.dist[l2p[la]][l2p[lb]] > 1) {
             const auto p = G.path(l2p[la], l2p[lb]);
@@ -205,7 +222,7 @@ inline Compiled compile(const Circuit& C, const ChipGraph& G, const CompileOptio
         phys.push_back({g.op, {l2p[la], l2p[lb]}, {}, 0, -1, g.name});
     }
     out.layout_final = l2p;
-    for (auto [lq, cb] : meas_logical) out.measures.push_back({l2p[lq], cb});
+    if (!dynamic) for (auto [lq, cb] : meas_logical) out.measures.push_back({l2p[lq], cb});
 
     // ---- native lowering with 1q merging
     std::vector<Gate> native;
@@ -219,6 +236,7 @@ inline Compiled compile(const Circuit& C, const ChipGraph& G, const CompileOptio
     auto add1 = [&](int q, const M2& m) { pending[q] = m * pending[q]; has_pending[q] = 1; };
     for (const auto& g : phys) {
         if (g.op == Op::U) { add1(g.q[0], g.u); continue; }
+        if (g.op == Op::MEASURE || g.op == Op::RESET) { flush(g.q[0]); native.push_back(g); continue; }
         int a = g.q[0], b = g.q[1];
         if (g.op == Op::CX) {           // CX(c,t) = H_t CZ H_t
             add1(b, gates::H());
@@ -232,32 +250,56 @@ inline Compiled compile(const Circuit& C, const ChipGraph& G, const CompileOptio
     }
     for (int q = 0; q < G.n; ++q) flush(q);
 
-    // ---- ASAP schedule into moments; virtual RZ rides along with the next physical op on that qubit
-    std::vector<int> next_free(G.n, 0);
-    std::vector<std::vector<Gate>> pending_rz(G.n);
-    auto ensure = [&](int m) { while (int(out.moments.size()) <= m) out.moments.emplace_back(); };
+    // ---- ASAP schedule on per-qubit timelines, then cut into exact time slices.
+    // Each qubit runs its ops back-to-back as soon as all qubits of the next op are free; a 500 ns readout on one
+    // qubit therefore does not stall unrelated qubits. Virtual RZ rides along with the next physical op.
+    struct Placed { Gate g; double start, end; };
+    std::vector<Placed> placed;
+    std::vector<double> ready(std::size_t(G.n), 0.0);
+    std::vector<std::vector<Gate>> pending_rz(std::size_t(G.n));
+    auto duration_of = [&](const Gate& g) {
+        if (g.op == Op::CZ) return G.cz_time(g.q[0], g.q[1]);
+        if (g.op == Op::MEASURE) return G.t_ro_ns;
+        if (g.op == Op::RESET) return G.t_reset_ns;
+        return G.t_1q_ns;
+    };
     for (const auto& g : native) {
-        if (g.op == Op::RZ) { pending_rz[g.q[0]].push_back(g); ++out.n_virtual_rz; continue; }
-        int m = 0;
-        for (int q : g.q) m = std::max(m, next_free[q]);
-        ensure(m);
+        if (g.op == Op::RZ) { pending_rz[std::size_t(g.q[0])].push_back(g); ++out.n_virtual_rz; continue; }
+        double start = 0;
+        for (int q : g.q) start = std::max(start, ready[std::size_t(q)]);
         for (int q : g.q) {
-            for (auto& rz : pending_rz[q]) out.moments[m].ops.push_back(rz);
-            pending_rz[q].clear();
+            for (auto& rz : pending_rz[std::size_t(q)]) placed.push_back({rz, start, start});
+            pending_rz[std::size_t(q)].clear();
         }
-        out.moments[m].ops.push_back(g);
-        double dur = (g.op == Op::CZ) ? G.cz_time(g.q[0], g.q[1]) : G.t_1q_ns;
-        out.moments[m].duration_ns = std::max(out.moments[m].duration_ns, dur);
-        for (int q : g.q) next_free[q] = m + 1;
-        if (g.op == Op::CZ) ++out.n_cz; else ++out.n_pulses;
+        const double end = start + duration_of(g);
+        placed.push_back({g, start, end});
+        for (int q : g.q) ready[std::size_t(q)] = end;
+        if (g.op == Op::CZ) ++out.n_cz;
+        else if (g.op == Op::MEASURE) ++out.n_measure;
+        else if (g.op == Op::RESET) ++out.n_reset;
+        else ++out.n_pulses;
     }
-    bool tail = false;
-    for (int q = 0; q < G.n; ++q) if (!pending_rz[q].empty()) tail = true;
-    if (tail) {
-        out.moments.emplace_back();
-        for (int q = 0; q < G.n; ++q) { for (auto& rz : pending_rz[q]) out.moments.back().ops.push_back(rz); pending_rz[q].clear(); }
+    for (int q = 0; q < G.n; ++q) {
+        for (auto& rz : pending_rz[std::size_t(q)]) placed.push_back({rz, ready[std::size_t(q)], ready[std::size_t(q)]});
+        pending_rz[std::size_t(q)].clear();
     }
-    for (const auto& m : out.moments) out.duration_ns += m.duration_ns;
+    std::vector<double> times;
+    for (const auto& p : placed) { times.push_back(p.start); times.push_back(p.end); }
+    std::sort(times.begin(), times.end());
+    times.erase(std::unique(times.begin(), times.end(), [](double a, double b) { return std::abs(a - b) < 1e-9; }), times.end());
+    auto slot = [&](double t0) { return std::size_t(std::lower_bound(times.begin(), times.end(), t0 - 1e-9) - times.begin()); };
+    out.moments.assign(times.size(), Moment{});
+    for (std::size_t k = 0; k + 1 < times.size(); ++k) out.moments[k].duration_ns = times[k + 1] - times[k];
+    for (const auto& p : placed) {
+        const std::size_t s = slot(p.start);
+        out.moments[s].ops.push_back(p.g);
+        if (p.g.op == Op::CZ) {
+            const std::pair<int, int> key{std::min(p.g.q[0], p.g.q[1]), std::max(p.g.q[0], p.g.q[1])};
+            for (std::size_t k = s; k < times.size() && times[k] < p.end - 1e-9; ++k) out.moments[k].busy.push_back(key);
+        }
+    }
+    while (!out.moments.empty() && out.moments.back().ops.empty() && out.moments.back().duration_ns <= 0) out.moments.pop_back();
+    out.duration_ns = times.empty() ? 0.0 : times.back();
     for (int q = 0; q < G.n; ++q) if (touched[q]) out.active.push_back(q);
     return out;
 }

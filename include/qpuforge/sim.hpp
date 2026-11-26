@@ -80,6 +80,29 @@ public:
         return s;
     }
 
+    // projective Z measurement: sample, collapse, return outcome
+    template <class RNG> int measure(int q, RNG& rng) {
+        const double P1 = prob1(q);
+        const int out = std::uniform_real_distribution<double>(0, 1)(rng) < P1 ? 1 : 0;
+        const std::size_t m = std::size_t(1) << q;
+        for (std::size_t i = 0; i < a_.size(); ++i) if ((((i & m) != 0) ? 1 : 0) != out) a_[i] = 0;
+        normalize();
+        return out;
+    }
+    template <class RNG> void reset(int q, RNG& rng) { if (measure(q, rng)) gate1(q, gates::X()); }
+    template <class RNG> void bitflip(int q, double p, RNG& rng) {
+        if (p > 0 && std::uniform_real_distribution<double>(0, 1)(rng) < p) gate1(q, gates::X());
+    }
+    // many conditional phases in one pass: amplitude *= prod over (mask fully set) of phase
+    void multi_cphase(const std::vector<std::pair<std::size_t, cplx>>& terms) {
+        if (terms.empty()) return;
+        for (std::size_t i = 0; i < a_.size(); ++i) {
+            cplx f = 1; bool hit = false;
+            for (const auto& [mask, ph] : terms) if ((i & mask) == mask) { f *= ph; hit = true; }
+            if (hit) a_[i] *= f;
+        }
+    }
+
     // ---------------- stochastic channels (trajectory unravelling; exact in expectation)
     // Generalised amplitude damping: relaxation towards a thermal state.
     // gamma = 1 - exp(-t/T1);  p_down = Gamma_down / (Gamma_down + Gamma_up)
@@ -89,11 +112,15 @@ public:
         const double w_dn = p_down * gamma * P1, w_up = (1 - p_down) * gamma * P0;
         const double w_k0 = p_down * (P0 + (1 - gamma) * P1);
         const double r = std::uniform_real_distribution<double>(0, 1)(rng);
-        if (r < w_dn) lower(q);
-        else if (r < w_dn + w_up) raise(q);
-        else if (r < w_dn + w_up + w_k0) scale_bit(q, 1.0, std::sqrt(1 - gamma));
-        else scale_bit(q, std::sqrt(1 - gamma), 1.0);
-        normalize();
+        if (r < w_dn) { lower(q); normalize(); }
+        else if (r < w_dn + w_up) { raise(q); normalize(); }
+        else if (r < w_dn + w_up + w_k0) {     // no-jump branches: the new norm is known analytically, one pass
+            const double nn = std::sqrt(P0 + (1 - gamma) * P1);
+            scale_bit(q, 1.0 / nn, std::sqrt(1 - gamma) / nn);
+        } else {
+            const double nn = std::sqrt((1 - gamma) * P0 + P1);
+            scale_bit(q, std::sqrt(1 - gamma) / nn, 1.0 / nn);
+        }
     }
     template <class RNG> void dephase(int q, double pz, RNG& rng) {
         if (pz > 0 && std::uniform_real_distribution<double>(0, 1)(rng) < pz) gate1(q, gates::Z());
@@ -154,6 +181,25 @@ public:
     }
     void cphase(int p, int q, double phi) { diag2(p, q, std::exp(cplx(0, phi))); }
 
+    template <class RNG> int measure(int q, RNG&) {   // non-selective (no record possible)
+        const std::size_t m = std::size_t(1) << q;
+        for (std::size_t i = 0; i < D_; ++i) for (std::size_t j = 0; j < D_; ++j) if ((i ^ j) & m) r_[i * D_ + j] = 0;
+        return -1;
+    }
+    template <class RNG> void reset(int q, RNG&) { kraus1(q, {M2{1, 0, 0, 0}, M2{0, 1, 0, 0}}); }
+    template <class RNG> void bitflip(int q, double p, RNG&) {
+        if (p > 0) kraus1(q, {scaled(gates::I(), std::sqrt(1 - p)), scaled(gates::X(), std::sqrt(p))});
+    }
+    void multi_cphase(const std::vector<std::pair<std::size_t, cplx>>& terms) {
+        for (const auto& [mask, ph] : terms) {
+            for (std::size_t i = 0; i < D_; ++i) for (std::size_t j = 0; j < D_; ++j) {
+                cplx f = 1;
+                if ((i & mask) == mask) f *= ph;
+                if ((j & mask) == mask) f *= std::conj(ph);
+                r_[i * D_ + j] *= f;
+            }
+        }
+    }
     template <class RNG> void gad(int q, double gamma, double p_down, RNG&) {
         if (gamma <= 0) return;
         const double s = std::sqrt(1 - gamma), g = std::sqrt(gamma);

@@ -1,5 +1,6 @@
 // qpuforge — minimal JSON value, parser and writer (enough for chip design files)
 #pragma once
+#include <cmath>
 #include <cctype>
 #include <cstdlib>
 #include <map>
@@ -72,7 +73,10 @@ public:
         switch (t_) {
         case Type::Null: os << "null"; break;
         case Type::Bool: os << (b_ ? "true" : "false"); break;
-        case Type::Num: { std::ostringstream s; s.precision(12); s << n_; os << s.str(); break; }
+        case Type::Num: {   // JSON has no inf/nan: write null so the file always parses
+            if (!std::isfinite(n_)) { os << "null"; break; }
+            std::ostringstream s; s.precision(12); s << n_; os << s.str(); break;
+        }
         case Type::Str: write_str(os, s_); break;
         case Type::Arr: {
             bool flat = true;

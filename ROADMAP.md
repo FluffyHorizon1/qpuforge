@@ -13,7 +13,7 @@ assumptions listed in each design spec. They are design targets, not measured pe
 
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
-| 0 — Tooling | atomforge, qpuforge v0.1–v0.3 | Materials and processor emulation, validated physics | done (96 validation checks) | n/a |
+| 0 — Tooling | atomforge, qpuforge v0.1–v0.3 | Materials and processor emulation, validated physics | done (101 validation checks) | n/a |
 | **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11) | open: fabricate and characterise |
 | **Beta** | **BF-49 (Beta-1)** | Show logical error falling with code size: distance 5, 49 qubits | see designs/beta1 | open |
 | Gamma | GF-97 + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | planned | planned |

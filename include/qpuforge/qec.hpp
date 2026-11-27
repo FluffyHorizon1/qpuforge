@@ -81,6 +81,20 @@ struct Xoshiro256 {
     double uniform() { return double(next() >> 11) * 0x1.0p-53; }
 };
 
+// Counter-based seeding for the frame Monte Carlo (thread-count independent).
+//   splitmix64_mix: the SplitMix64 finaliser, a bijection on 64-bit words.
+//   frame_shot_seed(seed, shot): the Xoshiro256 seed for one shot. A frame's stream is keyed by mix(seed), so adjacent
+//   frame seeds (the review programs use seed + rounds) get unrelated keys; shot k then takes SplitMix64 outputs
+//   4k+1 .. 4k+4 of that key's sequence (Xoshiro256's constructor consumes four, one golden-ratio step each). Shots of
+//   one frame therefore never share state, and every shot's draws depend only on (seed, shot), not on which thread
+//   ran it or in what order. See docs/design/deterministic-mc.md.
+inline std::uint64_t splitmix64_mix(std::uint64_t z) {
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL; z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL; return z ^ (z >> 31);
+}
+inline std::uint64_t frame_shot_seed(std::uint64_t seed, std::uint64_t shot) {
+    return splitmix64_mix(seed ^ 0x6A09E667F3BCC909ULL) + shot * (4 * 0x9E3779B97F4A7C15ULL);
+}
+
 // ================================================================== Pauli-frame program
 struct FrameProgram {
     // p: readout flip / reset error; ref: noiseless outcome (-1 random); mover/pleak: CZ leakage injection
@@ -510,109 +524,124 @@ inline MemoryResult summarize(const MemorySetup& M, long shots, long errors, dou
 //    (random Z on the partner) and, with probability `transport`, moves the leakage to the partner;
 //  * a leaked qubit reads out as |1>; RESET removes leakage only if the reset is leakage-removing;
 //  * seepage |2> -> |1> at ~2/T1 returns the qubit in a random computational state; DQLR does so on demand.
+//
+// Determinism: the result is a function of (M, shots, seed) only, bit for bit, whatever OMP_NUM_THREADS or the schedule.
+//  * every shot reseeds its generator from (seed, shot index) -- frame_shot_seed above;
+//  * shots are grouped in fixed blocks of kFrameBlock; each block sums its own tallies in shot order, and the block
+//    partials are added in block order after the parallel loop. The integer tallies are exact anyway; the leaked-time
+//    sums (leak_d, leak_m) are not, so this fixed order is what makes them reproducible.
+inline constexpr long kFrameBlock = 1024;
 inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint64_t seed) {
     const auto& F = M.frame;
-    long errors = 0; double fired_sum = 0, leak_d = 0, leak_m = 0, leak_ev = 0;
     int n_data = 0; for (char c : M.is_data) n_data += c;
     const int n_meas = F.n - n_data;
-#pragma omp parallel reduction(+ : errors, fired_sum, leak_d, leak_m, leak_ev)
+    struct Tally { long errors{0}, fired{0}, leak_ev{0}; double leak_d{0}, leak_m{0}; };
+    const long nblocks = shots > 0 ? (shots + kFrameBlock - 1) / kFrameBlock : 0;
+    std::vector<Tally> part(static_cast<std::size_t>(nblocks));
+#pragma omp parallel
     {
-        int tid = 0, nth = 1;
-#ifdef _OPENMP
-        tid = omp_get_thread_num(); nth = omp_get_num_threads();
-#endif
-        Xoshiro256 rng(seed * 0x9E3779B97F4A7C15ULL + std::uint64_t(tid) * 7919ULL + 1);
+        Xoshiro256 rng(0);
         std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
         std::vector<int> fired; std::vector<double> cost; std::vector<int> choice;
         auto randomize = [&](int q) { x[std::size_t(q)] = rng.uniform() < 0.5; z[std::size_t(q)] = rng.uniform() < 0.5; };
-        for (long s = tid; s < shots; s += nth) {
-            std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0);
-            std::fill(L.begin(), L.end(), 0);
-            int nleaked = 0;
-            for (const auto& fm : F.moments) {
-                for (const auto& o : fm.ops) {
-                    if (nleaked == 0 || !F.leakage) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                    else {
-                        const bool la = L[std::size_t(o.a)] != 0;
-                        if (o.op == Op::CZ) {
-                            const bool lb = L[std::size_t(o.b)] != 0;
-                            if (!la && !lb) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                            else if (la != lb) {
-                                const int leaked = la ? o.a : o.b, other = la ? o.b : o.a;
-                                if (rng.uniform() < 0.5) z[std::size_t(other)] ^= 1;
-                                if (F.transport > 0 && rng.uniform() < F.transport) { L[std::size_t(leaked)] = 0; randomize(leaked); L[std::size_t(other)] = 1; }
+#pragma omp for schedule(dynamic, 1)
+        for (long b = 0; b < nblocks; ++b) {
+            Tally& T_ = part[std::size_t(b)];
+            long errors = 0, fired_sum = 0, leak_ev = 0; double leak_d = 0, leak_m = 0;
+            const long s_end = std::min(shots, (b + 1) * kFrameBlock);
+            for (long s = b * kFrameBlock; s < s_end; ++s) {
+                rng = Xoshiro256(frame_shot_seed(seed, std::uint64_t(s)));
+                std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0);
+                std::fill(L.begin(), L.end(), 0);
+                int nleaked = 0;
+                for (const auto& fm : F.moments) {
+                    for (const auto& o : fm.ops) {
+                        if (nleaked == 0 || !F.leakage) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                        else {
+                            const bool la = L[std::size_t(o.a)] != 0;
+                            if (o.op == Op::CZ) {
+                                const bool lb = L[std::size_t(o.b)] != 0;
+                                if (!la && !lb) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                                else if (la != lb) {
+                                    const int leaked = la ? o.a : o.b, other = la ? o.b : o.a;
+                                    if (rng.uniform() < 0.5) z[std::size_t(other)] ^= 1;
+                                    if (F.transport > 0 && rng.uniform() < F.transport) { L[std::size_t(leaked)] = 0; randomize(leaked); L[std::size_t(other)] = 1; }
+                                }
+                            } else if (o.op == Op::MEASURE) {
+                                if (la) flips[std::size_t(o.cbit)] = o.ref >= 0 ? std::uint8_t(1 ^ o.ref) : std::uint8_t(rng.uniform() < 0.5);
+                                else frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                            } else if (o.op == Op::RESET) {
+                                if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                                else if (F.reset_removes_leakage) { L[std::size_t(o.a)] = 0; --nleaked; frame_detail::apply_op(o, x.data(), z.data(), flips.data()); }
+                            } else if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                        }
+                        if (o.p > 0 && rng.uniform() < o.p) {
+                            if (o.op == Op::MEASURE) flips[std::size_t(o.cbit)] ^= 1;
+                            else if (o.op == Op::RESET) x[std::size_t(o.a)] ^= 1;
+                        }
+                        if (F.leakage) {
+                            if (o.op == Op::CZ && o.pleak > 0 && !L[std::size_t(o.mover)] && rng.uniform() < o.pleak) {
+                                const int other = o.mover == o.a ? o.b : o.a;
+                                L[std::size_t(o.mover)] = 1; ++nleaked; leak_ev += 1;
+                                if (!L[std::size_t(other)]) randomize(other);
+                            } else if ((o.op == Op::SX || o.op == Op::X) && F.leak_1q > 0 && !L[std::size_t(o.a)] && rng.uniform() < F.leak_1q) {
+                                L[std::size_t(o.a)] = 1; ++nleaked; leak_ev += 1;
                             }
-                        } else if (o.op == Op::MEASURE) {
-                            if (la) flips[std::size_t(o.cbit)] = o.ref >= 0 ? std::uint8_t(1 ^ o.ref) : std::uint8_t(rng.uniform() < 0.5);
-                            else frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                        } else if (o.op == Op::RESET) {
-                            if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                            else if (F.reset_removes_leakage) { L[std::size_t(o.a)] = 0; --nleaked; frame_detail::apply_op(o, x.data(), z.data(), flips.data()); }
-                        } else if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                        }
                     }
-                    if (o.p > 0 && rng.uniform() < o.p) {
-                        if (o.op == Op::MEASURE) flips[std::size_t(o.cbit)] ^= 1;
-                        else if (o.op == Op::RESET) x[std::size_t(o.a)] ^= 1;
+                    if (F.p1 > 0) for (int q : fm.ctrl1) if (rng.uniform() < F.p1) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
+                    for (const auto& c2 : fm.ctrl2) if (c2.p > 0 && rng.uniform() < c2.p) {
+                        const int k = 1 + int(rng.uniform() * 15);
+                        if (k % 4) frame_detail::apply_pauli(k % 4, c2.a, x.data(), z.data());
+                        if (k / 4) frame_detail::apply_pauli(k / 4, c2.b, x.data(), z.data());
+                    }
+                    for (const auto& t : fm.zz) {
+                        const double r = rng.uniform();
+                        if (r < t.pa) z[std::size_t(t.a)] ^= 1;
+                        else if (r < t.pa + t.pb) z[std::size_t(t.b)] ^= 1;
+                        else if (r < t.pa + t.pb + t.pab) { z[std::size_t(t.a)] ^= 1; z[std::size_t(t.b)] ^= 1; }
+                    }
+                    for (const auto& dq : fm.deco) {
+                        const double r = rng.uniform();
+                        if (r < dq.px) x[std::size_t(dq.q)] ^= 1;
+                        else if (r < dq.px + dq.py) { x[std::size_t(dq.q)] ^= 1; z[std::size_t(dq.q)] ^= 1; }
+                        else if (r < dq.px + dq.py + dq.pz) z[std::size_t(dq.q)] ^= 1;
                     }
                     if (F.leakage) {
-                        if (o.op == Op::CZ && o.pleak > 0 && !L[std::size_t(o.mover)] && rng.uniform() < o.pleak) {
-                            const int other = o.mover == o.a ? o.b : o.a;
-                            L[std::size_t(o.mover)] = 1; ++nleaked; leak_ev += 1;
-                            if (!L[std::size_t(other)]) randomize(other);
-                        } else if ((o.op == Op::SX || o.op == Op::X) && F.leak_1q > 0 && !L[std::size_t(o.a)] && rng.uniform() < F.leak_1q) {
-                            L[std::size_t(o.a)] = 1; ++nleaked; leak_ev += 1;
+                        for (int q : fm.dqlr) {
+                            if (L[std::size_t(q)] && rng.uniform() < F.dqlr_eff) { L[std::size_t(q)] = 0; --nleaked; randomize(q); }
+                            if (F.dqlr_err > 0 && rng.uniform() < F.dqlr_err) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
+                        }
+                        if (nleaked > 0) {
+                            int nd = 0, nmq = 0;
+                            for (int q = 0; q < F.n; ++q) if (L[std::size_t(q)]) { if (M.is_data[std::size_t(q)]) ++nd; else ++nmq; }
+                            leak_d += fm.duration_ns * nd; leak_m += fm.duration_ns * nmq;
+                            for (int q = 0; q < F.n; ++q)
+                                if (L[std::size_t(q)] && rng.uniform() < 1 - std::exp(-fm.duration_ns * F.seep_rate[std::size_t(q)])) {
+                                    L[std::size_t(q)] = 0; --nleaked; randomize(q);
+                                }
                         }
                     }
                 }
-                if (F.p1 > 0) for (int q : fm.ctrl1) if (rng.uniform() < F.p1) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
-                for (const auto& c2 : fm.ctrl2) if (c2.p > 0 && rng.uniform() < c2.p) {
-                    const int k = 1 + int(rng.uniform() * 15);
-                    if (k % 4) frame_detail::apply_pauli(k % 4, c2.a, x.data(), z.data());
-                    if (k / 4) frame_detail::apply_pauli(k / 4, c2.b, x.data(), z.data());
+                fired.clear();
+                for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) {
+                    std::uint8_t v = 0; for (int c : M.exp.detectors[d]) v ^= flips[std::size_t(c)];
+                    if (v) fired.push_back(int(d));
                 }
-                for (const auto& t : fm.zz) {
-                    const double r = rng.uniform();
-                    if (r < t.pa) z[std::size_t(t.a)] ^= 1;
-                    else if (r < t.pa + t.pb) z[std::size_t(t.b)] ^= 1;
-                    else if (r < t.pa + t.pb + t.pab) { z[std::size_t(t.a)] ^= 1; z[std::size_t(t.b)] ^= 1; }
-                }
-                for (const auto& dq : fm.deco) {
-                    const double r = rng.uniform();
-                    if (r < dq.px) x[std::size_t(dq.q)] ^= 1;
-                    else if (r < dq.px + dq.py) { x[std::size_t(dq.q)] ^= 1; z[std::size_t(dq.q)] ^= 1; }
-                    else if (r < dq.px + dq.py + dq.pz) z[std::size_t(dq.q)] ^= 1;
-                }
-                if (F.leakage) {
-                    for (int q : fm.dqlr) {
-                        if (L[std::size_t(q)] && rng.uniform() < F.dqlr_eff) { L[std::size_t(q)] = 0; --nleaked; randomize(q); }
-                        if (F.dqlr_err > 0 && rng.uniform() < F.dqlr_err) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
-                    }
-                    if (nleaked > 0) {
-                        int nd = 0, nmq = 0;
-                        for (int q = 0; q < F.n; ++q) if (L[std::size_t(q)]) { if (M.is_data[std::size_t(q)]) ++nd; else ++nmq; }
-                        leak_d += fm.duration_ns * nd; leak_m += fm.duration_ns * nmq;
-                        for (int q = 0; q < F.n; ++q)
-                            if (L[std::size_t(q)] && rng.uniform() < 1 - std::exp(-fm.duration_ns * F.seep_rate[std::size_t(q)])) {
-                                L[std::size_t(q)] = 0; --nleaked; randomize(q);
-                            }
-                    }
-                }
+                std::uint8_t obs = 0; for (int c : M.exp.observable) obs ^= flips[std::size_t(c)];
+                fired_sum += long(fired.size());
+                if (M.decoder->decode(fired, cost, choice) != obs) ++errors;
             }
-            fired.clear();
-            for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) {
-                std::uint8_t v = 0; for (int c : M.exp.detectors[d]) v ^= flips[std::size_t(c)];
-                if (v) fired.push_back(int(d));
-            }
-            std::uint8_t obs = 0; for (int c : M.exp.observable) obs ^= flips[std::size_t(c)];
-            fired_sum += double(fired.size());
-            if (M.decoder->decode(fired, cost, choice) != obs) ++errors;
+            T_.errors = errors; T_.fired = fired_sum; T_.leak_ev = leak_ev; T_.leak_d = leak_d; T_.leak_m = leak_m;
         }
     }
-    auto r = summarize(M, shots, errors, fired_sum);
+    long errors = 0, fired_tot = 0, leak_ev = 0; double leak_d = 0, leak_m = 0;
+    for (const Tally& t : part) { errors += t.errors; fired_tot += t.fired; leak_ev += t.leak_ev; leak_d += t.leak_d; leak_m += t.leak_m; }
+    auto r = summarize(M, shots, errors, double(fired_tot));
     const double T = std::max(M.frame.duration_ns, 1e-12) * double(shots);
     r.leak_frac_data = n_data ? leak_d / T / n_data : 0.0;
     r.leak_frac_meas = n_meas ? leak_m / T / n_meas : 0.0;
-    r.leak_events_per_shot = leak_ev / double(shots);
+    r.leak_events_per_shot = double(leak_ev) / double(shots);
     return r;
 }
 

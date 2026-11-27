@@ -28,16 +28,16 @@ static ChipReport prepared_report(const ChipDesign& D) {
     if (D.coupler.physical) calibrate_chip_cz(D, R, false, g_opt.cache);
     return R;
 }
-static QecPoint qec(const ChipDesign& D, const std::vector<int>& rounds, long shots, unsigned seed, const Tweak& tw = {}) {
+static QecPoint qec(const ChipDesign& D, const std::vector<int>& rounds, long shots, unsigned seed, const Tweak& tw = {}, char basis = 'Z') {
     const auto R = prepared_report(D);
     auto nm = noise_model(D, R);
     if (tw) tw(nm);
     std::vector<MemoryResult> rs;
-    for (int r : rounds) rs.push_back(run_memory_frame(prepare_memory(D, R, nm, r), shots, seed + unsigned(r)));
+    for (int r : rounds) rs.push_back(run_memory_frame(prepare_memory(D, R, nm, r, basis), shots, seed + unsigned(r)));
     QecPoint q;
     q.eps = fit_eps_per_round(rs);
     const auto& last = rs.back();
-    q.eps_err = last.p_logical_sem / last.rounds / std::max(1e-9, std::pow(1 - 2 * last.p_logical, double(last.rounds - 1) / last.rounds));
+    q.eps_err = fit_eps_per_round_err(rs);
     q.det = last.detection_rate; q.round_ns = last.round_ns; q.leak_d = last.leak_frac_data; q.leak_m = last.leak_frac_meas;
     q.p_last = last.p_logical; q.r_last = last.rounds;
     return q;
@@ -91,7 +91,9 @@ int main(int argc, char** argv) {
     std::printf("   v1.0 model (abstract coupler, no leakage):     eps %.4f%% +- %.4f%%, round %.0f ns\n", 100 * h10.eps, 100 * h10.eps_err, h10.round_ns);
     std::printf("   v1.1 model (pulse-level CZ, leakage, LRR):     eps %.4f%% +- %.4f%%, round %.0f ns, detection %.4f\n", 100 * h11.eps, 100 * h11.eps_err, h11.round_ns, h11.det);
     std::printf("   logical lifetime %.0f us vs best physical T1 %.1f us\n", h11.round_ns / 1e3 / h11.eps, best_T1);
-    { Json h = Json::object(); h.set("v1_0", jq(h10)); h.set("v1_1", jq(h11)); h.set("logical_lifetime_us", h11.round_ns / 1e3 / h11.eps); h.set("best_T1_us", best_T1); out.set("headline", h); }
+    const auto h11x = qec(V11, R5, shots, 111, {}, 'X');
+    std::printf("   v1.1 model, memory-X (|+>_L, phase flips):     eps %.4f%% +- %.4f%%\n", 100 * h11x.eps, 100 * h11x.eps_err);
+    { Json h = Json::object(); h.set("v1_0", jq(h10)); h.set("v1_1", jq(h11)); h.set("v1_1_memory_X", jq(h11x)); h.set("logical_lifetime_us", h11.round_ns / 1e3 / h11.eps); h.set("best_T1_us", best_T1); out.set("headline", h); }
 
     // ------------------------------------------------------------------ 3. leakage
     std::puts("\n3. Leakage handling (eps fit over 5-25 rounds; 50-round experiment for the long-run behaviour)");
@@ -155,8 +157,11 @@ int main(int argc, char** argv) {
         const ChipDesign D5 = alpha1_v11(5);
         const auto q5 = qec(D5, {5, 10, 15}, shots / 2, 707);
         const auto q3 = qec(V11, {5, 10, 15}, shots, 707);
-        std::printf("   eps d=3 %.4f%%, d=5 %.4f%%  ->  Lambda = %.2f\n", 100 * q3.eps, 100 * q5.eps, q3.eps / q5.eps);
-        Json d = Json::object(); d.set("eps_d3", q3.eps); d.set("eps_d5", q5.eps); d.set("Lambda", q3.eps / q5.eps); d.set("round_ns_d5", q5.round_ns);
+        const double lam = q3.eps / q5.eps, lam_err = lam * std::sqrt(std::pow(q3.eps_err / q3.eps, 2) + std::pow(q5.eps_err / q5.eps, 2));
+        std::printf("   fit over 5-15 rounds: eps d=3 %.4f%% +- %.4f%%, d=5 %.4f%% +- %.4f%%  ->  Lambda = %.2f +- %.2f\n", 100 * q3.eps, 100 * q3.eps_err, 100 * q5.eps,
+                    100 * q5.eps_err, lam, lam_err);
+        Json d = Json::object(); d.set("eps_d3", q3.eps); d.set("eps_d5", q5.eps); d.set("Lambda", lam); d.set("round_ns_d5", q5.round_ns);
+        d.set("eps_err_d3", q3.eps_err); d.set("eps_err_d5", q5.eps_err); d.set("Lambda_err", lam_err); d.set("fit_rounds", "5, 10, 15");
         out.set("distance5", d);
     }
 
@@ -194,7 +199,7 @@ int main(int argc, char** argv) {
 
     const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     out.set("shots", double(shots)); out.set("runtime_s", secs);
-    out.set("provenance", review::provenance(g_opt, "frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 202/303/404 + rounds (leakage schemes), "
+    out.set("provenance", review::provenance(g_opt, "frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), "
                                                     "505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5)"));
     const std::string jpath = g_opt.path("designs/alpha1-v11/alpha1_v11_review.json");
     std::ofstream f(jpath); out.dump(f); f << "\n";

@@ -3,7 +3,79 @@
 All notable changes to qpuforge. Versions follow `MAJOR.MINOR.PATCH`; before 1.0, a minor release may change the API, and
 every such change is listed under **API changes**.
 
+## [0.4.0] (unreleased)
+
+Finishes the software side of Phases Alpha and Beta and starts Phase Gamma: an exact decoder at any number of defects,
+memory experiments in both bases, correlated error bursts, hardware-gate evaluation from measured data, Beta-1 rev C and
+the Gamma-1 (GF-97) distance-7 design. See the README "What's new in v0.4" table.
+
+### Added
+- `matching.hpp`: `BlossomMatcher`, Edmonds' blossom algorithm for minimum-weight perfect matching (dense, primal-dual,
+  O(n³), integer weights).
+- `qec.hpp`:
+  - Exact decoding at any number of defects. `DecodeMethod` selects `Auto` (dynamic programme up to 8 defects, blossom
+    above), `DP`, `Blossom`, `Greedy` or `Legacy` (the 0.3 behaviour: exact up to 22 defects, greedy above).
+  - Memory experiments in the X basis: `memory_experiment(S, rounds, basis)`; `prepare_memory(..., basis)`.
+  - Correlated bursts from high-energy impacts: `BurstSpec`, `burst_noise`, `burst_floor`.
+  - Syndrome and decoder statistics in `MemoryResult`: `detection_by_round`, `mean_defects`, `max_defects`,
+    `frac_over_22`, `decode_us_per_shot`.
+  - `FrameRunOptions`: run a memory experiment with another setup's decoder, or with a chosen decode method.
+  - `enumerate_faults` follows only the qubits a fault touches, skips time slices without an operation on them, and
+    runs in parallel: 8.5× faster on the Gamma-1 chip at 14 rounds on two cores. The 0.3 routine is kept as
+    `enumerate_faults_reference`; the two agree fault by fault.
+- `characterise.hpp`: the `qpuforge.characterisation.v0` data file, `model_from_measurement`,
+  `evaluate_hardware_gate` (Alpha and Beta hardware gates from ROADMAP.md) and `synthesize_characterisation` (a virtual
+  chip for rehearsal).
+- `presets.hpp`: `plan_readout` (at most 9 resonators per feedline) and `gamma1()`. `device.hpp`: `f01_for_11_20`.
+- CLI: `synth-chip`, `hwgate`, `qec --basis Z|X|both`, `qec --bursts`, `qec --decoder exact|legacy|greedy`,
+  `new --preset gamma1`, `gds --synthesize --from`.
+- Designs: Beta-1 rev C, Gamma-1 (GF-97), and the Alpha-1 v1.1 characterisation plan.
+- `examples/gamma1_review.cpp`; `examples/review_util.hpp` (shared by the Beta and Gamma reviews); `tools/fill_spec.py`.
+- Tests: six new groups (`matching`, `fault_enumeration`, `memory_bases`, `bursts`, `characterisation`, `designs_v04`),
+  235 checks in all (186 in 0.3.0), and a third review smoke test.
+
+### API changes
+- **`MatchingDecoder::decode(defects, DecodeScratch&, DecodeMethod = Auto)`** replaces
+  `decode(defects, std::vector<double>& cost, std::vector<int>& choice)`. `DecodeScratch` holds the work arrays of both
+  matchers, and reports the matching weight and the method used.
+- `prepare_memory(D, R, nm, rounds, basis = 'Z', build_decoder = true)` and
+  `run_memory_frame(M, shots, seed, FrameRunOptions = {})` gain optional arguments. 0.3 calls compile unchanged.
+- `memory_z_experiment(S, rounds)` is now a wrapper for `memory_experiment(S, rounds, 'Z')`. `MemoryExperiment` gains
+  `detector_round` and `basis`.
+- **Behaviour change:** shots with more than 22 defects are now decoded exactly. Logical error rates of long or large
+  experiments drop; nothing changes where shots stay below 22 defects (distance 3 up to 25 rounds). Pass
+  `DecodeMethod::Legacy` (`qpuforge qec --decoder legacy`) to reproduce 0.3 results on the same syndromes.
+- **Behaviour change:** `beta1()` is rev C. Its readout plan has 6 feedlines (was 3), with resonators from 6.90 GHz in
+  60 MHz steps. `gds` no longer overwrites a cell file it was asked to load.
+- **Behaviour change:** `ChipReport` pairs: `cz_interaction_GHz` is solved at the anharmonicity the moving qubit has at
+  the interaction point (`f01_for_11_20`), 1–2.5 MHz above the 0.3 estimate.
+- `tools/fill_beta_spec.py` is replaced by `tools/fill_spec.py beta` (and `gamma`).
+
+### Changed
+- All review outputs were regenerated with CZ model version 2 and the exact decoder (`results/PROVENANCE.md`).
+- The Beta and Gamma reviews report both memory bases, the largest per-pair CZ leakage, and the mask-level DRC counts.
+- The Beta gate adds a 100-round detection-rate stability criterion and an extraction criterion for the layout.
+- Review smoke runs shorten the long experiments (setup time is quadratic in the number of rounds).
+
+### Fixed
+- **Error bars of fitted logical error rates were too small.** The reviews took the error of a fit over several round
+  counts from the last round count alone. The slope of a free-intercept fit is less certain than that: by about 20 % for
+  five round counts and 40 % for four. `fit_eps_per_round_err` propagates the binomial errors of all points through
+  the fit; it is checked against the scatter of 4,000 synthetic fits. Every ± on a fitted value, and on a Λ derived
+  from one, is wider than in 0.3. Single-run estimates were already correct.
+
+### Known issues
+- CZ leakage: the worst frequency combination leaks 2.3e-04 per gate, above the 2e-4 limit of the Alpha
+  simulation gate (mean 5.7e-05). Alpha-1, Beta-1 and Gamma-1 share the same 16 frequency combinations, so the
+  pair class appears on all three chips (Q8–Q11 on AF-17).
+- No layout passes the merged-etch width/space DRC (4 µm / 4 µm, projection metric): AF-17 has 34 width + 202 space violations,
+  BF-49 rev C 98 width + 504 space violations, and GF-97 194 width + 1,016 space violations. The
+  masks are not fabrication-ready.
+- Setting up a memory experiment takes time quadratic in the number of rounds (single-fault enumeration).
+- The hardware-gate chain has only been run on synthetic data from the virtual chip.
+
 ## [0.3.0] - YYYY-MM-DD
+
 
 First tagged release. Adds pulse-level CZ calibration, a leakage-modelled QEC frame simulator, layout synthesis with
 GDSII output, and the Alpha-1 v1.1 (AF-17) and Beta-1 (BF-49) designs. See the README "What's new in v0.3" table.

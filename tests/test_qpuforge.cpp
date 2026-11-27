@@ -3,11 +3,14 @@
 #include "qpuforge/layout.hpp"
 #include <algorithm>
 #include <chrono>
+#include <fstream>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <numeric>
+#include <sstream>
 
 using namespace qpuforge;
 static int g_fail = 0, g_pass = 0;
@@ -468,8 +471,8 @@ static void test_qec_circuits() {
         DetectorErrorModel U = M.dem; for (auto& e : U.edges) e.p = 0.01;
         MatchingDecoder dec(U);
         const auto faults = enumerate_faults(M.frame, M.exp);
-        int wrong = 0; std::vector<double> c; std::vector<int> ch;
-        for (const auto& f : faults) wrong += dec.decode(f.dets, c, ch) != int(f.obs);
+        int wrong = 0; DecodeScratch ws;
+        for (const auto& f : faults) wrong += dec.decode(f.dets, ws) != int(f.obs);
         std::printf("  d=3: %zu single faults, %d uncorrected by uniform-weight matching (circuit distance 3 needs 0)\n", faults.size(), wrong);
         CHECK(wrong == 0, "every single fault correctable at d=3");
     }
@@ -480,13 +483,13 @@ static void test_qec_circuits() {
         MatchingDecoder dec(U);
         const auto faults = enumerate_faults(M.frame, M.exp);
         std::mt19937 rng(3); std::uniform_int_distribution<std::size_t> pick(0, faults.size() - 1);
-        int wrong1 = 0, wrong2 = 0; std::vector<double> c; std::vector<int> ch;
-        for (const auto& f : faults) wrong1 += dec.decode(f.dets, c, ch) != int(f.obs);
+        int wrong1 = 0, wrong2 = 0; DecodeScratch ws;
+        for (const auto& f : faults) wrong1 += dec.decode(f.dets, ws) != int(f.obs);
         for (int k = 0; k < 20000; ++k) {
             const auto& f = faults[pick(rng)]; const auto& g = faults[pick(rng)];
             std::vector<int> dets;
             std::set_symmetric_difference(f.dets.begin(), f.dets.end(), g.dets.begin(), g.dets.end(), std::back_inserter(dets));
-            wrong2 += dec.decode(dets, c, ch) != int(f.obs ^ g.obs);
+            wrong2 += dec.decode(dets, ws) != int(f.obs ^ g.obs);
         }
         std::printf("  d=5: %zu single faults (%d uncorrected), 20000 random fault pairs (%d uncorrected); hyperedges %d\n", faults.size(), wrong1, wrong2, M.dem.hyperedge_faults);
         CHECK(wrong1 == 0 && wrong2 == 0 && M.dem.undetectable_logical == 0, "every pair of faults correctable at d=5");
@@ -751,6 +754,388 @@ static void test_layout() {
     }
 }
 
+
+// ---------------------------------------------------------------- v0.4: exact matching for any number of defects
+static void test_matching() {
+    std::puts("[matching] blossom matcher vs brute force; decoder exact above the old 22-defect limit");
+    // (a) the matcher alone: maximum-weight matching on random graphs (complete and sparse, even and odd sizes)
+    //     against a subset dynamic programme that may leave vertices unmatched
+    {
+        std::mt19937_64 rng(42);
+        BlossomMatcher bm;
+        int bad = 0, cases = 0;
+        for (int rep = 0; rep < 600; ++rep) {
+            const int n = 2 + int(rng() % 11);                       // 2 .. 12 vertices
+            const bool sparse = rep % 3 == 0;
+            std::vector<BlossomMatcher::W> w(std::size_t(n) * std::size_t(n), 0);
+            for (int i = 0; i < n; ++i) for (int j = i + 1; j < n; ++j) {
+                BlossomMatcher::W v = 1 + BlossomMatcher::W(rng() % 1000);
+                if (sparse && rng() % 3 == 0) v = 0;                 // no edge
+                w[std::size_t(i) * std::size_t(n) + std::size_t(j)] = w[std::size_t(j) * std::size_t(n) + std::size_t(i)] = v;
+            }
+            std::vector<BlossomMatcher::W> best(std::size_t(1) << n, 0);
+            for (std::size_t mask = 1; mask < best.size(); ++mask) {
+                int i = 0; while (!((mask >> i) & 1)) ++i;
+                const std::size_t rest = mask & ~(std::size_t(1) << i);
+                BlossomMatcher::W b = best[rest];                    // i stays unmatched
+                for (int j = i + 1; j < n; ++j) if ((rest >> j) & 1) {
+                    const BlossomMatcher::W e = w[std::size_t(i) * std::size_t(n) + std::size_t(j)];
+                    if (e > 0) b = std::max(b, e + best[rest & ~(std::size_t(1) << j)]);
+                }
+                best[mask] = b;
+            }
+            const auto& mate = bm.solve(n, w);
+            BlossomMatcher::W tot = 0; bool consistent = true;
+            for (int i = 0; i < n; ++i) {
+                const int j = mate[std::size_t(i)];
+                if (j < 0) continue;
+                if (mate[std::size_t(j)] != i || w[std::size_t(i) * std::size_t(n) + std::size_t(j)] <= 0) consistent = false;
+                if (i < j) tot += w[std::size_t(i) * std::size_t(n) + std::size_t(j)];
+            }
+            ++cases;
+            if (!consistent || tot != best.back()) ++bad;
+        }
+        std::printf("  matcher: %d random graphs (2-12 vertices, a third of them sparse), %d differ from brute force\n", cases, bad);
+        CHECK(bad == 0, "blossom matcher is not optimal on %d of %d graphs", bad, cases);
+    }
+    // (b) the decoder: blossom against the exact DP on random defect sets, then large sets against greedy
+    const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+    const auto M = prepare_memory(D, R, nm, 12);
+    {
+        std::mt19937_64 rng(7);
+        const int N = int(M.exp.detectors.size());
+        DecodeScratch a, b;
+        int bad_w = 0, parity_diff = 0, n = 0;
+        double worst = 0;
+        for (int rep = 0; rep < 2500; ++rep) {
+            const int k = 1 + rep % 18;
+            std::vector<int> def;
+            if (rep % 2) {                                           // clustered: sum of random error-model edges
+                std::vector<char> on(std::size_t(N), 0);
+                for (int e = 0; e < k; ++e) { const auto& ed = M.dem.edges[rng() % M.dem.edges.size()]; on[std::size_t(ed.a)] ^= 1; if (ed.b >= 0) on[std::size_t(ed.b)] ^= 1; }
+                for (int i = 0; i < N; ++i) if (on[std::size_t(i)]) def.push_back(i);
+                if (def.empty() || def.size() > 20) continue;
+            } else {                                                 // uniformly random detectors
+                std::vector<int> all(static_cast<std::size_t>(N)); std::iota(all.begin(), all.end(), 0); std::shuffle(all.begin(), all.end(), rng);
+                def.assign(all.begin(), all.begin() + k); std::sort(def.begin(), def.end());
+            }
+            const int pa = M.decoder->decode(def, a, DecodeMethod::DP), pb = M.decoder->decode(def, b, DecodeMethod::Blossom);
+            ++n; worst = std::max(worst, std::abs(a.weight - b.weight));
+            if (std::abs(a.weight - b.weight) > 1e-5) ++bad_w;
+            if (pa != pb) ++parity_diff;
+        }
+        std::printf("  decoder: %d defect sets (1-20 defects): %d weight mismatches (worst %.1e), %d parity differences\n", n, bad_w, worst, parity_diff);
+        CHECK(bad_w == 0, "blossom and DP matchings differ in weight");
+        CHECK(parity_diff == 0, "blossom and DP predict different logical flips");
+        int heavier = 0, big = 0;
+        for (int k : {30, 60, 100, 140}) for (int rep = 0; rep < 15; ++rep) {
+            std::vector<int> all(static_cast<std::size_t>(N)); std::iota(all.begin(), all.end(), 0); std::shuffle(all.begin(), all.end(), rng);
+            std::vector<int> def(all.begin(), all.begin() + std::min(k, N)); std::sort(def.begin(), def.end());
+            M.decoder->decode(def, b, DecodeMethod::Blossom); M.decoder->decode(def, a, DecodeMethod::Greedy);
+            ++big; if (b.weight > a.weight + 1e-6) ++heavier;
+        }
+        CHECK(heavier == 0, "blossom heavier than greedy on %d of %d large defect sets", heavier, big);
+    }
+    // (c) a long experiment, same syndromes: exact matching must not lose to the old fallback, and must gain where the
+    //     fallback was in use
+    {
+        const auto ML = prepare_memory(D, R, nm, 30);
+        FrameRunOptions legacy; legacy.method = DecodeMethod::Legacy;
+        const auto ex = run_memory_frame(ML, 1200, 5), lg = run_memory_frame(ML, 1200, 5, legacy);
+        std::printf("  d=5, 30 rounds, 1200 shots: %.1f defects per shot, %.0f%% above 22; logical failures exact %ld, greedy fallback %ld; decode %.0f vs %.0f us per shot\n",
+                    ex.mean_defects, 100 * ex.frac_over_22, ex.logical_errors, lg.logical_errors, ex.decode_us_per_shot, lg.decode_us_per_shot);
+        CHECK(ex.frac_over_22 > 0.05, "test needs shots above 22 defects");
+        CHECK(ex.logical_errors < lg.logical_errors, "exact matching should beat the greedy fallback on the same syndromes");
+        CHECK(int(ex.detection_by_round.size()) == 31 && ex.max_defects > 22, "per-round detection and defect statistics");
+    }
+}
+
+// ---------------------------------------------------------------- v0.4: fast fault enumeration
+static void test_fault_enumeration() {
+    std::puts("[faults] fast single-fault enumeration against the reference, fault by fault");
+    long total = 0, differ = 0; double t_ref = 0, t_fast = 0;
+    auto compare = [&](const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, int rounds, char basis) {
+        const auto M = prepare_memory(D, R, nm, rounds, basis, false);
+        const auto t0 = std::chrono::steady_clock::now();
+        const auto a = enumerate_faults_reference(M.frame, M.exp);
+        const auto t1 = std::chrono::steady_clock::now();
+        const auto b = enumerate_faults(M.frame, M.exp);
+        const auto t2 = std::chrono::steady_clock::now();
+        t_ref += std::chrono::duration<double>(t1 - t0).count(); t_fast += std::chrono::duration<double>(t2 - t1).count();
+        if (a.size() != b.size()) { differ += long(std::max(a.size(), b.size())); return; }
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            ++total;
+            if (a[i].dets != b[i].dets || a[i].obs != b[i].obs || a[i].p != b[i].p || a[i].moment != b[i].moment || a[i].what != b[i].what) ++differ;
+        }
+    };
+    {
+        const auto D = surface_chip(3); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        compare(D, R, nm, 5, 'Z'); compare(D, R, nm, 5, 'X'); compare(D, R, nm, 1, 'Z');
+        auto lk = nm; lk.leakage = true; lk.dqlr = true; lk.dqlr_err = 5e-4; lk.dqlr_eff = 0.98;      // DQLR faults
+        const auto ML = prepare_memory(D, R, lk, 3);                                                  // (also builds the DQLR partner map)
+        const auto a = enumerate_faults_reference(ML.frame, ML.exp), b = enumerate_faults(ML.frame, ML.exp);
+        for (std::size_t i = 0; i < std::min(a.size(), b.size()); ++i) { ++total; if (a[i].dets != b[i].dets || a[i].obs != b[i].obs || a[i].p != b[i].p) ++differ; }
+        if (a.size() != b.size()) ++differ;
+    }
+    {
+        const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        compare(D, R, nm, 8, 'Z'); compare(D, R, nm, 4, 'X');
+    }
+    // Unequal CZ durations, as per-pair calibration gives them: the program is cut into several times more time
+    // slices, most of them idle for any given qubit. The fast enumeration skips those; the output must not change.
+    std::size_t slices_equal = 0, slices_unequal = 0;
+    {
+        const auto D = surface_chip(3); auto R = analyze(D);
+        slices_equal = prepare_memory(D, R, noise_model(D, R), 6, 'Z', false).frame.moments.size();
+        int k = 0; for (auto& p : R.pairs) if (p.designed) p.t_cz_ns += 1.7 * (k++ % 11);
+        const auto nm = noise_model(D, R);
+        slices_unequal = prepare_memory(D, R, nm, 6, 'Z', false).frame.moments.size();
+        compare(D, R, nm, 6, 'Z'); compare(D, R, nm, 6, 'X');
+    }
+    std::printf("  %ld faults compared over 8 experiments (d = 3 and 5, both bases, with DQLR, equal and unequal CZ durations): %ld differ; reference %.2f s, fast %.2f s\n",
+                total, differ, t_ref, t_fast);
+    std::printf("  time slices of a 6-round d=3 memory: %zu with equal CZ durations, %zu with unequal ones\n", slices_equal, slices_unequal);
+    CHECK(total > 100000 && differ == 0, "fast fault enumeration differs from the reference on %ld of %ld faults", differ, total);
+    CHECK(2 * slices_unequal > 3 * slices_equal, "the unequal-duration case does not exercise the many-slice regime (%zu vs %zu slices)", slices_unequal, slices_equal);
+}
+
+// ---------------------------------------------------------------- v0.4: memory in both bases
+static void test_memory_bases() {
+    std::puts("[memory-X] X-basis memory: determinism, distance, logical operators (exact emulator), agreement with the Z basis");
+    for (int d : {3, 5}) {
+        const auto D = surface_chip(d); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        auto quiet = nm; quiet.disable("all");
+        const auto Q = prepare_memory(D, R, quiet, 3, 'X');
+        const auto r0 = run_memory_frame(Q, 500, 1);
+        const auto M = prepare_memory(D, R, nm, d == 3 ? 6 : 4, 'X');
+        DetectorErrorModel U = M.dem; for (auto& e : U.edges) e.p = 0.01;
+        MatchingDecoder dec(U);
+        const auto faults = enumerate_faults(M.frame, M.exp);
+        int wrong = 0; DecodeScratch ws;
+        for (const auto& f : faults) wrong += dec.decode(f.dets, ws) != int(f.obs);
+        std::printf("  d=%d memory-X: noiseless failures %ld, detection %.3g; %zu single faults, %d uncorrected; hyperedges %d, undetectable logicals %d\n",
+                    d, r0.logical_errors, r0.detection_rate, faults.size(), wrong, M.dem.hyperedge_faults, M.dem.undetectable_logical);
+        CHECK(r0.logical_errors == 0 && r0.detection_rate == 0, "noiseless memory-X is not deterministic");
+        CHECK(M.dem.hyperedge_faults == 0 && M.dem.undetectable_logical == 0, "memory-X DEM is not graph-like");
+        CHECK(wrong == 0, "memory-X: %d single faults uncorrected (full circuit distance needs 0)", wrong);
+    }
+    // Logical operators, checked with the exact state-vector emulator: a chain of Z along the logical-Z row (or of X
+    // along the logical-X column), applied between two rounds, fires no detector; it flips the observable of the
+    // other basis and leaves its own alone.
+    {
+        const auto D = surface_chip(3); const auto R = analyze(D);
+        auto nm = noise_model(D, R); nm.disable("all");
+        auto chain = [&](char basis, char pauli) {
+            const SurfaceCode S = rotated_surface_code(3);
+            MemoryExperiment E = memory_experiment(S, 3, basis);
+            auto& gs = E.circuit.gates;
+            std::size_t i = 0;
+            while (gs[i].op != Op::MEASURE) ++i;                     // the measure-qubit readout that ends round 0
+            while (gs[i].op != Op::RESET) ++i;                       // their resets
+            while (i < gs.size() && gs[i].op == Op::RESET) ++i;      // first gate of round 1
+            std::vector<Gate> ins;
+            for (int k : (pauli == 'Z' ? S.logical_z : S.logical_x)) {
+                Gate g; g.op = Op::U; g.q = {S.data[std::size_t(k)].qubit}; g.u = pauli == 'Z' ? gates::Z() : gates::X(); g.name = pauli == 'Z' ? "z" : "x";
+                ins.push_back(g);
+            }
+            gs.insert(gs.begin() + std::ptrdiff_t(i), ins.begin(), ins.end());
+            CompileOptions co; co.layout = "trivial";
+            const auto prog = compile(E.circuit, chip_graph(D, R), co);
+            const auto recs = run_records(prog, nm, 6, 5, false);
+            int fired = 0, flipped = 0;
+            for (const auto& rc : recs) {
+                for (const auto& det : E.detectors) { std::uint8_t v = 0; for (int c : det) v ^= rc[std::size_t(c)]; fired += v; }
+                std::uint8_t o = 0; for (int c : E.observable) o ^= rc[std::size_t(c)];
+                flipped += o;
+            }
+            return std::make_pair(fired, flipped);
+        };
+        const auto xz = chain('X', 'Z'), xx = chain('X', 'X'), zx = chain('Z', 'X'), zz = chain('Z', 'Z');
+        std::printf("  logical chains on 6 exact shots (detectors fired, observable flips): memory-X + Z_L %d,%d; memory-X + X_L %d,%d; memory-Z + X_L %d,%d; memory-Z + Z_L %d,%d\n",
+                    xz.first, xz.second, xx.first, xx.second, zx.first, zx.second, zz.first, zz.second);
+        CHECK(xz.first == 0 && xz.second == 6 && zx.first == 0 && zx.second == 6, "a logical operator must flip the conjugate memory without firing detectors");
+        CHECK(xx.first == 0 && xx.second == 0 && zz.first == 0 && zz.second == 0, "a logical operator must act trivially on its own memory");
+    }
+    const auto D = surface_chip(3); const auto R = analyze(D);
+    // with the full noise model the two bases agree to within statistics and a modest asymmetry
+    const auto nf = noise_model(D, R);
+    const auto fz = run_memory_frame(prepare_memory(D, R, nf, 10, 'Z'), 40000, 5);
+    const auto fx = run_memory_frame(prepare_memory(D, R, nf, 10, 'X'), 40000, 5);
+    std::printf("  full noise: memory-Z eps %.4f%%, memory-X eps %.4f%%\n", 100 * fz.eps_per_round, 100 * fx.eps_per_round);
+    CHECK(fx.eps_per_round > 0.6 * fz.eps_per_round && fx.eps_per_round < 1.6 * fz.eps_per_round, "X and Z memories disagree by more than 60%%");
+    // Error bar of the fitted logical error per round: against the scatter of the fit over synthetic experiments drawn
+    // from binomial statistics, and against linear propagation through the fit by finite differences.
+    {
+        const std::vector<int> rounds{5, 10, 15, 20};
+        const double eps = 2e-3, A = 0.98; const long N = 100000;
+        auto make = [&](const std::vector<double>& p) {
+            std::vector<MemoryResult> rs;
+            for (std::size_t i = 0; i < rounds.size(); ++i) {
+                MemoryResult r; r.rounds = rounds[i]; r.shots = N; r.p_logical = p[i];
+                r.p_logical_sem = std::sqrt(p[i] * (1 - p[i]) / double(N)); r.eps_per_round = eps_from_PL(p[i], rounds[i]);
+                rs.push_back(r);
+            }
+            return rs;
+        };
+        std::vector<double> p0;
+        for (int r : rounds) p0.push_back(0.5 * (1 - A * std::pow(1 - 2 * eps, r)));
+        const auto base = make(p0);
+        const double err = fit_eps_per_round_err(base);
+        double lin = 0;
+        for (std::size_t i = 0; i < p0.size(); ++i) {
+            auto up = p0, dn = p0; const double h = 1e-3 * base[i].p_logical_sem;
+            up[i] += h; dn[i] -= h;
+            const double dedp = (fit_eps_per_round(make(up)) - fit_eps_per_round(make(dn))) / (2 * h);
+            lin += std::pow(dedp * base[i].p_logical_sem, 2);
+        }
+        lin = std::sqrt(lin);
+        std::mt19937_64 rng(17);
+        const int reps = 4000; double m1 = 0, m2 = 0;
+        for (int k = 0; k < reps; ++k) {
+            std::vector<double> p;
+            for (double q : p0) p.push_back(double(std::binomial_distribution<long>(N, q)(rng)) / double(N));
+            const double e = fit_eps_per_round(make(p)); m1 += e; m2 += e * e;
+        }
+        m1 /= reps; const double scatter = std::sqrt(m2 / reps - m1 * m1);
+        const auto& last = base.back();
+        const double last_only = last.p_logical_sem / last.rounds / std::pow(1 - 2 * last.p_logical, double(last.rounds - 1) / last.rounds);
+        std::printf("  fit error: fitted eps %.5f%% (true %.5f%%); error bar %.3e, scatter of %d synthetic fits %.3e, linear propagation %.3e; last point alone %.3e\n",
+                    100 * fit_eps_per_round(base), 100 * eps, err, reps, scatter, lin, last_only);
+        CHECK(std::abs(fit_eps_per_round(base) / eps - 1) < 1e-9, "the fit does not recover the logical error per round of exact data");
+        CHECK(std::abs(err / lin - 1) < 1e-4, "fit error bar %.4e vs linear propagation %.4e", err, lin);
+        CHECK(std::abs(err / scatter - 1) < 0.06, "fit error bar %.4e vs scatter of synthetic fits %.4e", err, scatter);
+        const std::vector<MemoryResult> one{base.back()};
+        CHECK(std::abs(fit_eps_per_round_err(one) / last_only - 1) < 1e-12, "single-run error bar");
+    }
+}
+
+// ---------------------------------------------------------------- v0.4: correlated bursts
+static void test_bursts() {
+    std::puts("[bursts] correlated error bursts: excess rates, severity ladder, logical-error floor");
+    const auto D = surface_chip(3); const auto R = analyze(D); const auto nm = noise_model(D, R);
+    BurstSpec B;                                                    // 0.1 per s, 25 ms, peak excess T1 1 us
+    const auto n0 = burst_noise(nm, B, 0.0), n1 = burst_noise(nm, B, 1.0), nh = burst_noise(nm, B, 0.5);
+    double e0 = 0, e1 = 0, eh = 0;
+    for (std::size_t i = 0; i < nm.T1_ns.size(); ++i) {
+        e0 = std::max(e0, std::abs(n0.T1_ns[i] / nm.T1_ns[i] - 1));
+        e1 = std::max(e1, std::abs(1.0 / n1.T1_ns[i] - (1.0 / nm.T1_ns[i] + 1.0 / 1000.0)) * nm.T1_ns[i]);
+        eh = std::max(eh, std::abs(1.0 / nh.T1_ns[i] - (1.0 / nm.T1_ns[i] + 0.5 / 1000.0)) * nm.T1_ns[i]);
+    }
+    CHECK(e0 < 1e-12 && e1 < 1e-9 && eh < 1e-9, "burst_noise excess decay rate (errors %.1e %.1e %.1e)", e0, e1, eh);
+    CHECK(n1.Tphi_ns == nm.Tphi_ns, "a T1 burst must leave pure dephasing alone");
+    const auto b = burst_floor(D, R, nm, B, 6, 20000, 9);
+    bool mono = true;
+    for (std::size_t i = 0; i + 1 < b.curve.size(); ++i) if (b.curve[i + 1].eps > b.curve[i].eps + 3 * (b.curve[i].eps_sem + b.curve[i + 1].eps_sem)) mono = false;
+    std::printf("  ladder of %zu severities: eps %.4f at the peak -> %.5f at the last point (quiet %.5f); P(fail) %.3f, floor %.2e per round, unprotected %.0f ms\n",
+                b.curve.size(), b.curve.front().eps, b.curve.back().eps, b.eps0, b.p_fail, b.floor_per_round, b.dead_time_ms);
+    CHECK(mono && b.curve.front().eps > 20 * b.eps0, "logical error must rise with burst severity");
+    CHECK(std::abs(b.p_fail - 0.5) < 1e-6, "a 25 ms burst randomises the logical qubit");
+    CHECK(std::abs(b.floor_per_round - B.rate_hz * b.round_ns * 1e-9 * b.p_fail) < 1e-18, "floor = rate x round time x P(fail)");
+    CHECK(b.dead_time_ms > B.tau_ms && b.dead_time_ms < 12 * B.tau_ms, "unprotected time should be a few recovery times (%.1f ms)", b.dead_time_ms);
+    // the same burst a million times shorter costs a millionth of the flips: the integral is linear in the duration
+    BurstSpec S = B; S.tau_ms = B.tau_ms * 1e-6;
+    const auto bs = burst_floor(D, R, nm, S, 6, 20000, 9);
+    std::printf("  25 ns burst: expected logical flips %.2e (25 ms burst: %.2e), P(fail) %.2e\n", bs.rounds_lost, b.rounds_lost, bs.p_fail);
+    CHECK(std::abs(bs.rounds_lost / b.rounds_lost - 1e-6) < 1e-9 && bs.p_fail < 0.05, "burst integral scales with the recovery time");
+}
+
+// ---------------------------------------------------------------- v0.4: measured data -> model -> hardware gate
+static void test_characterisation() {
+    std::puts("[hardware gate] characterisation file round trip, measured-parameter model, gate evaluation on a virtual chip");
+    const auto D = surface_chip(3); auto R = analyze(D);
+    {   // give the pairs distinct control errors and leakage so every path is exercised
+        int k = 0;
+        for (auto& p : R.pairs) if (p.designed) { p.err_2q_ctrl = 1e-3 + 1e-4 * (k % 5); p.leak_2q = 5e-5 * (1 + k % 3); p.leak_qubit = (k % 2) ? p.a : p.b; ++k; }
+    }
+    // (a) a noiseless, scatter-free "measurement" of the design must give the design's own noise model back
+    SynthOptions exact; exact.t1_sigma = exact.tphi_sigma = exact.ro_sigma = exact.cz_sigma = exact.leak_sigma = exact.thermal_sigma = 0;
+    exact.tls_fraction = 0; exact.zz_sigma_kHz = 0; exact.est_noise = 0; exact.zz_est_kHz = 0; exact.rounds = {4}; exact.shots = 2000; exact.both_bases = false;
+    const auto C0 = synthesize_characterisation(D, R, exact);
+    const auto text = [&] { std::ostringstream os; characterisation_to_json(C0).dump(os); return os.str(); }();
+    const auto C1 = characterisation_from_json(Json::parse(text));
+    CHECK(C1.qubits.size() == D.qubits.size() && C1.pairs.size() == C0.pairs.size() && C1.memory.size() == 1 && C1.source == "synthetic", "file round trip: sizes");
+    const auto MM = model_from_measurement(D, R, C1);
+    const auto ref = noise_model(D, R);
+    double eT1 = 0, eTp = 0, eRo = 0, eTh = 0, e2 = 0, eLk = 0, eZZ = 0;
+    for (std::size_t i = 0; i < ref.T1_ns.size(); ++i) {
+        eT1 = std::max(eT1, std::abs(MM.nm.T1_ns[i] / ref.T1_ns[i] - 1));
+        eTp = std::max(eTp, std::isfinite(ref.Tphi_ns[i]) ? std::abs(MM.nm.Tphi_ns[i] / ref.Tphi_ns[i] - 1) : (std::isfinite(MM.nm.Tphi_ns[i]) ? 1.0 : 0.0));
+        eRo = std::max({eRo, std::abs(MM.nm.ro01[i] - ref.ro01[i]), std::abs(MM.nm.ro10[i] - ref.ro10[i])});
+        eTh = std::max(eTh, std::abs(MM.nm.p_thermal[i] - ref.p_thermal[i]));
+    }
+    for (const auto& [key, v] : ref.err_2q_pair) e2 = std::max(e2, std::abs(MM.nm.err_2q_pair.at(key) - v));
+    for (const auto& [key, v] : ref.leak_cz) { const auto& m = MM.nm.leak_cz.at(key); eLk = std::max(eLk, std::abs(m.second - v.second) + (m.first == v.first ? 0.0 : 1.0)); }
+    for (const auto& [key, v] : ref.zz_GHz) eZZ = std::max(eZZ, std::abs(MM.nm.zz_GHz.at(key) - v));
+    std::printf("  measured-parameter model vs design: T1 %.1e, T_phi %.1e, readout %.1e, thermal %.1e, CZ control %.1e, leakage %.1e, ZZ %.1e, 1q control %.1e\n",
+                eT1, eTp, eRo, eTh, e2, eLk, eZZ, std::abs(MM.nm.err_1q_ctrl - ref.err_1q_ctrl));
+    CHECK(eT1 < 1e-9 && eTp < 1e-6 && eRo < 1e-12 && eTh < 1e-12, "coherence and readout parameters do not round-trip");
+    CHECK(e2 < 1e-12 && eLk < 1e-15 && eZZ < 1e-15, "pair parameters do not round-trip");
+    CHECK(std::abs(MM.nm.err_1q_ctrl - ref.err_1q_ctrl) < 1e-12 && std::abs(MM.nm.reset_err - ref.reset_err) < 1e-12, "single-qubit control / reset error do not round-trip");
+    CHECK(MM.qubits_measured == int(D.qubits.size()) && MM.pairs_measured == MM.pairs_designed, "measured counts");
+    // (b) a virtual chip with fabrication-like scatter passes the model-vs-measurement criterion ...
+    SynthOptions so; so.seed = 3; so.shots = 20000;
+    const auto Cv = synthesize_characterisation(D, R, so);
+    const auto G = evaluate_hardware_gate("alpha", D, R, Cv, 20000, 77);
+    double ratio = 0; int n_eval = 0;
+    for (const auto& c : G.checks) { n_eval += c.evaluated; if (c.name.rfind("Model vs measurement", 0) == 0) ratio = c.value; }
+    std::printf("  virtual chip: %d of %zu criteria evaluated, %d met; model vs measurement %.3f (Z and X, 3 round counts each)\n", n_eval, G.checks.size(), G.passed, ratio);
+    CHECK(G.missing == 0 && n_eval == int(G.checks.size()) && G.comparisons.size() == 2, "every Alpha criterion should be evaluated from a full data file");
+    CHECK(ratio >= 1.0 && ratio < 1.25, "model with measured parameters should reproduce the measured logical error (ratio %.3f)", ratio);
+    // ... and fails it when an error source acts during the experiment that the parameter list does not contain
+    so.hidden_dephasing_us = 8;
+    const auto Gh = evaluate_hardware_gate("alpha", D, R, synthesize_characterisation(D, R, so), 20000, 77);
+    double ratio_h = 0; for (const auto& c : Gh.checks) if (c.name.rfind("Model vs measurement", 0) == 0) ratio_h = c.value;
+    std::printf("  hidden dephasing (8 us): model vs measurement %.2f -> gate %s\n", ratio_h, Gh.pass ? "passed" : "not passed");
+    CHECK(ratio_h > 2.0 && !Gh.pass, "a hidden error source must fail the model-vs-measurement criterion");
+    // (c) thresholds and missing data
+    Characterisation Cb = Cv;
+    for (auto& q : Cb.qubits) q.T1_us *= 0.4;                        // median T1 well below 50 us
+    for (auto& p : Cb.pairs) p.leak_cz = chz::nan();                 // leakage RB not done
+    const auto Gb = evaluate_hardware_gate("alpha", D, R, Cb, 5000, 77);
+    bool t1_fail = false, leak_missing = false;
+    for (const auto& c : Gb.checks) {
+        if (c.name.rfind("Median T1", 0) == 0) t1_fail = c.evaluated && !c.pass;
+        if (c.name.rfind("Median CZ leakage", 0) == 0) leak_missing = !c.evaluated;
+    }
+    CHECK(t1_fail && leak_missing && Gb.missing == 1 && !Gb.pass, "threshold failure and missing data are reported");
+    bool threw = false;
+    try { characterisation_from_json(Json::parse("{\"schema\": \"something.else\"}")); } catch (const std::exception&) { threw = true; }
+    CHECK(threw, "a file with the wrong schema must be rejected");
+}
+
+// ---------------------------------------------------------------- v0.4: designs
+static void test_designs_v04() {
+    std::puts("[designs] readout plan, Beta-1 rev C, Gamma-1, CZ interaction point at the tuned anharmonicity");
+    for (int d : {5, 7}) {
+        const auto D = d == 5 ? beta1(5) : gamma1(7);
+        std::map<int, int> per; double lo = 1e9, hi = 0;
+        for (const auto& q : D.qubits) { ++per[q.feedline]; lo = std::min(lo, q.ro.f_GHz); hi = std::max(hi, q.ro.f_GHz); }
+        int mx = 0; for (const auto& kv : per) mx = std::max(mx, kv.second);
+        const auto R = analyze(D);
+        std::printf("  %s: %zu qubits, %zu couplers, %zu feedlines (at most %d resonators), readout band %.2f-%.2f GHz, collisions %d\n",
+                    D.name.c_str(), D.qubits.size(), D.couplings.size(), per.size(), mx, lo, hi, R.n_collisions);
+        CHECK(int(D.qubits.size()) == 2 * d * d - 1 && int(D.couplings.size()) == 4 * d * (d - 1), "qubit / coupler count at d=%d", d);
+        CHECK(mx <= 9 && int(per.size()) == (d == 5 ? 6 : 11), "feedline plan at d=%d", d);
+        CHECK(lo > 6.89 && hi < 7.40 && hi < D.coupler.f_max_GHz - 0.5, "readout band at d=%d", d);
+        CHECK(R.n_collisions == 0, "frequency collisions at d=%d", d);
+    }
+    // |11> = |20> solved at the tuned E_J, against the definition and against the idle-anharmonicity estimate
+    const auto A = alpha1(3); const auto R = analyze(A);
+    double worst_def = 0, shift_min = 1e9, shift_max = -1e9;
+    for (const auto& p : R.pairs) {
+        if (!p.designed) continue;
+        const auto& qa = R.q[std::size_t(A.index_of(p.a))]; const auto& qb = R.q[std::size_t(A.index_of(p.b))];
+        const auto& hi = qa.f01 >= qb.f01 ? qa : qb; const auto& lo = qa.f01 >= qb.f01 ? qb : qa;
+        const auto fa = transmon_fa(solve_EJ_for_f01(p.cz_interaction_GHz, hi.EC), hi.EC);
+        worst_def = std::max(worst_def, std::abs(fa.f01 + fa.alpha - lo.f01));
+        const double shift = (p.cz_interaction_GHz - (lo.f01 - hi.alpha)) * 1e3;      // MHz, vs the idle-alpha estimate
+        shift_min = std::min(shift_min, shift); shift_max = std::max(shift_max, shift);
+    }
+    std::printf("  Alpha-1 CZ interaction points: |f01 + alpha - f_partner| <= %.1e GHz; %.2f to %.2f MHz above the idle-alpha estimate\n", worst_def, shift_min, shift_max);
+    CHECK(worst_def < 1e-7, "interaction point does not satisfy f01 + alpha = f_partner");
+    CHECK(shift_min > 0.5 && shift_max < 6.0, "tuned-anharmonicity correction outside the expected few MHz");
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -772,6 +1157,12 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"leakage_frame", test_leakage_frame},
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
+    {"matching", test_matching},
+    {"fault_enumeration", test_fault_enumeration},
+    {"memory_bases", test_memory_bases},
+    {"bursts", test_bursts},
+    {"characterisation", test_characterisation},
+    {"designs_v04", test_designs_v04},
 };
 
 // test_qpuforge            run every test

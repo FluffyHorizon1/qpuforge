@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
                 const std::uint64_t seed = 11 + std::uint64_t(R) + (b == 'X' ? 7919u : 0u);
                 FrameRunOptions uf; uf.method = DecodeMethod::UnionFind;
                 const auto ex = run_memory_frame(M, n, seed), u = run_memory_frame(M, n, seed, uf);
-                const double ratio = u.eps_per_round / std::max(ex.eps_per_round, 1e-30);
+                const double ratio = ex.logical_errors > 0 ? u.eps_per_round / ex.eps_per_round : 0.0;   // 0: not resolved
                 say("   d=%d memory-%c: exact eps %.3e (%ld failures / %ld), union-find eps %.3e (%ld), ratio %.2f; decode %.2f vs %.2f us per round (%.1f defects per shot)\n",
                     d, b, ex.eps_per_round, ex.logical_errors, n, u.eps_per_round, u.logical_errors, ratio, ex.decode_us_per_shot / R, u.decode_us_per_shot / R, ex.mean_defects);
                 Json o = Json::object();
@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
                     const char* nmth = meth == DecodeMethod::Auto ? "exact" : "union-find";
                     say("   d=%d, CZ leakage x%-2.0f (%.2f events, %.2f heralds per shot, %.0f%% leaked), %-10s: eps %.3e without heralds (%ld failures), %.3e with (%ld): %+.0f%%\n",
                         d, scale, rh.leak_events_per_shot, rh.heralds_per_shot, 100 * rh.herald_true_frac, nmth, rb.eps_per_round, rb.logical_errors,
-                        rh.eps_per_round, rh.logical_errors, 100 * (rh.eps_per_round / std::max(rb.eps_per_round, 1e-30) - 1));
+                        rh.eps_per_round, rh.logical_errors, rb.logical_errors > 0 ? 100 * (rh.eps_per_round / rb.eps_per_round - 1) : 0.0);
                     Json m = Json::object();
                     m.set("eps_without", rb.eps_per_round); m.set("eps_with", rh.eps_per_round);
                     m.set("failures_without", double(rb.logical_errors)); m.set("failures_with", double(rh.logical_errors));

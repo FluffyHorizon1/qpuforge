@@ -25,20 +25,28 @@ static void usage() {
         "  qpuforge run <chip.json> <circuit> [--traj N] [--shots N] [--seed S] [--off SRC,..] [--top K]\n"
         "  qpuforge budget <chip.json> <circuit> [--traj N]  error budget by noise source\n"
         "  qpuforge fab <chip.json> [--samples N] [--seed S] fabrication Monte Carlo (junction spread)\n"
-        "  qpuforge qec <chip.json> [--rounds 2,4,6,8,10] [--shots N] [--statevector N] [--off SRC,..]\n"
-        "                surface-code memory experiment: logical error per round (needs a surface layout)\n"
+        "  qpuforge qec <chip.json> [--rounds 2,4,6,8,10] [--shots N] [--basis Z|X|both] [--statevector N]\n"
+        "                [--off SRC,..] [--decoder exact|legacy|greedy] [--bursts] [--burst-rate Hz] [--burst-tau-ms T]\n"
+        "                [--burst-t1-us T] [--burst-tphi-us T]\n"
+        "                surface-code memory experiment: logical error per round (needs a surface layout);\n"
+        "                --bursts adds the logical-error floor set by high-energy impacts;\n"
+        "                --decoder legacy reproduces the pre-v0.4 decoder (greedy above 22 defects) on the same syndromes\n"
+        "  qpuforge synth-chip <chip.json> <data.json> [--seed S] [--shots N] [--rounds 5,15,25] [--z-only]\n"
+        "                [--hidden-dephasing-us T]   virtual chip -> characterisation file (to test the chain)\n"
+        "  qpuforge hwgate <chip.json> <data.json> [--phase alpha|beta] [--shots N] [--out report.json]\n"
+        "                roadmap hardware gate from a characterisation file, incl. model vs measurement\n"
         "  qpuforge layout <chip.json> <out.svg>             chip floor-plan\n"
         "  qpuforge cz <chip.json> [--out cal.json] [--cache file] [--g-qc MHz] [--f-on GHz] [--rise ns]\n"
         "                pulse-level CZ calibration of every pair (physical tunable coupler)\n"
-        "  qpuforge gds <chip.json> <out.gds> [--cells cells.json] [--synthesize] [--cell NAME]\n"
+        "  qpuforge gds <chip.json> <out.gds> [--cells cells.json] [--synthesize [--from cells0.json]] [--cell NAME]\n"
         "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, GDSII\n"
-        "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gen0 [--distance D]    named designs\n"
+        "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gamma1|gen0 [--distance D]   named designs\n"
         "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"
         "  qpuforge --version | -V                           print the version and exit (first argument only)\n"
         "\n"
         "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"
         "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage\n"
-        "  qec/cz on a chip with a physical coupler calibrate CZs first (--cache file reuses calibrations)");
+        "  qec/cz/synth-chip/hwgate on a chip with a physical coupler calibrate CZs first (--cache file reuses them)");
 }
 
 static bool has_flag(int argc, char** argv, const char* key) {
@@ -99,8 +107,8 @@ static void print_report(const ChipDesign& D, const ChipReport& R) {
 static int cmd_new(int argc, char** argv) {
     if (argc < 3) { usage(); return 1; }
     if (auto pre = arg(argc, argv, "--preset"); !pre.empty()) {
-        const int d = std::stoi(arg(argc, argv, "--distance", "3"));
-        ChipDesign D = pre == "alpha1" ? alpha1(d) : pre == "alpha1v11" ? alpha1_v11(d) : pre == "beta1" ? beta1(d)
+        const int d = std::stoi(arg(argc, argv, "--distance", pre == "beta1" ? "5" : pre == "gamma1" ? "7" : "3"));
+        ChipDesign D = pre == "alpha1" ? alpha1(d) : pre == "alpha1v11" ? alpha1_v11(d) : pre == "beta1" ? beta1(d) : pre == "gamma1" ? gamma1(d)
                      : (pre == "gen0" ? gen0_surface17(d) : throw std::runtime_error("unknown preset " + pre));
         save_design(D, argv[2]);
         std::printf("wrote %s (%zu qubits, %zu couplers)\n", argv[2], D.qubits.size(), D.couplings.size());
@@ -294,19 +302,23 @@ static int cmd_gds(int argc, char** argv) {
     if (!have) {
         std::printf("synthesising cell geometry against the circuit targets (method of moments; ~5-10 min)...\n");
         C.pitch = 900;
+        if (auto from = arg(argc, argv, "--from"); !from.empty()) {      // warm start from an earlier cell set
+            std::ifstream f(from);
+            if (!f) throw std::runtime_error("cannot open " + from);
+            std::stringstream ss; ss << f.rdbuf();
+            C = cells_from_json(Json::parse(ss.str()));
+            std::printf("  starting from %s\n", from.c_str());
+        }
         C = synthesize_cells(C, T, &log);
         for (const auto& s : log.lines) std::printf("  %s\n", s.c_str());
     }
     m = evaluate_cells(C, MeshOptions{1.5, 50.0, 1.6});
-    if (!cells_path.empty()) {
-        Json j = cells_json(C, m, T, have ? nullptr : &log);
-        if (have) {                                   // keep the provenance of the loaded geometry
-            std::ifstream f0(cells_path); std::stringstream s0; s0 << f0.rdbuf();
-            const Json old = Json::parse(s0.str());
-            if (old.has("synthesis_log")) j.set("synthesis_log", old["synthesis_log"]);
-            if (old.has("max_rel_err")) j.set("max_rel_err", old["max_rel_err"]);
-        }
+    // A loaded cell file is read-only: it records the targets of the chip it was synthesised for, and this chip's
+    // targets may differ (the same cells are reused across chips).
+    if (!cells_path.empty() && !have) {
+        const Json j = cells_json(C, m, T, &log);
         std::ofstream f(cells_path); j.dump(f); f << "\n";
+        std::printf("wrote cell geometry to %s\n", cells_path.c_str());
     }
     const auto L = assemble_chip(D, C);
     write_gds(L, argv[3], arg(argc, argv, "--cell", "TOP"));
@@ -348,29 +360,119 @@ static int cmd_qec(int argc, char** argv) {
     const long shots = std::stol(arg(argc, argv, "--shots", "200000"));
     const int sv_shots = std::stoi(arg(argc, argv, "--statevector", "0"));
     const unsigned seed = unsigned(std::stoul(arg(argc, argv, "--seed", "2026")));
-    std::printf("\n%s — memory-Z experiment, distance %d, Pauli-frame Monte Carlo (%ld shots per point)\n", D.name.c_str(), D.surface_d, shots);
-    std::printf("  rounds   round_ns   detection   P_L                eps/round\n");
-    std::vector<MemoryResult> all;
-    for (int r : rounds) {
-        const auto M = prepare_memory(D, R, nm, r);
-        const auto res = run_memory_frame(M, shots, seed + unsigned(r));
-        all.push_back(res);
-        std::printf("  %5d   %8.0f   %8.4f    %.5f +- %.5f   %.5f", r, res.round_ns, res.detection_rate, res.p_logical, res.p_logical_sem, res.eps_per_round);
-        if (M.frame.leakage) std::printf("   leaked: data %.1e meas %.1e", res.leak_frac_data, res.leak_frac_meas);
-        std::printf("\n");
-        if (res.ignored_exchange_pairs) std::printf("    ! %d near-degenerate exchange pair(s) not modelled by the Pauli-frame simulator\n", res.ignored_exchange_pairs);
-        if (sv_shots > 0 && r == rounds.front()) {
-            const auto sv = run_memory_statevector(M, nm, sv_shots, seed);
-            std::printf("          exact statevector (%d shots): detection %.4f, P_L %.4f +- %.4f\n", sv_shots, sv.detection_rate, sv.p_logical, sv.p_logical_sem);
-        }
+    const std::string bsel = arg(argc, argv, "--basis", "Z");
+    std::vector<char> bases;
+    if (bsel == "both") bases = {'Z', 'X'};
+    else if (bsel == "X" || bsel == "x") bases = {'X'};
+    else if (bsel == "Z" || bsel == "z") bases = {'Z'};
+    else throw std::runtime_error("--basis must be Z, X or both");
+    FrameRunOptions fro;
+    {
+        const std::string dsel = arg(argc, argv, "--decoder", "exact");
+        if (dsel == "legacy") fro.method = DecodeMethod::Legacy;
+        else if (dsel == "greedy") fro.method = DecodeMethod::Greedy;
+        else if (dsel != "exact") throw std::runtime_error("--decoder must be exact, legacy or greedy");
+        if (dsel != "exact") std::printf("decoder: %s\n", dsel == "legacy" ? "pre-v0.4 behaviour (exact up to 22 defects, greedy beyond)" : "greedy matching");
     }
-    const double eps = fit_eps_per_round(all);
     double best_T1 = 0, best_T2 = 0;
     for (const auto& q : R.q) { best_T1 = std::max(best_T1, q.T1_us); best_T2 = std::max(best_T2, q.T2_us); }
-    const double round_us = all.back().round_ns / 1e3;
-    std::printf("  logical error per round (fit): %.5f   ->  logical lifetime ~ %.1f us (round %.2f us)\n", eps, round_us / std::max(eps, 1e-12), round_us);
+    for (char basis : bases) {
+        std::printf("\n%s — memory-%c experiment, distance %d, Pauli-frame Monte Carlo (%ld shots per point)\n", D.name.c_str(), basis, D.surface_d, shots);
+        std::printf("  rounds   round_ns   detection   P_L                eps/round   defects/shot (max)   decode us/shot\n");
+        std::vector<MemoryResult> all;
+        for (int r : rounds) {
+            const auto M = prepare_memory(D, R, nm, r, basis);
+            const auto res = run_memory_frame(M, shots, seed + unsigned(r) + (basis == 'X' ? 7919u : 0u), fro);
+            all.push_back(res);
+            std::printf("  %5d   %8.0f   %8.4f    %.5f +- %.5f   %.5f   %8.1f (%d)   %10.1f", r, res.round_ns, res.detection_rate, res.p_logical, res.p_logical_sem,
+                        res.eps_per_round, res.mean_defects, res.max_defects, res.decode_us_per_shot);
+            if (M.frame.leakage) std::printf("   leaked: data %.1e meas %.1e", res.leak_frac_data, res.leak_frac_meas);
+            std::printf("\n");
+            if (res.ignored_exchange_pairs) std::printf("    ! %d near-degenerate exchange pair(s) not modelled by the Pauli-frame simulator\n", res.ignored_exchange_pairs);
+            if (sv_shots > 0 && r == rounds.front()) {
+                const auto sv = run_memory_statevector(M, nm, sv_shots, seed);
+                std::printf("          exact statevector (%d shots): detection %.4f, P_L %.4f +- %.4f\n", sv_shots, sv.detection_rate, sv.p_logical, sv.p_logical_sem);
+            }
+        }
+        const double eps = fit_eps_per_round(all);
+        const double round_us = all.back().round_ns / 1e3;
+        std::printf("  logical error per round (fit): %.5f +- %.5f   ->  logical lifetime ~ %.1f us (round %.2f us)\n", eps, fit_eps_per_round_err(all),
+                    round_us / std::max(eps, 1e-12), round_us);
+    }
     std::printf("  best physical qubit on chip: T1 %.1f us, T2 %.1f us\n", best_T1, best_T2);
+    if (has_flag(argc, argv, "--bursts")) {
+        BurstSpec B;
+        B.rate_hz = std::stod(arg(argc, argv, "--burst-rate", "0.1"));
+        B.tau_ms = std::stod(arg(argc, argv, "--burst-tau-ms", "25"));
+        B.t1_peak_us = std::stod(arg(argc, argv, "--burst-t1-us", "1"));
+        B.tphi_peak_us = std::stod(arg(argc, argv, "--burst-tphi-us", "0"));
+        const int br = rounds.back();
+        for (char basis : bases) {
+            const auto b = burst_floor(D, R, nm, B, br, shots, seed + 5, basis);
+            std::printf("\n  high-energy impacts, memory-%c (%.2g per s, recovery %.3g ms, peak excess T1 %.3g us, T_phi %.3g us; %d rounds per shot)\n",
+                        basis, B.rate_hz, B.tau_ms, B.t1_peak_us, B.tphi_peak_us, br);
+            std::printf("    severity   eps/round   defects/shot\n");
+            std::printf("    %8s   %.5f     %.1f   (quiet chip)\n", "0", b.eps0, b.mean_defects0);
+            for (const auto& pt : b.curve) std::printf("    %8.1e   %.5f     %.1f%s\n", pt.s, pt.eps, pt.mean_defects, pt.saturated ? "   (randomised within the run)" : "");
+            std::printf("    one impact flips the logical qubit with probability %.2f; unprotected for %.0f ms, visible in the syndrome for %.0f ms\n",
+                        b.p_fail, b.dead_time_ms, b.detectable_ms);
+            std::printf("    logical-error floor from impacts: %.2e per round (quiet chip: %.2e)\n", b.floor_per_round, b.eps0);
+        }
+    }
     return 0;
+}
+
+static ChipReport calibrated_report(const ChipDesign& D, int argc, char** argv) {
+    auto R = analyze(D);
+    if (D.coupler.physical) calibrate_chip_cz(D, R, false, arg(argc, argv, "--cache"));
+    return R;
+}
+
+static int cmd_synth(int argc, char** argv) {
+    if (argc < 4) { usage(); return 1; }
+    const auto D = load_design(argv[2]);
+    const auto R = calibrated_report(D, argc, argv);
+    SynthOptions o;
+    o.seed = unsigned(std::stoul(arg(argc, argv, "--seed", "1")));
+    o.shots = std::stol(arg(argc, argv, "--shots", "20000"));
+    o.hidden_dephasing_us = std::stod(arg(argc, argv, "--hidden-dephasing-us", "0"));
+    if (auto v = arg(argc, argv, "--rounds"); !v.empty()) { o.rounds.clear(); std::stringstream ss(v); std::string t; while (std::getline(ss, t, ',')) o.rounds.push_back(std::stoi(t)); }
+    if (has_flag(argc, argv, "--z-only")) o.both_bases = false;
+    const auto C = synthesize_characterisation(D, R, o);
+    std::ofstream f(argv[3]);
+    if (!f) throw std::runtime_error(std::string("cannot write ") + argv[3]);
+    characterisation_to_json(C).dump(f); f << "\n";
+    std::printf("wrote %s: %zu qubits, %zu pairs, %zu memory runs (synthetic data, seed %u)\n", argv[3], C.qubits.size(), C.pairs.size(), C.memory.size(), o.seed);
+    return 0;
+}
+
+static int cmd_hwgate(int argc, char** argv) {
+    if (argc < 4) { usage(); return 1; }
+    const auto D = load_design(argv[2]);
+    const auto R = calibrated_report(D, argc, argv);
+    std::ifstream f(argv[3]);
+    if (!f) throw std::runtime_error(std::string("cannot open ") + argv[3]);
+    std::stringstream ss; ss << f.rdbuf();
+    const auto C = characterisation_from_json(Json::parse(ss.str()));
+    const std::string phase = arg(argc, argv, "--phase", D.surface_d >= 5 ? "beta" : "alpha");
+    const long shots = std::stol(arg(argc, argv, "--shots", "50000"));
+    const auto G = evaluate_hardware_gate(phase, D, R, C, shots, std::stoul(arg(argc, argv, "--seed", "2026")));
+    std::printf("\n%s — %s hardware gate from %s (%s data%s%s)\n", D.name.c_str(), phase.c_str(), argv[3], C.source.c_str(), C.chip.empty() ? "" : ", ", C.chip.c_str());
+    std::printf("  measured: %d of %zu qubits, %d of %d coupled pairs, %zu memory runs\n", G.model.qubits_measured, D.qubits.size(), G.model.pairs_measured, G.model.pairs_designed, C.memory.size());
+    for (const auto& c : G.checks) {
+        std::printf("  [%s] %-62s %-8s", !c.evaluated ? " -- " : (c.pass ? "PASS" : "FAIL"), c.name.c_str(), c.criterion.c_str());
+        if (c.evaluated) std::printf("  %.4g", c.value);
+        if (std::isfinite(c.worst)) std::printf("  (worst %.4g)", c.worst);
+        if (!c.note.empty()) std::printf("  %s", c.note.c_str());
+        std::printf("\n");
+    }
+    for (const auto& c : G.comparisons)
+        std::printf("  model vs measurement, d=%d memory-%c: measured %.4f%%, model with measured parameters %.4f%%, ratio %.2f (%d round counts)\n",
+                    c.d, c.basis, 100 * c.eps_measured, 100 * c.eps_model, c.ratio, c.points);
+    for (const auto& n : G.model.notes) std::printf("  note: %s\n", n.c_str());
+    std::printf("  %s: %d of %d evaluated criteria met, %d not in the data\n", G.pass ? "GATE PASSED" : "GATE NOT PASSED", G.passed, G.evaluated, G.missing);
+    if (auto o = arg(argc, argv, "--out"); !o.empty()) { std::ofstream g(o); hardware_gate_json(G).dump(g); g << "\n"; std::printf("  wrote %s\n", o.c_str()); }
+    return G.pass ? 0 : 3;
 }
 
 int main(int argc, char** argv) {
@@ -387,6 +489,8 @@ int main(int argc, char** argv) {
         if (cmd == "layout") return cmd_layout(argc, argv);
         if (cmd == "cz") return cmd_cz(argc, argv);
         if (cmd == "gds") return cmd_gds(argc, argv);
+        if (cmd == "synth-chip") return cmd_synth(argc, argv);
+        if (cmd == "hwgate") return cmd_hwgate(argc, argv);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 2;

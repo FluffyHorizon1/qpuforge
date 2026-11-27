@@ -10,4 +10,5 @@
 #include "surface.hpp"
 #include "qec.hpp"
 #include "pulse.hpp"
+#include "characterise.hpp"
 #include "presets.hpp"

@@ -84,6 +84,21 @@ inline double solve_EJ_for_f01(double f01, double EC) {
     }
     return std::exp(0.5 * (lo + hi));
 }
+// f01 of a transmon (charging energy EC) tuned down until |20> meets |11> of a partner at f_partner:
+//     f01(E_J) + alpha(E_J) = f_partner.
+// The anharmonicity is taken at the tuned E_J. |alpha| grows as E_J falls, so the idle value would place the
+// interaction point a few MHz too low. Secant iteration on log(E_J), started from the idle-alpha estimate.
+inline double f01_for_11_20(double EC, double f_partner, double alpha_idle) {
+    auto F = [&](double x) { const auto fa = transmon_fa(std::exp(x), EC); return fa.f01 + fa.alpha - f_partner; };
+    const double f0 = f_partner - alpha_idle;
+    double x0 = std::log(std::max(0.5, (f0 + EC) * (f0 + EC) / (8 * EC))), x1 = x0 + 0.01;
+    double F0 = F(x0), F1 = F(x1);
+    for (int it = 0; it < 40 && std::abs(F1) > 1e-10 && F1 != F0; ++it) {
+        const double x2 = x1 - F1 * (x1 - x0) / (F1 - F0);
+        x0 = x1; F0 = F1; x1 = x2; F1 = F(x1);
+    }
+    return transmon_fa(std::exp(x1), EC).f01;
+}
 inline std::pair<double, double> solve_EJ_EC(double f01, double alpha) {
     double EC = -alpha, EJ = 10;
     for (int it = 0; it < 60; ++it) {
@@ -550,7 +565,7 @@ inline ChipReport analyze(const ChipDesign& D, const AnalyzeOptions& opt = {}) {
             const auto& hi = (qa.f01 >= qb.f01) ? qa : qb;
             const auto& lo = (qa.f01 >= qb.f01) ? qb : qa;
             const auto& hiD = D.qubits[(qa.f01 >= qb.f01) ? i : j];
-            p.cz_interaction_GHz = lo.f01 - hi.alpha;               // |11> = |20>: f_hi + alpha_hi = f_lo
+            p.cz_interaction_GHz = f01_for_11_20(hi.EC, lo.f01, hi.alpha);   // |11> = |20> at the tuned anharmonicity
             p.cz_excursion_MHz = (hi.f01 - p.cz_interaction_GHz) * 1e3;
             const double tcz = p.t_cz_ns * 1e-9;
             if (hiD.tunable) {

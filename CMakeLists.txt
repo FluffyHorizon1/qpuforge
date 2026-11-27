@@ -53,6 +53,8 @@ set(QPUFORGE_TESTS
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout")
+# fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
+list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 foreach(t ${QPUFORGE_TESTS})
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)

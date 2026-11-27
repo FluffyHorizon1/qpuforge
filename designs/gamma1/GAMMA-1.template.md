@@ -4,7 +4,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Memory review complete ({{GATE_SUMMARY}}). Layout first cut (GDSII), not mask-ready (§7). Logical operations not yet reviewed (§9). |
+| **Status** | Memory review complete ({{GATE_SUMMARY}}). Layout (GDSII) {{MASK_STATUS}} (§7). Logical operations not yet reviewed (§9). |
 | **Purpose** | A distance-7 logical memory on 97 qubits: the third point on the suppression curve, and the first chip where decoding and correlated errors need their own answers |
 | **Builds on** | Beta-1 rev C (BF-49): same physics, same frequency plan, same synthesised cells |
 | **Tooling** | qpuforge v0.4: `gamma1_review` ({{RUNTIME}} s; {{SHOTS}} shots per point, twice that at distance 7) |
@@ -131,7 +131,7 @@ This review covers the distance-7 memory. The rest of the phase is open:
 ## 10. Assumptions and limitations
 
 - Every Beta-1 assumption applies (`../beta1/BETA-1.md` §8): the upgrades over Alpha-1 are targets until Alpha hardware confirms the baseline.
-- **The mask is not fabrication-ready.** The memory gate asks for the placement and island-spacing checks and for the extracted circuit to meet its targets; the layout passes both. The mask-level check (minimum width and space on the merged etch layer) reports {{DRC_W}} width and {{DRC_S}} space violations. They come from the cell generator, which Alpha-1 and Beta-1 share, and clearing them is a fabrication-release task: it changes cell geometry, so the extraction in §7 must be repeated afterwards.
+- {{MASK_NOTE}}
 - **CZ calibrations** use pulse model version {{CZ_VERSION}}: four levels each for the two qubits and the coupler. The {{N_CZ}} pairs fall into 16 frequency combinations, the same 16 as on Alpha-1 v1.1 and Beta-1. {{CZ_LEAK_NOTE}}
 - **Impact model.** Each scenario is sampled at a ladder of severities, each half a decade below the last, until the excess logical error is lost in the statistical noise; below the last point the excess is taken as proportional to the severity. Runs in which the logical qubit is randomised within the {{ROUNDS}} rounds count as fully failed. The unmitigated scenario follows McEwen et al., *Nature Physics* 18, 107 (2022): chip-wide loss of T1 by one to two orders of magnitude, recovering with a time constant of about 25 ms. The rate of 0.1 per second is a round figure for a centimetre-scale chip; it scales with substrate area and shielding and must be measured on the actual chip. The gap-engineered scenario follows McEwen et al., *Phys. Rev. Lett.* 133, 240601 (2024) and Kurilovich et al., arXiv:2506.18228 (2025): no T1 degradation, but frequency shifts of up to a few MHz lasting about 1 ms, modelled here as a dephasing burst. The model treats the burst as chip-wide and uniform. Gap engineering does not address the scrambling of two-level-system defects by an impact (same PRL); that is not modelled either.
 - **Estimator.** One run length per distance gives the logical error per round without a fit; it folds the time-boundary effects of the first and last rounds into the value. The same estimator at every distance keeps Λ consistent.

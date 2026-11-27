@@ -72,6 +72,23 @@ def drc_text(lay):
             f"({d['etch_min_width_um']:.0f} µm / {d['etch_min_space_um']:.0f} µm, projection metric): {ws}")
 
 
+def mask_clean(lay):
+    d = lay.get('drc', {})
+    return bool(d) and d.get('placement_clean') and d['etch_width_violations'] + d['etch_space_violations'] == 0
+
+
+def mask_note(lay, sec):
+    d = lay.get('drc', {})
+    if mask_clean(lay):
+        return (f"**Mask DRC.** The layout passes the placement and island-spacing checks and the mask-level check "
+                f"(minimum width and space of {d['etch_min_width_um']:.0f} µm on the merged etch layer, projection metric) "
+                f"with no violations, after {d.get('ground_sliver_fills', 0):,} ground slivers narrower than the minimum were merged "
+                f"into the neighbouring cut-outs (`layout.hpp`, `fill_ground_slivers`; the extraction cells get the same clean-up). "
+                f"Corner-to-corner (Euclidean) spacing is not checked: the foundry's DRC deck must still be run before tape-out.")
+    return (f"**The mask is not fabrication-ready.** The mask-level check (minimum width and space on the merged etch layer) "
+            f"reports {d.get('etch_width_violations', 0):,} width and {d.get('etch_space_violations', 0):,} space violations (§{sec}).")
+
+
 def leak_note(d):
     mx, mean = d['cz_leak_max'], d['cz_leak_mean']
     if mx > 2e-4:
@@ -85,7 +102,7 @@ def layout_vals(lay):
     return {
         'CHIP_W': f'{lay.get("width_mm", 0):.1f}', 'CHIP_H': f'{lay.get("height_mm", 0):.1f}', 'ETCH': f'{lay.get("etch_polygons", 0):,}',
         'JJ': lay.get('junction_regions', 0), 'BUMPS': lay.get('bumps', 0),
-        'DRC': drc_text(lay), 'DRC_W': f"{d.get('etch_width_violations', 0):,}", 'DRC_S': f"{d.get('etch_space_violations', 0):,}",
+        'DRC': drc_text(lay), 'MASK_STATUS': 'passes the mask width/space DRC' if mask_clean(lay) else 'first cut, not mask-ready', 'DRC_W': f"{d.get('etch_width_violations', 0):,}", 'DRC_S': f"{d.get('etch_space_violations', 0):,}",
         'EC_ERR': f'{100 * lay.get("max_EC_err", 0):.1f} %', 'G_ERR': f'{100 * lay.get("max_coupling_err", 0):.1f} %',
         'RO_C_ERR': f'{100 * lay.get("readout_C_err", 0):+.1f} %', 'RO_C': f'{lay.get("readout_C_fF", 0):.2f}',
         'RO_G': f'{lay.get("readout_g_MHz", 0):.0f}', 'RO_G_T': f'{lay.get("readout_g_target_MHz", 0):.0f}',
@@ -103,7 +120,7 @@ def beta(scratch=None):
              'yield': 'trimmed fabrication yield ≥ 80 % collision-free',
              'leakage': 'chosen leakage scheme at least as good as the alternative over 50 rounds',
              'stability': 'detection rate flat over 100 rounds with the leakage-removing reset (drift < 5 %)',
-             'drc': 'first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated, see §6)',
+             'drc': 'layout passes placement, island-spacing and mask width/space DRC (4 µm / 4 µm on the merged etch layer, see §6)',
              'layout': 'extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable'}
     gates, npass = gate_table(ec, names)
     bud, sens = r['budget_d3'], r['sensitivity_d3']
@@ -157,7 +174,7 @@ def beta(scratch=None):
         'EXTRA_LINES': 2 * (w['feedlines'] - 3), 'PARK_BELOW': f'{(8.5 - lay.get("park_fc_GHz", 8.5)) * 1e3:.0f}',
         'GATES': gates,
     }
-    vals.update(layout_vals(lay))
+    vals.update(layout_vals(lay)); vals['MASK_NOTE'] = mask_note(lay, '6')
     fill('designs/beta1/BETA-1.template.md', dst, vals)
 
 
@@ -171,7 +188,7 @@ def gamma(scratch=None):
              'impacts': 'logical-error floor from impacts below 10 % of the distance-7 error (both scenarios)',
              'stability': 'detection rate flat over 40 rounds with the leakage-removing reset (drift < 5 %)',
              'yield': 'trimmed fabrication yield ≥ 80 % collision-free',
-             'drc': 'first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated, see §7)',
+             'drc': 'layout passes placement, island-spacing and mask width/space DRC (4 µm / 4 µm on the merged etch layer, see §7)',
              'layout': 'extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable'}
     gates, npass = gate_table(ec, names)
     e = lambda dd, b: pc(s[f'd{dd}'][f'eps_{b}'], 5 if dd == 7 else 4)
@@ -220,7 +237,7 @@ def gamma(scratch=None):
         'BETA_LINES': w['beta1_lines'], 'ALPHA_LINES': w['alpha1_lines'],
         'GATES': gates,
     }
-    vals.update(layout_vals(lay))
+    vals.update(layout_vals(lay)); vals['MASK_NOTE'] = mask_note(lay, '7')
     fill('designs/gamma1/GAMMA-1.template.md', dst, vals)
 
 

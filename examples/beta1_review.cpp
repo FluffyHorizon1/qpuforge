@@ -197,9 +197,9 @@ int main(int argc, char** argv) {
         crit("yield", "trimmed fabrication yield >= 80% collision-free", out["fab_yield_d5"]["spread_0.5"].get("collision_free", 0.0) >= 0.8 * out["fab_yield_d5"]["spread_0.5"].get("samples", 200.0));
         crit("leakage", "chosen leakage scheme (LRR) at least as good as LRR + DQLR over " + std::to_string(RLONG) + " rounds", out["long_run_d5"]["lrr"].get("P_L_50", 1.0) <= out["long_run_d5"]["lrr_dqlr"].get("P_L_50", 0.0) * 1.05);
         crit("stability", "detection rate flat over " + std::to_string(RSTAB) + " rounds with the leakage-removing reset (drift < 5%)", std::abs(out["stability_100_rounds_d5"]["lrr"].get("drift", 1.0)) < 0.05);
-        // The simulation gate requires the first-cut layout to pass the placement / island-spacing checks and to meet the
-        // circuit targets. Mask-level width/space DRC (layout.drc) is reported; it is a fabrication-release criterion.
-        crit("drc", "first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated)", lay.found && lay.placement_clean);
+        // The layout must pass the placement / island-spacing checks and the mask-level width/space DRC on the merged etch
+        // layer (layout.drc), and meet the circuit targets.
+        crit("drc", "layout passes placement, island-spacing and mask width/space DRC (4 um / 4 um, merged etch layer)", lay.found && lay.mask_drc_clean);
         crit("layout", "extracted E_C within 3%, couplings and readout capacitance within 6%; parked exchange re-nullable",
              lay.found && lay.within_tolerance && lay.renull_ok);
         out.set("exit_criteria", ej);

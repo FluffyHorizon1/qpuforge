@@ -4,7 +4,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Rev C. Simulation review complete ({{GATE_SUMMARY}}). Layout first cut (GDSII), not mask-ready (§6). |
+| **Status** | Rev C. Simulation review complete ({{GATE_SUMMARY}}). Layout (GDSII) {{MASK_STATUS}} (§6). |
 | **Purpose** | Show that the logical error falls with code size: a distance-5 rotated surface code on 49 qubits |
 | **Builds on** | Alpha-1 v1.1 (AF-17): same architecture and frequency plan; cells re-synthesised for the stronger readout coupling |
 | **Tooling** | qpuforge v0.4: `beta1_review` ({{RUNTIME}} s, {{SHOTS}} shots per point) |
@@ -113,10 +113,11 @@ Next-step sensitivity: {{SENS}}.
 - **`residual_ctrl_err` is an assumed allowance, not a simulation result.** It covers pulse distortion, calibration drift, TLS defects and crosstalk, none of which are simulated: 5e-4 per CZ for Beta-1 and 1e-3 for Alpha-1 v1.1. It is added on top of each pair's simulated coherent, flux-noise and decoherence error. The 5e-4 target assumes predistortion and closed-loop recalibration work as planned (§1).
 - **Leakage is modelled, not decoded.** The frame simulator tracks leakage, but the decoder gets no leakage herald: there is no 3-state readout, no erasure flags and no reweighting. A leaked qubit's outcomes reach the decoder as ordinary detection events. A leakage-aware decoder is future work (ROADMAP Phase Gamma).
 - **Λ is a matched-model best case** (§2): the decoder is built from the true error model.
+- {{MASK_NOTE}}
 - **CZ leakage.** {{CZ_LEAK_NOTE}} Beta-1 uses the same 16 qubit-frequency combinations as Alpha-1 v1.1, so this is the pair class reported there (`../alpha1-v11/ALPHA-1-v1.1.md` §6).
 - The frequency-collision yield uses the v0.2 collision rules with static (sweet-spot) frequencies. Tunable qubits and per-pair CZ calibration give extra margin that the rules do not credit.
 - The couplers park {{PARK_BELOW}} MHz below their sweet spot to null the exchange left by the layout. Their flux noise there is not in the error-correction model.
-- The cell synthesis meets the layout tolerances with little margin on E_C and on one coupling. Junction sizes are set from the extracted E_C before tape-out.
+- The cell synthesis meets the layout tolerances with little margin on the qubit–coupler couplings: it fits their mean, and the measure and data arms differ in length, so one lies above target and the other below. Junction sizes are set from the extracted E_C before tape-out.
 
 ## 9. Files
 

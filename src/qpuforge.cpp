@@ -34,6 +34,7 @@ static void usage() {
         "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, GDSII\n"
         "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gen0 [--distance D]    named designs\n"
         "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"
+        "  qpuforge --version | -V                           print the version and exit (first argument only)\n"
         "\n"
         "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"
         "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage\n"

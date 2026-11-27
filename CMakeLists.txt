@@ -58,6 +58,12 @@ add_executable(test_fp_contract tests/test_fp_contract.cpp)
 target_compile_options(test_fp_contract PRIVATE -Wall -Wextra -O3 -ffp-contract=off)
 add_test(NAME fp_contract COMMAND test_fp_contract)
 set_tests_properties(fp_contract PROPERTIES LABELS unit)
+# CLI guards (not validation checks): `--version` / `-V` print the project version, and the usage text lists them.
+add_test(NAME cli_version COMMAND qpuforge_cli --version)
+add_test(NAME cli_version_short COMMAND qpuforge_cli -V)
+set_tests_properties(cli_version cli_version_short PROPERTIES LABELS unit PASS_REGULAR_EXPRESSION "^qpuforge ${PROJECT_VERSION}")
+add_test(NAME cli_usage COMMAND qpuforge_cli)   # no arguments: prints usage and exits 1 (ignored with a pass regex)
+set_tests_properties(cli_usage PROPERTIES LABELS unit PASS_REGULAR_EXPRESSION "qpuforge --version \\| -V")
 set(QPUFORGE_TESTS
   "decomposition:unit" "transmon:physics" "coupler_and_flux:physics" "zz_and_inverse_design:physics" "qasm:unit" "compiler:unit" "decoherence:physics"
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"

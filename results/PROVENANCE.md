@@ -47,8 +47,9 @@ the commands below to reproduce them.
   sample, not as exact.
   **On `main` since PR #2 (design/alpha1, merged 2026-11-27) this recipe applies to the `3fe4d23` checkout only.** PR #2
   changed the `alpha1()` preset (direct coupling `g` 4 MHz -> 1 MHz, three-transmon coupler model on) and
-  `designs/alpha1/alpha1.json`, and added the CZ flux-noise term to `err_2q`, so `examples/alpha1_review` built from
-  `main` no longer reproduces `results/alpha1_review.{json,txt}`; those files describe the pre-PR-#2 Alpha-1 v1.0 design
+  `designs/alpha1/alpha1.json`, and added the CZ flux-noise term to `err_2q`, so the Alpha-1 rows of `examples/alpha1_review` built
+  from `main` no longer reproduce `results/alpha1_review.{json,txt}` (Gen-0 rows use `gen0_surface17()`, which PR #2 did not
+  touch); those files describe the pre-PR-#2 Alpha-1 v1.0 design
   and have not been regenerated for it.
 - **CZ model** version 2 (`CZModel::kVersion`): dt 0.1 ns, Nelder–Mead budget 260, levels 4/4/4
   (qubit/coupler/qubit), charge cutoff 12. The cache keys encode all of these, and a cache from another model version

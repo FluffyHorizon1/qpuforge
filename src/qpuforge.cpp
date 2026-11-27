@@ -26,7 +26,7 @@ static void usage() {
         "  qpuforge budget <chip.json> <circuit> [--traj N]  error budget by noise source\n"
         "  qpuforge fab <chip.json> [--samples N] [--seed S] fabrication Monte Carlo (junction spread)\n"
         "  qpuforge qec <chip.json> [--rounds 2,4,6,8,10] [--shots N] [--basis Z|X|both] [--statevector N]\n"
-        "                [--off SRC,..] [--decoder exact|legacy|greedy] [--bursts] [--burst-rate Hz] [--burst-tau-ms T]\n"
+        "                [--off SRC,..] [--decoder exact|uf|legacy|greedy] [--bursts] [--burst-rate Hz] [--burst-tau-ms T]\n"
         "                [--burst-t1-us T] [--burst-tphi-us T]\n"
         "                surface-code memory experiment: logical error per round (needs a surface layout);\n"
         "                --bursts adds the logical-error floor set by high-energy impacts;\n"
@@ -371,8 +371,11 @@ static int cmd_qec(int argc, char** argv) {
         const std::string dsel = arg(argc, argv, "--decoder", "exact");
         if (dsel == "legacy") fro.method = DecodeMethod::Legacy;
         else if (dsel == "greedy") fro.method = DecodeMethod::Greedy;
-        else if (dsel != "exact") throw std::runtime_error("--decoder must be exact, legacy or greedy");
-        if (dsel != "exact") std::printf("decoder: %s\n", dsel == "legacy" ? "pre-v0.4 behaviour (exact up to 22 defects, greedy beyond)" : "greedy matching");
+        else if (dsel == "uf" || dsel == "union-find") fro.method = DecodeMethod::UnionFind;
+        else if (dsel != "exact") throw std::runtime_error("--decoder must be exact, uf, legacy or greedy");
+        if (dsel != "exact")
+            std::printf("decoder: %s\n", dsel == "legacy" ? "pre-v0.4 behaviour (exact up to 22 defects, greedy beyond)"
+                                         : dsel == "greedy" ? "greedy matching" : "weighted union-find (real-time candidate; not exact)");
     }
     double best_T1 = 0, best_T2 = 0;
     for (const auto& q : R.q) { best_T1 = std::max(best_T1, q.T1_us); best_T2 = std::max(best_T2, q.T2_us); }

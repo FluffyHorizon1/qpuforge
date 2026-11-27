@@ -16,6 +16,7 @@
 #include "emulator.hpp"
 #include "matching.hpp"
 #include "surface.hpp"
+#include "unionfind.hpp"
 #include <chrono>
 #include <cstdio>
 #include <limits>
@@ -658,20 +659,22 @@ inline DetectorErrorModel build_dem(const std::vector<FaultSignature>& faults, i
 //   Auto     DP up to dp_max defects, blossom beyond
 //   Greedy   closest-pair heuristic (not exact)
 //   Legacy   the v0.3 behaviour, DP up to 22 defects and greedy beyond; kept for regression comparisons
-enum class DecodeMethod { Auto, DP, Blossom, Greedy, Legacy };
+//   UnionFind  weighted union-find (unionfind.hpp): almost-linear time, not exact; the real-time candidate
+enum class DecodeMethod { Auto, DP, Blossom, Greedy, Legacy, UnionFind };
 
 struct DecodeScratch {
     std::vector<double> cost;
     std::vector<int> choice, nodes;
     BlossomMatcher bm;
     std::vector<BlossomMatcher::W> w;
+    UFScratch uf;
     double weight{0};                          // total weight of the last matching
     DecodeMethod used{DecodeMethod::Auto};     // what the last call ran
 };
 
 class MatchingDecoder {
 public:
-    explicit MatchingDecoder(const DetectorErrorModel& M) : N_(M.n_det), V_(M.n_det + 1) {
+    explicit MatchingDecoder(const DetectorErrorModel& M) : N_(M.n_det), V_(M.n_det + 1), uf_(M.n_det, M.edges) {
         const double INF = 1e300;
         dist_.assign(std::size_t(V_) * V_, INF);
         par_.assign(std::size_t(V_) * V_, 0);
@@ -697,12 +700,18 @@ public:
     int n_detectors() const { return N_; }
     double dist(int a, int b) const { return dist_[idx(a, b < 0 ? N_ : b)]; }   // b = -1: the boundary
     void set_dp_max(int k) { dp_max_ = std::clamp(k, 0, 24); }
+    const UnionFindDecoder& union_find() const { return uf_; }
     int dp_max() const { return dp_max_; }
 
     // predicted logical flip for a set of fired detectors
     int decode(const std::vector<int>& def, DecodeScratch& ws, DecodeMethod method = DecodeMethod::Auto) const {
         const int k = int(def.size());
         ws.weight = 0; ws.used = method;
+        if (method == DecodeMethod::UnionFind) {
+            const int parity = uf_.decode(def, ws.uf);
+            for (int e : ws.uf.correction) ws.weight += uf_.edge[std::size_t(e)].w;
+            return parity;
+        }
         if (k == 0) return 0;
         if (method == DecodeMethod::Legacy) method = k > 22 ? DecodeMethod::Greedy : DecodeMethod::DP;
         if (method == DecodeMethod::Auto) method = k <= dp_max_ ? DecodeMethod::DP : DecodeMethod::Blossom;
@@ -716,6 +725,7 @@ public:
 private:
     int N_, V_, dp_max_{8};        // measured crossover: the DP wins only up to about 8 defects
     double cap_{0};
+    UnionFindDecoder uf_;
     std::vector<double> dist_;
     std::vector<std::uint8_t> par_;
     std::size_t idx(int i, int j) const { return std::size_t(i) * std::size_t(V_) + std::size_t(j); }

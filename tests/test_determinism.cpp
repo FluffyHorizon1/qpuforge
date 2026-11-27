@@ -39,6 +39,8 @@ static std::string frame_digest() {
         const auto r = run_memory_frame(M, 5000, 17 + unsigned(rounds));   // 5000 = 4 full blocks + a partial one
         out += "r" + std::to_string(rounds) + " err=" + std::to_string(r.logical_errors) + " det=" + hex(r.detection_rate) +
                " ld=" + hex(r.leak_frac_data) + " lm=" + hex(r.leak_frac_meas) + " lev=" + hex(r.leak_events_per_shot) + " ";
+        FrameRunOptions uf; uf.method = DecodeMethod::UnionFind;                          // union-find decoder
+        out += "uf=" + std::to_string(run_memory_frame(M, 3000, 23 + unsigned(rounds), uf).logical_errors) + " ";
     }
     return out;
 }

@@ -1278,6 +1278,77 @@ static void test_fault_enumeration() {
     }
 }
 
+// ---------------------------------------------------------------- union-find decoder
+static void test_union_find() {
+    std::puts("[union-find] weighted union-find decoder: clears every syndrome, decodes single faults, logical error near the exact decoder");
+    long syndromes = 0, uncleared = 0, singles = 0, single_wrong = 0, single_wrong_exact = 0, outweighed = 0;
+    auto check_setup = [&](const MemorySetup& M, std::uint64_t seed) {
+        const MatchingDecoder& dec = *M.decoder;
+        const auto& uf = dec.union_find();
+        const int nd = dec.n_detectors();
+        DecodeScratch ws;
+        // syndromes from the detector error model (every mechanism at 3x its probability) and uniformly random ones
+        Xoshiro256 rng(seed);
+        std::vector<std::uint8_t> on(std::size_t(nd), 0), got(std::size_t(nd), 0);
+        std::vector<int> def;
+        for (int trial = 0; trial < 3000; ++trial) {
+            std::fill(on.begin(), on.end(), 0);
+            if (trial % 3 == 2) { for (int d = 0; d < nd; ++d) on[std::size_t(d)] = rng.uniform() < 0.1; }
+            else for (const auto& e : M.dem.edges) if (rng.uniform() < 3 * e.p) { on[std::size_t(e.a)] ^= 1; if (e.b >= 0) on[std::size_t(e.b)] ^= 1; }
+            def.clear(); for (int d = 0; d < nd; ++d) if (on[std::size_t(d)]) def.push_back(d);
+            dec.decode(def, ws, DecodeMethod::UnionFind);
+            std::fill(got.begin(), got.end(), 0);
+            for (int k : ws.uf.correction) { const auto& e = uf.edge[std::size_t(k)]; for (int v : {e.u, e.v}) if (v < nd) got[std::size_t(v)] ^= 1; }
+            ++syndromes; if (got != on) ++uncleared;
+        }
+        // every single fault mechanism of the circuit that the graph represents
+        // (a mechanism whose detectors are joined by a more likely path with the other logical parity is decoded
+        // "wrongly" by any decoder that uses these priors: counted separately, and its weight must exceed that path's)
+        for (const auto& f : enumerate_faults(M.frame, M.exp)) {
+            if (f.dets.empty() || f.dets.size() > 2) continue;
+            const double w = std::log((1 - f.p) / f.p);
+            const int b = f.dets.size() == 2 ? f.dets[1] : -1;
+            const int ex = dec.decode(f.dets, ws);
+            if (ex != int(f.obs)) {
+                ++outweighed;
+                if (!(dec.dist(f.dets[0], b) < w - 1e-9)) ++single_wrong_exact;
+                continue;
+            }
+            ++singles;
+            if (dec.decode(f.dets, ws, DecodeMethod::UnionFind) != int(f.obs)) ++single_wrong;
+        }
+    };
+    struct Row { int d; char b; int rounds; long shots; MemoryResult ex, uf; };
+    std::vector<Row> rows;
+    for (int d : {3, 5}) {
+        const auto D = surface_chip(d); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        for (char b : {'Z', 'X'}) {
+            const int rounds = d == 3 ? 6 : 5;
+            const auto M = prepare_memory(D, R, nm, rounds, b);
+            check_setup(M, 31 + std::uint64_t(d) + (b == 'X' ? 100u : 0u));
+            const long shots = d == 3 ? 40000 : 60000;
+            FrameRunOptions o; o.method = DecodeMethod::UnionFind;
+            rows.push_back({d, b, rounds, shots, run_memory_frame(M, shots, 900 + std::uint64_t(d)), run_memory_frame(M, shots, 900 + std::uint64_t(d), o)});
+        }
+    }
+    std::printf("  %ld syndromes (sampled from the error model and uniformly random): %ld not cleared by the correction\n", syndromes, uncleared);
+    std::printf("  %ld single-fault mechanisms: union-find wrong on %ld; %ld more are outweighed by a likelier path of the other parity "
+                "(%ld of those not explained by the weights)\n", singles, single_wrong, outweighed, single_wrong_exact);
+    double worst = 0;
+    for (const auto& r : rows) {
+        const double ratio = r.uf.p_logical / std::max(r.ex.p_logical, 1e-12);
+        worst = std::max(worst, ratio);
+        std::printf("  d=%d memory-%c, %d rounds, %ld shots (same syndromes): exact P_L %.5f (%ld), union-find P_L %.5f (%ld), ratio %.2f; decode %.2f vs %.2f us per shot\n",
+                    r.d, r.b, r.rounds, r.shots, r.ex.p_logical, r.ex.logical_errors, r.uf.p_logical, r.uf.logical_errors, ratio,
+                    r.ex.decode_us_per_shot, r.uf.decode_us_per_shot);
+        CHECK(r.uf.logical_errors >= r.ex.logical_errors * 9 / 10, "union-find beats the exact decoder by more than noise (d=%d %c: %ld vs %ld)", r.d, r.b, r.uf.logical_errors, r.ex.logical_errors);
+    }
+    CHECK(uncleared == 0, "union-find correction leaves %ld of %ld syndromes uncleared", uncleared, syndromes);
+    CHECK(single_wrong == 0 && single_wrong_exact == 0 && outweighed < singles / 1000, "single faults decoded wrongly: union-find %ld, exact %ld (outweighed %ld)",
+          single_wrong, single_wrong_exact, outweighed);
+    CHECK(worst < 1.5, "union-find logical error more than 1.5x the exact decoder's (worst ratio %.2f)", worst);
+}
+
 // ---------------------------------------------------------------- v0.4: memory in both bases
 static void test_memory_bases() {
     std::puts("[memory-X] X-basis memory: determinism, distance, logical operators (exact emulator), agreement with the Z basis");
@@ -1547,6 +1618,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"bursts", test_bursts},
     {"characterisation", test_characterisation},
     {"designs_v04", test_designs_v04},
+    {"union_find", test_union_find},
 };
 
 // test_qpuforge            run every test

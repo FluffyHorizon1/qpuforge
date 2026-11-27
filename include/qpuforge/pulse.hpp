@@ -295,7 +295,9 @@ inline std::vector<double> nelder_mead(F&& f, std::vector<double> x0, const std:
 // the result kept if it leaks less. Pairs under the cap are calibrated exactly as before; leak_weight = 0 disables it.
 inline std::pair<CZPulse, CZResult> optimize_cz(const CZSystem& S, double fluxc_on, double t_rise, double dt = 0.1, int max_eval = 260,
                                                 double leak_weight = 0, double leak_cap = 1.0) {
-    const auto [x0, g0] = cz_avoided_crossing(S, fluxc_on);
+    // named variables, not a structured binding: x0 is captured by the lambda below (capturing bindings is C++20)
+    const auto crossing = cz_avoided_crossing(S, fluxc_on);
+    const double x0 = crossing.first, g0 = crossing.second;
     CZPulse P; P.fluxc_on = fluxc_on; P.t_rise = t_rise;
     const double t_full = 1.0 / std::max(g0, 1e-6);
     auto run = [&](double fx, double tf, double fc) { CZPulse q = P; q.flux1_int = fx; q.t_flat = std::max(0.0, tf); q.fluxc_on = fc; return simulate_cz(S, q, dt); };

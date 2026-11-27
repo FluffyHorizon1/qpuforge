@@ -7,7 +7,8 @@
 //                               tests/compare_thread_digests.cmake, which runs it under OMP_NUM_THREADS=1,2,4,8)
 //
 // Workloads: run_memory_frame on a distance-3 memory with leakage on (exercises the leaked-time double sums) and a shot
-// count that is not a multiple of the block size; and the trajectory emulator's sampled XEB (a double reduction).
+// count that is not a multiple of the block size, also decoded with union-find and with heralded leakage; and the
+// trajectory emulator's sampled XEB (a double reduction).
 #include "qpuforge/qpuforge.hpp"
 #include <cstdio>
 #include <cstring>
@@ -41,6 +42,9 @@ static std::string frame_digest() {
                " ld=" + hex(r.leak_frac_data) + " lm=" + hex(r.leak_frac_meas) + " lev=" + hex(r.leak_events_per_shot) + " ";
         FrameRunOptions uf; uf.method = DecodeMethod::UnionFind;                          // union-find decoder
         out += "uf=" + std::to_string(run_memory_frame(M, 3000, 23 + unsigned(rounds), uf).logical_errors) + " ";
+        FrameRunOptions h; h.herald.on = true;                                             // heralded leakage
+        const auto rh = run_memory_frame(M, 3000, 29 + unsigned(rounds), h);
+        out += "her=" + std::to_string(rh.logical_errors) + "/" + hex(rh.heralds_per_shot) + "/" + hex(rh.herald_true_frac) + " ";
     }
     return out;
 }

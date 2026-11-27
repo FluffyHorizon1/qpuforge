@@ -358,30 +358,32 @@ inline std::vector<FaultSignature> enumerate_faults_reference(const FrameProgram
 
 namespace frame_detail {
 // One single-fault mechanism: Paulis placed after the operations of `moment` (kind 0) or a readout flip (kind 1).
-struct FaultDesc { int moment; int kind; int cbit; int np; int P[2]; int q[2]; double p; std::string what; };
+// owner: the qubits of the operation the fault belongs to (both qubits of a CZ, even for a Pauli on one of them).
+struct FaultDesc { int moment; int kind; int cbit; int np; int P[2]; int q[2]; double p; std::string what; int owner[2]{-1, -1}; };
 
 // Every fault mechanism of the program, in the order of enumerate_faults_reference.
 inline std::vector<FaultDesc> list_faults(const FrameProgram& F) {
     std::vector<FaultDesc> list;
-    auto pauli = [&](std::size_t m, std::initializer_list<std::pair<int, int>> ps, double p, std::string what) {
+    auto pauli = [&](std::size_t m, std::initializer_list<std::pair<int, int>> ps, double p, std::string what, int oa = -1, int ob = -1) {
         if (p <= 0) return;
         FaultDesc d{int(m), 0, -1, 0, {0, 0}, {0, 0}, p, std::move(what)};
         for (auto [P, q] : ps) { d.P[d.np] = P; d.q[d.np] = q; ++d.np; }
+        d.owner[0] = oa >= 0 ? oa : d.q[0]; d.owner[1] = oa >= 0 ? ob : (d.np > 1 ? d.q[1] : -1);
         list.push_back(std::move(d));
     };
     for (std::size_t m = 0; m < F.moments.size(); ++m) {
         const auto& fm = F.moments[m];
         for (const auto& o : fm.ops) {
-            if (o.op == Op::MEASURE && o.p > 0) list.push_back({int(m), 1, o.cbit, 0, {0, 0}, {0, 0}, o.p, "readout flip q" + std::to_string(o.a)});
+            if (o.op == Op::MEASURE && o.p > 0) list.push_back({int(m), 1, o.cbit, 0, {0, 0}, {0, 0}, o.p, "readout flip q" + std::to_string(o.a), {o.a, -1}});
             if (o.op == Op::RESET) pauli(m, {{1, o.a}}, o.p, "reset error q" + std::to_string(o.a));
         }
         for (int q : fm.ctrl1) for (int P = 1; P <= 3; ++P) pauli(m, {{P, q}}, F.p1 / 3, "1q control q" + std::to_string(q));
         for (const auto& c2 : fm.ctrl2)
             for (int k = 1; k < 16; ++k) {
                 const std::string what = "CZ control q" + std::to_string(c2.a) + ",q" + std::to_string(c2.b);
-                if (k % 4 && k / 4) pauli(m, {{k % 4, c2.a}, {k / 4, c2.b}}, c2.p / 15, what);
-                else if (k % 4) pauli(m, {{k % 4, c2.a}}, c2.p / 15, what);
-                else pauli(m, {{k / 4, c2.b}}, c2.p / 15, what);
+                if (k % 4 && k / 4) pauli(m, {{k % 4, c2.a}, {k / 4, c2.b}}, c2.p / 15, what, c2.a, c2.b);
+                else if (k % 4) pauli(m, {{k % 4, c2.a}}, c2.p / 15, what, c2.a, c2.b);
+                else pauli(m, {{k / 4, c2.b}}, c2.p / 15, what, c2.a, c2.b);
             }
         if (F.dqlr_err > 0) for (int q : fm.dqlr) for (int P = 1; P <= 3; ++P) pauli(m, {{P, q}}, F.dqlr_err / 3, "DQLR q" + std::to_string(q));
         for (const auto& t : fm.zz) {
@@ -668,6 +670,7 @@ struct DecodeScratch {
     BlossomMatcher bm;
     std::vector<BlossomMatcher::W> w;
     UFScratch uf;
+    struct Herald { std::vector<std::pair<int, double>> scaled; std::vector<int> term; std::vector<double> d; std::vector<std::uint8_t> p; } herald;
     double weight{0};                          // total weight of the last matching
     DecodeMethod used{DecodeMethod::Auto};     // what the last call ran
 };
@@ -713,13 +716,93 @@ public:
             return parity;
         }
         if (k == 0) return 0;
-        if (method == DecodeMethod::Legacy) method = k > 22 ? DecodeMethod::Greedy : DecodeMethod::DP;
-        if (method == DecodeMethod::Auto) method = k <= dp_max_ ? DecodeMethod::DP : DecodeMethod::Blossom;
-        if (method == DecodeMethod::DP && k > 24) method = DecodeMethod::Blossom;   // the DP table would not fit
-        ws.used = method;
-        if (method == DecodeMethod::Greedy) return greedy(def, ws.weight);
-        if (method == DecodeMethod::Blossom) return blossom(def, ws);
-        return dp(def, ws);
+        auto D = [&](int i, int j) { return dist_[idx(i < k ? def[std::size_t(i)] : N_, j < k ? def[std::size_t(j)] : N_)]; };
+        auto P = [&](int i, int j) { return int(par_[idx(i < k ? def[std::size_t(i)] : N_, j < k ? def[std::size_t(j)] : N_)]); };
+        return match(k, D, P, ws, method);
+    }
+
+    // Edges touched by heralds in the "detector" rule: for each heralded bit, given as the detectors built from it (one
+    // or two; -1 for none), the edge joining them (that bit's measurement error) gets `erase_factor`, every other edge
+    // touching one of them `touch_factor`. Appends (edge, factor) to out.
+    void herald_touch_edges(const std::vector<std::pair<int, int>>& heralded, double erase_factor, double touch_factor,
+                            std::vector<std::pair<int, double>>& out) const {
+        for (auto [a, b] : heralded) {
+            const int ro = b >= 0 ? uf_.edge_index(a, b) : uf_.edge_index(a, -1);
+            for (int h : {a, b}) {
+                if (h < 0) continue;
+                for (int e : uf_.incident(h)) out.push_back({e, e == ro ? erase_factor : touch_factor});
+            }
+        }
+    }
+
+    // Decoding with modified edge weights, for heralds (leakage seen by 3-state readout, docs/design/heralded-leakage.md):
+    // scaled lists (edge index of union_find().edge, factor); each edge's weight is multiplied by its smallest listed
+    // factor (0: erased, the edge is free). Shortest paths of the modified graph between the defects are the closure of
+    // the static all-pairs distances and the modified edges, taken over the defects, the modified edges' ends and the
+    // boundary (Floyd-Warshall on that small set), so the matching stays exact on the modified graph. The union-find
+    // decoder takes the modified lengths directly.
+    int decode_scaled(const std::vector<int>& def, const std::vector<std::pair<int, double>>& scaled, DecodeScratch& ws,
+                      DecodeMethod method = DecodeMethod::Auto) const {
+        if (scaled.empty()) return decode(def, ws, method);
+        ws.weight = 0; ws.used = method;
+        auto& H = ws.herald;
+        H.scaled = scaled;
+        std::sort(H.scaled.begin(), H.scaled.end());
+        {
+            std::size_t w = 0;
+            for (std::size_t i = 0; i < H.scaled.size(); ++i)
+                if (w > 0 && H.scaled[w - 1].first == H.scaled[i].first) H.scaled[w - 1].second = std::min(H.scaled[w - 1].second, H.scaled[i].second);
+                else H.scaled[w++] = H.scaled[i];
+            H.scaled.resize(w);
+            // edges left at their own weight need no work
+            w = 0;
+            for (std::size_t i = 0; i < H.scaled.size(); ++i) if (H.scaled[i].second < 1.0) H.scaled[w++] = H.scaled[i];
+            H.scaled.resize(w);
+        }
+        if (H.scaled.empty()) return decode(def, ws, method);
+        if (method == DecodeMethod::UnionFind) {
+            const int parity = uf_.decode(def, ws.uf, &H.scaled);
+            for (int e : ws.uf.correction) ws.weight += uf_.edge[std::size_t(e)].w;
+            return parity;
+        }
+        const int k = int(def.size());
+        if (k == 0) return 0;
+        // terminals: the defects (0..k-1), the boundary (k), then the ends of the modified edges
+        H.term.assign(def.begin(), def.end());
+        H.term.push_back(N_);
+        for (const auto& ef : H.scaled) for (int v : {uf_.edge[std::size_t(ef.first)].u, uf_.edge[std::size_t(ef.first)].v}) H.term.push_back(v);
+        std::sort(H.term.begin() + k + 1, H.term.end());
+        H.term.erase(std::unique(H.term.begin() + k + 1, H.term.end()), H.term.end());
+        // drop extra terminals that are defects or the boundary already
+        {
+            std::size_t w = std::size_t(k) + 1;
+            for (std::size_t i = w; i < H.term.size(); ++i) {
+                const int v = H.term[i];
+                if (v == N_ || std::find(def.begin(), def.end(), v) != def.end()) continue;
+                H.term[w++] = v;
+            }
+            H.term.resize(w);
+        }
+        const std::size_t T = H.term.size();
+        H.d.assign(T * T, 0.0); H.p.assign(T * T, 0);
+        for (std::size_t i = 0; i < T; ++i) for (std::size_t j = 0; j < T; ++j) { H.d[i * T + j] = dist_[idx(H.term[i], H.term[j])]; H.p[i * T + j] = par_[idx(H.term[i], H.term[j])]; }
+        auto pos = [&](int v) { return std::size_t(std::find(H.term.begin(), H.term.end(), v) - H.term.begin()); };
+        for (const auto& ef : H.scaled) {
+            const auto& E = uf_.edge[std::size_t(ef.first)];
+            const std::size_t i = pos(E.u), j = pos(E.v);
+            const double w = ef.second * E.w;
+            if (w < H.d[i * T + j]) { H.d[i * T + j] = H.d[j * T + i] = w; H.p[i * T + j] = H.p[j * T + i] = E.obs; }
+        }
+        for (std::size_t m = 0; m < T; ++m) for (std::size_t i = 0; i < T; ++i) {
+            const double dim = H.d[i * T + m];
+            for (std::size_t j = 0; j < T; ++j) {
+                const double c = dim + H.d[m * T + j];
+                if (c < H.d[i * T + j]) { H.d[i * T + j] = c; H.p[i * T + j] = H.p[i * T + m] ^ H.p[m * T + j]; }
+            }
+        }
+        auto D = [&](int i, int j) { return H.d[std::size_t(i) * T + std::size_t(j)]; };
+        auto P = [&](int i, int j) { return int(H.p[std::size_t(i) * T + std::size_t(j)]); };
+        return match(k, D, P, ws, method);
     }
 
 private:
@@ -730,8 +813,20 @@ private:
     std::vector<std::uint8_t> par_;
     std::size_t idx(int i, int j) const { return std::size_t(i) * std::size_t(V_) + std::size_t(j); }
 
-    int dp(const std::vector<int>& def, DecodeScratch& ws) const {
-        const int k = int(def.size());
+    // Matching of k defects on a distance oracle D(i, j) and parity oracle P(i, j) over local indices 0..k-1, with k
+    // the boundary.
+    template <class Dist, class Par>
+    int match(int k, const Dist& D, const Par& P, DecodeScratch& ws, DecodeMethod method) const {
+        if (method == DecodeMethod::Legacy) method = k > 22 ? DecodeMethod::Greedy : DecodeMethod::DP;
+        if (method == DecodeMethod::Auto) method = k <= dp_max_ ? DecodeMethod::DP : DecodeMethod::Blossom;
+        if (method == DecodeMethod::DP && k > 24) method = DecodeMethod::Blossom;   // the DP table would not fit
+        ws.used = method;
+        if (method == DecodeMethod::Greedy) return greedy(k, D, P, ws.weight);
+        if (method == DecodeMethod::Blossom) return blossom(k, D, P, ws);
+        return dp(k, D, P, ws);
+    }
+    template <class Dist, class Par>
+    int dp(int k, const Dist& D, const Par& P, DecodeScratch& ws) const {
         auto& cost = ws.cost; auto& choice = ws.choice;
         const std::size_t full = (std::size_t(1) << k) - 1;
         cost.assign(full + 1, 0.0);
@@ -739,11 +834,11 @@ private:
         for (std::size_t mask = 1; mask <= full; ++mask) {
             int i = 0; while (!((mask >> i) & 1)) ++i;
             const std::size_t rest = mask & ~(std::size_t(1) << i);
-            double best = dist_[idx(def[std::size_t(i)], N_)] + cost[rest];
+            double best = D(i, k) + cost[rest];
             int ch = -1;
             for (int j = i + 1; j < k; ++j) {
                 if (!((rest >> j) & 1)) continue;
-                const double c = dist_[idx(def[std::size_t(i)], def[std::size_t(j)])] + cost[rest & ~(std::size_t(1) << j)];
+                const double c = D(i, j) + cost[rest & ~(std::size_t(1) << j)];
                 if (c < best) { best = c; ch = j; }
             }
             cost[mask] = best; choice[mask] = ch;
@@ -754,25 +849,27 @@ private:
         while (mask) {
             int i = 0; while (!((mask >> i) & 1)) ++i;
             const int ch = choice[mask];
-            if (ch < 0) { parity ^= par_[idx(def[std::size_t(i)], N_)]; mask &= ~(std::size_t(1) << i); }
-            else { parity ^= par_[idx(def[std::size_t(i)], def[std::size_t(ch)])]; mask &= ~((std::size_t(1) << i) | (std::size_t(1) << ch)); }
+            if (ch < 0) { parity ^= P(i, k); mask &= ~(std::size_t(1) << i); }
+            else { parity ^= P(i, ch); mask &= ~((std::size_t(1) << i) | (std::size_t(1) << ch)); }
         }
         return parity;
     }
     // Perfect matching of the defects (plus the boundary node when their number is odd) on the complete graph of
     // shortest-path distances. Distances are scaled to integers; subtracting them from a constant larger than any
     // matching's total turns "minimum-weight perfect" into "maximum-weight".
-    int blossom(const std::vector<int>& def, DecodeScratch& ws) const {
+    template <class Dist, class Par>
+    int blossom(int k, const Dist& D, const Par& P, DecodeScratch& ws) const {
         using W = BlossomMatcher::W;
-        ws.nodes = def;
-        if (def.size() % 2) ws.nodes.push_back(N_);
+        ws.nodes.resize(std::size_t(k));
+        for (int i = 0; i < k; ++i) ws.nodes[std::size_t(i)] = i;
+        if (k % 2) ws.nodes.push_back(k);
         const int n = int(ws.nodes.size());
         const std::size_t sn = std::size_t(n);
         const double scale = 1048576.0;
         ws.w.assign(sn * sn, 0);
         W wmax = 0;
         for (std::size_t i = 0; i < sn; ++i) for (std::size_t j = i + 1; j < sn; ++j) {
-            const W wi = static_cast<W>(std::llround(std::min(dist_[idx(ws.nodes[i], ws.nodes[j])], cap_) * scale));
+            const W wi = static_cast<W>(std::llround(std::min(D(ws.nodes[i], ws.nodes[j]), cap_) * scale));
             ws.w[i * sn + j] = ws.w[j * sn + i] = wi;
             wmax = std::max(wmax, wi);
         }
@@ -782,23 +879,26 @@ private:
         int parity = 0;
         for (std::size_t i = 0; i < sn; ++i) {
             const int j = mate[i];
-            if (j < 0) { ws.used = DecodeMethod::Greedy; return greedy(def, ws.weight); }   // cannot happen on a complete graph
-            if (int(i) < j) { parity ^= par_[idx(ws.nodes[i], ws.nodes[std::size_t(j)])]; ws.weight += dist_[idx(ws.nodes[i], ws.nodes[std::size_t(j)])]; }
+            if (j < 0) { ws.used = DecodeMethod::Greedy; return greedy(k, D, P, ws.weight); }   // cannot happen on a complete graph
+            if (int(i) < j) { parity ^= P(ws.nodes[i], ws.nodes[std::size_t(j)]); ws.weight += D(ws.nodes[i], ws.nodes[std::size_t(j)]); }
         }
         return parity;
     }
-    int greedy(std::vector<int> def, double& weight) const {
+    template <class Dist, class Par>
+    int greedy(int k, const Dist& D, const Par& P, double& weight) const {
+        std::vector<int> def(static_cast<std::size_t>(k));
+        for (int i = 0; i < k; ++i) def[std::size_t(i)] = i;
         int parity = 0;
         weight = 0;
         while (!def.empty()) {
             double best = 1e300; int bi = 0, bj = -1;
             for (std::size_t i = 0; i < def.size(); ++i) {
-                if (dist_[idx(def[i], N_)] < best) { best = dist_[idx(def[i], N_)]; bi = int(i); bj = -1; }
-                for (std::size_t j = i + 1; j < def.size(); ++j) if (dist_[idx(def[i], def[j])] < best) { best = dist_[idx(def[i], def[j])]; bi = int(i); bj = int(j); }
+                if (D(def[i], k) < best) { best = D(def[i], k); bi = int(i); bj = -1; }
+                for (std::size_t j = i + 1; j < def.size(); ++j) if (D(def[i], def[j]) < best) { best = D(def[i], def[j]); bi = int(i); bj = int(j); }
             }
             weight += best;
-            if (bj < 0) { parity ^= par_[idx(def[std::size_t(bi)], N_)]; def.erase(def.begin() + bi); }
-            else { parity ^= par_[idx(def[std::size_t(bi)], def[std::size_t(bj)])]; def.erase(def.begin() + bj); def.erase(def.begin() + bi); }
+            if (bj < 0) { parity ^= P(def[std::size_t(bi)], k); def.erase(def.begin() + bi); }
+            else { parity ^= P(def[std::size_t(bi)], def[std::size_t(bj)]); def.erase(def.begin() + bj); def.erase(def.begin() + bi); }
         }
         return parity;
     }
@@ -821,11 +921,37 @@ struct MemoryResult {
     int max_defects{0};
     double frac_over_22{0};                        // shots with more than 22 defects (decoded greedily before v0.4)
     double decode_us_per_shot{0};                  // software decoding time per shot on one core
+    double heralds_per_shot{0};                    // heralded measure-qubit readouts per shot (HeraldSpec)
+    double herald_true_frac{0};                    // fraction of those that were leaked
+};
+
+// Heralded leakage (docs/design/heralded-leakage.md): 3-state readout of the measure qubits. A leaked measure qubit is
+// reported as |2> with probability `fidelity`; an unleaked one is misreported as |2> with probability `false_rate`.
+// The bit value passed to the detectors is unchanged (a leaked qubit still reads as |1>). The decoder lowers the
+// weights of the graph edges a heralded bit points at (factors in [0, 1]; 0 erases the edge), by one of two rules:
+//   footprint (default)  the edges of every single fault on that measure qubit's operations in the round that ended
+//                        with the heralded measurement (its CZs, both qubits; its single-qubit gates and idling) get
+//                        `footprint_factor`; that bit's own measurement-error edge gets `erase_factor`. This is where
+//                        a leaked measure qubit puts its errors, including the data errors that a leaked X-type
+//                        measure qubit causes in a Z memory, whose bits feed no detector there.
+//   detector             the edge between the two detectors built from the heralded bit gets `erase_factor`, every
+//                        other edge touching them `touch_factor`.
+// use_in_decoder = false samples the same heralds (same random draws, so the same syndromes) and ignores them.
+struct HeraldSpec {
+    bool on{false};
+    double fidelity{0.95};
+    double false_rate{1e-3};
+    bool footprint{true};
+    double erase_factor{0.0};
+    double footprint_factor{0.4};
+    double touch_factor{1.0};
+    bool use_in_decoder{true};
 };
 
 struct FrameRunOptions {
     const MatchingDecoder* decoder{nullptr};         // decode with this instead of the setup's own (model-mismatch studies)
     DecodeMethod method{DecodeMethod::Auto};
+    HeraldSpec herald;
 };
 
 inline double eps_from_PL(double PL, int R) { return PL < 0.5 ? 0.5 * (1 - std::pow(1 - 2 * PL, 1.0 / R)) : 0.5; }
@@ -838,7 +964,50 @@ struct MemorySetup {
     DetectorErrorModel dem;
     std::unique_ptr<MatchingDecoder> decoder;
     std::vector<char> is_data;                 // by sim index
+    // herald footprints (HeraldSpec::footprint), by classical bit of a measure-qubit measurement: the decoder-graph
+    // edges (union_find().edge index) of the single faults in that qubit's round, flagged 1 for the bit's own
+    // measurement-error edge. Built with the decoder.
+    std::vector<std::vector<std::pair<int, char>>> herald_edges;
 };
+
+// Footprint of each measure-qubit measurement in the decoder graph (see HeraldSpec): every single fault owned by the
+// measure qubit (a fault on one of its operations, or on either qubit of one of its CZs) after its previous
+// measurement and up to this one, plus this bit's readout flip.
+inline std::vector<std::vector<std::pair<int, char>>> herald_footprints(const FrameProgram& F, const std::vector<char>& is_data,
+                                                                        const std::vector<FaultSignature>& faults, const MatchingDecoder& dec) {
+    std::vector<std::vector<std::pair<int, char>>> out(std::size_t(std::max(F.nclbits, 1)));
+    const auto list = frame_detail::list_faults(F);
+    if (list.size() != faults.size()) throw std::runtime_error("herald_footprints: fault list does not match the program");
+    // measurements of each measure qubit: (moment, cbit), ascending
+    std::vector<std::vector<std::pair<int, int>>> meas(std::size_t(F.n));
+    for (std::size_t m = 0; m < F.moments.size(); ++m)
+        for (const auto& o : F.moments[m].ops)
+            if (o.op == Op::MEASURE && !is_data[std::size_t(o.a)]) meas[std::size_t(o.a)].push_back({int(m), o.cbit});
+    const auto& uf = dec.union_find();
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const auto& f = faults[i];
+        if (f.dets.empty() || f.dets.size() > 2) continue;
+        const int e = uf.edge_index(f.dets[0], f.dets.size() > 1 ? f.dets[1] : -1);
+        if (e < 0) continue;
+        const auto& d = list[i];
+        if (d.kind == 1) { out[std::size_t(d.cbit)].push_back({e, 1}); continue; }
+        for (int q : d.owner) {
+            if (q < 0 || is_data[std::size_t(q)]) continue;
+            const auto& mq = meas[std::size_t(q)];
+            // the first measurement of q after the fault (a fault placed after a measurement belongs to the next round)
+            auto it = std::upper_bound(mq.begin(), mq.end(), std::make_pair(d.moment, std::numeric_limits<int>::max()));
+            if (it != mq.end()) out[std::size_t(it->second)].push_back({e, 0});
+        }
+    }
+    for (auto& v : out) {
+        std::sort(v.begin(), v.end());
+        // keep each edge once; the readout flag wins
+        std::vector<std::pair<int, char>> u;
+        for (const auto& x : v) { if (!u.empty() && u.back().first == x.first) u.back().second |= x.second; else u.push_back(x); }
+        v.swap(u);
+    }
+    return out;
+}
 
 // build_decoder = false skips the fault enumeration, the detector error model and the decoder (the expensive part):
 // for runs that are decoded with another setup's decoder.
@@ -869,8 +1038,10 @@ inline MemorySetup prepare_memory(const ChipDesign& D, const ChipReport& R, cons
         for (const auto& dq : M.code.data) { const int s = sim[std::size_t(D.index_of(dq.qubit))]; if (s >= 0) M.is_data[std::size_t(s)] = 1; }
     }
     if (build_decoder) {
-        M.dem = build_dem(enumerate_faults(M.frame, M.exp), int(M.exp.detectors.size()));
+        const auto faults = enumerate_faults(M.frame, M.exp);
+        M.dem = build_dem(faults, int(M.exp.detectors.size()));
         M.decoder = std::make_unique<MatchingDecoder>(M.dem);
+        M.herald_edges = herald_footprints(M.frame, M.is_data, faults, *M.decoder);
     }
     return M;
 }
@@ -926,7 +1097,15 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
     const std::size_t n_layers = std::size_t(M.exp.rounds) + 1;
     std::vector<double> per_layer(n_layers, 0.0);
     for (int r : M.exp.detector_round) per_layer[std::size_t(r)] += 1;
-    struct Tally { long errors{0}, fired{0}, leak_ev{0}, over22{0}; int max_def{0}; double leak_d{0}, leak_m{0}, decode_s{0}; };
+    struct Tally { long errors{0}, fired{0}, leak_ev{0}, over22{0}, heralds{0}, heralds_true{0}; int max_def{0}; double leak_d{0}, leak_m{0}, decode_s{0}; };
+    const HeraldSpec& HS = opt.herald;
+    if (HS.on && HS.use_in_decoder && HS.footprint && (M.herald_edges.empty() || &decoder != M.decoder.get()))
+        throw std::runtime_error("run_memory_frame: herald footprints need the setup's own decoder");
+    std::vector<std::vector<int>> dets_of;                       // classical bit -> detectors (heralds)
+    if (HS.on) {
+        dets_of.assign(std::size_t(std::max(F.nclbits, 1)), {});
+        for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) for (int c : M.exp.detectors[d]) dets_of[std::size_t(c)].push_back(int(d));
+    }
     const long nblocks = shots > 0 ? (shots + kFrameBlock - 1) / kFrameBlock : 0;
     std::vector<Tally> part(static_cast<std::size_t>(nblocks));
     std::vector<long> by_round(n_layers, 0);
@@ -934,7 +1113,7 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
     {
         Xoshiro256 rng(0);
         std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
-        std::vector<int> fired; DecodeScratch ws;
+        std::vector<int> fired, heralded; std::vector<std::pair<int, int>> heralded_dets; std::vector<std::pair<int, double>> scaled; DecodeScratch ws;
         std::vector<long> my_round(n_layers, 0);
         auto randomize = [&](int q) { x[std::size_t(q)] = rng.uniform() < 0.5; z[std::size_t(q)] = rng.uniform() < 0.5; };
 #pragma omp for schedule(dynamic, 1)
@@ -945,6 +1124,7 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                 rng = Xoshiro256(frame_shot_seed(seed, std::uint64_t(s)));
                 std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0);
                 std::fill(L.begin(), L.end(), 0);
+                heralded.clear();
                 int nleaked = 0;
                 for (const auto& fm : F.moments) {
                     for (const auto& o : fm.ops) {
@@ -970,6 +1150,13 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                         if (o.p > 0 && rng.uniform() < o.p) {
                             if (o.op == Op::MEASURE) flips[std::size_t(o.cbit)] ^= 1;
                             else if (o.op == Op::RESET) x[std::size_t(o.a)] ^= 1;
+                        }
+                        if (HS.on && o.op == Op::MEASURE && !M.is_data[std::size_t(o.a)]) {
+                            const bool leaked = L[std::size_t(o.a)] != 0;
+                            if (rng.uniform() < (leaked ? HS.fidelity : HS.false_rate)) {
+                                T_.heralds += 1; T_.heralds_true += leaked;
+                                heralded.push_back(o.cbit);
+                            }
                         }
                         if (F.leakage) {
                             if (o.op == Op::CZ && o.pleak > 0 && !L[std::size_t(o.mover)] && rng.uniform() < o.pleak) {
@@ -1025,7 +1212,22 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                 T_.max_def = std::max(T_.max_def, int(fired.size()));
                 if (fired.size() > 22) ++T_.over22;
                 const auto t0 = std::chrono::steady_clock::now();
-                const int predicted = decoder.decode(fired, ws, method);
+                int predicted;
+                if (HS.on && HS.use_in_decoder && !heralded.empty()) {
+                    scaled.clear();
+                    if (HS.footprint) {
+                        for (int c : heralded)
+                            for (const auto& [e, ro] : M.herald_edges[std::size_t(c)]) scaled.push_back({e, ro ? HS.erase_factor : HS.footprint_factor});
+                    } else {
+                        heralded_dets.clear();
+                        for (int c : heralded) {
+                            const auto& dd = dets_of[std::size_t(c)];
+                            if (!dd.empty()) heralded_dets.push_back({dd[0], dd.size() > 1 ? dd[1] : -1});
+                        }
+                        decoder.herald_touch_edges(heralded_dets, HS.erase_factor, HS.touch_factor, scaled);
+                    }
+                    predicted = decoder.decode_scaled(fired, scaled, ws, method);
+                } else predicted = decoder.decode(fired, ws, method);
                 T_.decode_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
                 if (predicted != obs) ++T_.errors;
             }
@@ -1033,9 +1235,10 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
 #pragma omp critical(qpuforge_frame_rounds)
         for (std::size_t r = 0; r < n_layers; ++r) by_round[r] += my_round[r];   // integer counts: exact in any order
     }
-    long errors = 0, fired_tot = 0, leak_ev = 0, over22 = 0; int max_def = 0; double leak_d = 0, leak_m = 0, decode_s = 0;
+    long errors = 0, fired_tot = 0, leak_ev = 0, over22 = 0, heralds = 0, heralds_true = 0; int max_def = 0; double leak_d = 0, leak_m = 0, decode_s = 0;
     for (const Tally& t : part) {
         errors += t.errors; fired_tot += t.fired; leak_ev += t.leak_ev; over22 += t.over22; max_def = std::max(max_def, t.max_def);
+        heralds += t.heralds; heralds_true += t.heralds_true;
         leak_d += t.leak_d; leak_m += t.leak_m; decode_s += t.decode_s;
     }
     auto r = summarize(M, shots, errors, double(fired_tot));
@@ -1050,6 +1253,8 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
     r.leak_frac_data = n_data ? leak_d / T / n_data : 0.0;
     r.leak_frac_meas = n_meas ? leak_m / T / n_meas : 0.0;
     r.leak_events_per_shot = double(leak_ev) / double(shots);
+    r.heralds_per_shot = double(heralds) / double(shots);
+    r.herald_true_frac = heralds ? double(heralds_true) / double(heralds) : 0.0;
     return r;
 }
 

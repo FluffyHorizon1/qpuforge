@@ -28,7 +28,7 @@ namespace qpuforge {
 struct UFScratch {
     std::vector<int> parent, size, parity, members_head, members_next, members_tail;
     std::vector<std::uint8_t> boundary, reached, mark, visited, dirty;
-    std::vector<long long> growth;
+    std::vector<long long> growth, len;   // len: edge lengths of this call (heralded edges shortened)
     std::vector<int> rate, rate_stamp, edge_touched, grown, vtouched, active, next_active, full, order, par_edge;
     std::vector<std::vector<int>> fadj;
     std::vector<int> correction;           // edges of the last correction (indices into UnionFindDecoder::edge)
@@ -46,7 +46,7 @@ public:
     // Parallel edges keep the most likely one (as the matching decoder does).
     template <class EdgeList>
     UnionFindDecoder(int n_det, const EdgeList& edges) : N_(n_det), V_(n_det + 1) {
-        std::map<std::pair<int, int>, std::size_t> at;
+        auto& at = index_;
         for (const auto& e : edges) {
             const double p = std::clamp(e.p, 1e-15, 0.5 - 1e-12);
             const double w = std::log((1 - p) / p);
@@ -65,16 +65,42 @@ public:
         }
     }
     int n_detectors() const { return N_; }
+    const std::vector<int>& incident(int v) const { return adj_[std::size_t(v < 0 ? N_ : v)]; }
+    // index of the edge between detectors a and b (b = -1: the boundary), or -1
+    int edge_index(int a, int b) const {
+        if (b < 0) b = N_;
+        auto it = index_.find({std::min(a, b), std::max(a, b)});
+        return it == index_.end() ? -1 : int(it->second);
+    }
     std::vector<Edge> edge;
 
     // predicted logical flip for a set of fired detectors (each listed once); the correction is left in ws.correction
-    int decode(const std::vector<int>& defects, UFScratch& ws) const {
+    // scaled (optional): (edge, factor) pairs, each edge once: its length is multiplied by the factor for this call
+    // (heralded edges); a length that rounds to 0 is an erasure: the edge is grown from the start.
+    using Scaled = std::vector<std::pair<int, double>>;
+    int decode(const std::vector<int>& defects, UFScratch& ws, const Scaled* scaled = nullptr) const {
         prepare(ws);
         ws.correction.clear(); ws.iterations = 0;
+        if (scaled) for (auto [k, f] : *scaled) ws.len[std::size_t(k)] = std::max<long long>(0, std::llround(kScale * f * edge[std::size_t(k)].w));
+        struct Restore {   // put the lengths back however this call ends
+            const UnionFindDecoder& U; UFScratch& w; const Scaled* sc;
+            ~Restore() { if (sc) for (const auto& kf : *sc) w.len[std::size_t(kf.first)] = U.edge[std::size_t(kf.first)].len; }
+        } restore{*this, ws, scaled};
         if (defects.empty()) return 0;
         for (int d : defects) { touch(ws, d); ws.reached[std::size_t(d)] = 1; ws.parity[std::size_t(d)] ^= 1; ws.mark[std::size_t(d)] ^= 1; }
+        if (scaled)
+            for (const auto& kf : *scaled) {
+                const int k = kf.first;
+                if (ws.len[std::size_t(k)] > 0) continue;
+                const Edge& e = edge[std::size_t(k)];
+                for (int x : {e.u, e.v}) if (!ws.reached[std::size_t(x)]) { touch(ws, x); ws.reached[std::size_t(x)] = 1; }
+                unite(ws, e.u, e.v);
+                ws.fadj[std::size_t(e.u)].push_back(k); ws.fadj[std::size_t(e.v)].push_back(k);
+            }
         ws.active.clear();
-        for (int d : defects) if (ws.parity[std::size_t(d)]) ws.active.push_back(d);
+        for (int d : defects) { const int r = find(ws, d); if (ws.parity[std::size_t(r)] && !ws.boundary[std::size_t(r)]) ws.active.push_back(r); }
+        std::sort(ws.active.begin(), ws.active.end());
+        ws.active.erase(std::unique(ws.active.begin(), ws.active.end()), ws.active.end());
         // ---- growth
         while (!ws.active.empty()) {
             ++ws.iterations;
@@ -84,7 +110,7 @@ public:
                 for (int v = ws.members_head[std::size_t(r)]; v >= 0; v = ws.members_next[std::size_t(v)])
                     for (int k : adj_[std::size_t(v)]) {
                         const Edge& e = edge[std::size_t(k)];
-                        if (ws.growth[std::size_t(k)] >= e.len) continue;
+                        if (ws.growth[std::size_t(k)] >= ws.len[std::size_t(k)]) continue;
                         const int o = e.u == v ? e.v : e.u;
                         if (ws.reached[std::size_t(o)] && find(ws, o) == r) continue;   // internal edge
                         if (ws.rate_stamp[std::size_t(k)] != ws.stamp) { ws.rate_stamp[std::size_t(k)] = ws.stamp; ws.rate[std::size_t(k)] = 0; ws.edge_touched.push_back(k); }
@@ -93,14 +119,14 @@ public:
             if (ws.edge_touched.empty()) break;                                    // isolated (cannot happen with a boundary)
             long long dt = std::numeric_limits<long long>::max();
             for (int k : ws.edge_touched) {
-                const long long rem = edge[std::size_t(k)].len - ws.growth[std::size_t(k)], rt = ws.rate[std::size_t(k)];
+                const long long rem = ws.len[std::size_t(k)] - ws.growth[std::size_t(k)], rt = ws.rate[std::size_t(k)];
                 dt = std::min(dt, (rem + rt - 1) / rt);
             }
             ws.full.clear();
             for (int k : ws.edge_touched) {
                 if (ws.growth[std::size_t(k)] == 0) ws.grown.push_back(k);
                 ws.growth[std::size_t(k)] += dt * ws.rate[std::size_t(k)];
-                if (ws.growth[std::size_t(k)] >= edge[std::size_t(k)].len) ws.full.push_back(k);
+                if (ws.growth[std::size_t(k)] >= ws.len[std::size_t(k)]) ws.full.push_back(k);
             }
             std::sort(ws.full.begin(), ws.full.end());                             // deterministic merge order
             for (int k : ws.full) {
@@ -155,6 +181,7 @@ public:
 private:
     int N_{0}, V_{1};
     std::vector<std::vector<int>> adj_;
+    std::map<std::pair<int, int>, std::size_t> index_;
 
     void prepare(UFScratch& ws) const {
         const std::size_t V = std::size_t(V_), E = edge.size();
@@ -165,7 +192,11 @@ private:
             for (std::size_t v = 0; v < V; ++v) { ws.parent[v] = int(v); ws.members_head[v] = ws.members_tail[v] = int(v); }
             ws.vtouched.clear();
         }
-        if (ws.growth.size() != E) { ws.growth.assign(E, 0); ws.rate.assign(E, 0); ws.rate_stamp.assign(E, 0); ws.stamp = 0; ws.grown.clear(); }
+        if (ws.growth.size() != E) {
+            ws.growth.assign(E, 0); ws.rate.assign(E, 0); ws.rate_stamp.assign(E, 0); ws.stamp = 0; ws.grown.clear();
+            ws.len.resize(E);
+            for (std::size_t k = 0; k < E; ++k) ws.len[k] = edge[k].len;
+        }
         // undo the previous call: only the vertices and edges it touched
         for (int v : ws.vtouched) {
             const std::size_t s = std::size_t(v);

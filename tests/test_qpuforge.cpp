@@ -1349,6 +1349,107 @@ static void test_union_find() {
     CHECK(worst < 1.5, "union-find logical error more than 1.5x the exact decoder's (worst ratio %.2f)", worst);
 }
 
+// ---------------------------------------------------------------- heralded leakage
+static NoiseModel stressed_leakage(const ChipDesign& D, const ChipReport& R, double p_cz) {
+    auto nm = noise_model(D, R);
+    nm.leakage = true; nm.leak_1q = 0; nm.leak_transport = 0.05; nm.reset_removes_leakage = true;
+    for (const auto& p : R.pairs) if (p.designed) {
+        const int a = D.index_of(p.a), b = D.index_of(p.b);
+        const int mover = D.qubits[std::size_t(a)].role == "data" ? b : a;   // the measure qubit leaks
+        nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, p_cz};
+    }
+    return nm;
+}
+
+static void test_heralds() {
+    std::puts("[heralds] heralded leakage: modified-graph matching is exact, herald statistics, logical gain with the leakage-removing reset");
+    // 1. decode_scaled against brute force: Floyd-Warshall on the whole modified graph, then the DP over the defects
+    {
+        const auto D = surface_chip(3); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        const auto M = prepare_memory(D, R, nm, 3);
+        const MatchingDecoder& dec = *M.decoder;
+        const auto& uf = dec.union_find();
+        const int nd = dec.n_detectors(), V = nd + 1;
+        Xoshiro256 rng(4242);
+        DecodeScratch ws;
+        int bad_w = 0, bad_uf = 0, trials = 300;
+        double worst = 0;
+        std::vector<double> dist(std::size_t(V) * std::size_t(V));
+        for (int t = 0; t < trials; ++t) {
+            std::vector<std::pair<int, double>> sc;
+            const int ne = 1 + int(rng.uniform() * 20);
+            for (int k = 0; k < ne; ++k) sc.push_back({int(rng.uniform() * double(uf.edge.size())), rng.uniform() < 0.3 ? 0.0 : rng.uniform()});
+            std::vector<int> def;
+            for (int d = 0; d < nd; ++d) if (rng.uniform() < 0.15 && def.size() < 10) def.push_back(d);
+            const double INF = 1e300;
+            std::fill(dist.begin(), dist.end(), INF);
+            for (int i = 0; i < V; ++i) dist[std::size_t(i) * std::size_t(V) + std::size_t(i)] = 0;
+            std::vector<double> f(uf.edge.size(), 1.0);
+            for (auto [e, x] : sc) f[std::size_t(e)] = std::min(f[std::size_t(e)], x);
+            for (std::size_t e = 0; e < uf.edge.size(); ++e) {
+                const auto& E = uf.edge[e];
+                double& a = dist[std::size_t(E.u) * std::size_t(V) + std::size_t(E.v)];
+                a = std::min(a, f[e] * E.w); dist[std::size_t(E.v) * std::size_t(V) + std::size_t(E.u)] = a;
+            }
+            for (int k = 0; k < V; ++k) for (int i = 0; i < V; ++i) for (int j = 0; j < V; ++j) {
+                const double c = dist[std::size_t(i) * std::size_t(V) + std::size_t(k)] + dist[std::size_t(k) * std::size_t(V) + std::size_t(j)];
+                double& x = dist[std::size_t(i) * std::size_t(V) + std::size_t(j)];
+                if (c < x) x = c;
+            }
+            // minimum-weight matching of def (or to the boundary) by DP over subsets
+            const int k = int(def.size());
+            std::vector<double> cost(std::size_t(1) << k, 0.0);
+            for (std::size_t mask = 1; mask < cost.size(); ++mask) {
+                int i = 0; while (!((mask >> i) & 1)) ++i;
+                const std::size_t rest = mask & ~(std::size_t(1) << i);
+                double best = dist[std::size_t(def[std::size_t(i)]) * std::size_t(V) + std::size_t(nd)] + cost[rest];
+                for (int j = i + 1; j < k; ++j) if ((rest >> j) & 1)
+                    best = std::min(best, dist[std::size_t(def[std::size_t(i)]) * std::size_t(V) + std::size_t(def[std::size_t(j)])] + cost[rest & ~(std::size_t(1) << j)]);
+                cost[mask] = best;
+            }
+            dec.decode_scaled(def, sc, ws);
+            const double err = std::abs(ws.weight - cost.back());
+            worst = std::max(worst, err);
+            if (err > 1e-9 * std::max(1.0, cost.back())) ++bad_w;
+            // union-find with the same modified lengths clears the syndrome
+            dec.decode_scaled(def, sc, ws, DecodeMethod::UnionFind);
+            std::vector<std::uint8_t> on(std::size_t(nd), 0), got(std::size_t(nd), 0);
+            for (int d : def) on[std::size_t(d)] = 1;
+            for (int e : ws.uf.correction) for (int v : {uf.edge[std::size_t(e)].u, uf.edge[std::size_t(e)].v}) if (v < nd) got[std::size_t(v)] ^= 1;
+            if (got != on) ++bad_uf;
+        }
+        std::printf("  %d random defect sets on randomly re-weighted graphs (d=3): matching weight differs from brute force on %d (worst %.1e); union-find leaves %d uncleared\n",
+                    trials, bad_w, worst, bad_uf);
+        CHECK(bad_w == 0 && bad_uf == 0, "re-weighted decoding: %d weight mismatches, %d uncleared", bad_w, bad_uf);
+    }
+    // 2. herald statistics and the logical gain (d = 5, CZ leakage of the measure qubits 2e-3, leakage-removing reset)
+    {
+        const auto D = surface_chip(5); const auto R = analyze(D);
+        const auto nm = stressed_leakage(D, R, 2e-3);
+        const auto M = prepare_memory(D, R, nm, 10);
+        const long shots = 20000;
+        FrameRunOptions on; on.herald.on = true;
+        FrameRunOptions blind = on; blind.herald.use_in_decoder = false;
+        FrameRunOptions perfect = on; perfect.herald.fidelity = 1; perfect.herald.false_rate = 0;
+        FrameRunOptions none = on; none.herald.fidelity = 0; none.herald.false_rate = 0;
+        FrameRunOptions det = on; det.herald.footprint = false; det.herald.touch_factor = 0.4;
+        const auto rb = run_memory_frame(M, shots, 515, blind), ru = run_memory_frame(M, shots, 515, on);
+        const auto rp = run_memory_frame(M, shots, 515, perfect), rn = run_memory_frame(M, shots, 515, none);
+        const auto rd = run_memory_frame(M, shots, 515, det);
+        FrameRunOptions ufo = on; ufo.method = DecodeMethod::UnionFind;
+        FrameRunOptions ufb = blind; ufb.method = DecodeMethod::UnionFind;
+        const auto rub = run_memory_frame(M, shots, 515, ufb), ruu = run_memory_frame(M, shots, 515, ufo);
+        std::printf("  d=5, 10 rounds, %ld shots: %.2f leakage events, %.2f heralds per shot (%.0f%% leaked); perfect heralds %.2f (%.0f%% leaked), none %.2f\n",
+                    shots, ru.leak_events_per_shot, ru.heralds_per_shot, 100 * ru.herald_true_frac, rp.heralds_per_shot, 100 * rp.herald_true_frac, rn.heralds_per_shot);
+        std::printf("  same syndromes: exact matching %ld failures without heralds, %ld with (footprint rule), %ld with the detector rule; union-find %ld -> %ld\n",
+                    rb.logical_errors, ru.logical_errors, rd.logical_errors, rub.logical_errors, ruu.logical_errors);
+        CHECK(rp.herald_true_frac == 1.0 && rn.heralds_per_shot == 0.0 && ru.herald_true_frac > 0.7 && ru.herald_true_frac < 1.0,
+              "herald sampling (perfect: %.3f leaked, none: %.3f per shot, default: %.3f leaked)", rp.herald_true_frac, rn.heralds_per_shot, ru.herald_true_frac);
+        CHECK(10 * ru.logical_errors < 9 * rb.logical_errors, "heralds do not lower the logical error by 10%% (%ld vs %ld failures)", ru.logical_errors, rb.logical_errors);
+        CHECK(10 * ruu.logical_errors < 9 * rub.logical_errors, "heralds do not help the union-find decoder by 10%% (%ld vs %ld failures)", ruu.logical_errors, rub.logical_errors);
+    }
+}
+
 // ---------------------------------------------------------------- v0.4: memory in both bases
 static void test_memory_bases() {
     std::puts("[memory-X] X-basis memory: determinism, distance, logical operators (exact emulator), agreement with the Z basis");
@@ -1619,6 +1720,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"characterisation", test_characterisation},
     {"designs_v04", test_designs_v04},
     {"union_find", test_union_find},
+    {"heralds", test_heralds},
 };
 
 // test_qpuforge            run every test

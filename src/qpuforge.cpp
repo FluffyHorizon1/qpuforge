@@ -27,10 +27,12 @@ static void usage() {
         "  qpuforge fab <chip.json> [--samples N] [--seed S] fabrication Monte Carlo (junction spread)\n"
         "  qpuforge qec <chip.json> [--rounds 2,4,6,8,10] [--shots N] [--basis Z|X|both] [--statevector N]\n"
         "                [--off SRC,..] [--decoder exact|uf|legacy|greedy] [--bursts] [--burst-rate Hz] [--burst-tau-ms T]\n"
-        "                [--burst-t1-us T] [--burst-tphi-us T]\n"
+        "                [--burst-t1-us T] [--burst-tphi-us T] [--herald] [--herald-fidelity F] [--herald-false P]\n"
+        "                [--herald-factor X] [--herald-rule footprint|detector]\n"
         "                surface-code memory experiment: logical error per round (needs a surface layout);\n"
         "                --bursts adds the logical-error floor set by high-energy impacts;\n"
-        "                --decoder legacy reproduces the pre-v0.4 decoder (greedy above 22 defects) on the same syndromes\n"
+        "                --decoder legacy reproduces the pre-v0.4 decoder (greedy above 22 defects) on the same syndromes;\n"
+        "                --herald: 3-state readout heralds leaked measure qubits; decoded with and without them\n"
         "  qpuforge synth-chip <chip.json> <data.json> [--seed S] [--shots N] [--rounds 5,15,25] [--z-only]\n"
         "                [--hidden-dephasing-us T]   virtual chip -> characterisation file (to test the chain)\n"
         "  qpuforge hwgate <chip.json> <data.json> [--phase alpha|beta] [--shots N] [--out report.json]\n"
@@ -377,6 +379,20 @@ static int cmd_qec(int argc, char** argv) {
             std::printf("decoder: %s\n", dsel == "legacy" ? "pre-v0.4 behaviour (exact up to 22 defects, greedy beyond)"
                                          : dsel == "greedy" ? "greedy matching" : "weighted union-find (real-time candidate; not exact)");
     }
+    const bool herald = has_flag(argc, argv, "--herald");
+    if (herald) {
+        fro.herald.on = true;
+        fro.herald.fidelity = std::stod(arg(argc, argv, "--herald-fidelity", "0.95"));
+        fro.herald.false_rate = std::stod(arg(argc, argv, "--herald-false", "0.001"));
+        fro.herald.footprint_factor = std::stod(arg(argc, argv, "--herald-factor", "0.4"));
+        const std::string rule = arg(argc, argv, "--herald-rule", "footprint");
+        if (rule != "footprint" && rule != "detector") throw std::runtime_error("--herald-rule must be footprint or detector");
+        fro.herald.footprint = rule == "footprint";
+        if (!fro.herald.footprint) fro.herald.touch_factor = fro.herald.footprint_factor;
+        std::printf("heralded leakage: 3-state readout of the measure qubits, fidelity %.3f, false-herald rate %.1e; %s rule, factor %.2f%s\n",
+                    fro.herald.fidelity, fro.herald.false_rate, rule.c_str(), fro.herald.footprint_factor,
+                    nm.leakage ? (nm.reset_removes_leakage ? "" : " (the reset does not remove leakage)") : " (leakage is not simulated: only false heralds)");
+    }
     double best_T1 = 0, best_T2 = 0;
     for (const auto& q : R.q) { best_T1 = std::max(best_T1, q.T1_us); best_T2 = std::max(best_T2, q.T2_us); }
     for (char basis : bases) {
@@ -391,6 +407,12 @@ static int cmd_qec(int argc, char** argv) {
                         res.eps_per_round, res.mean_defects, res.max_defects, res.decode_us_per_shot);
             if (M.frame.leakage) std::printf("   leaked: data %.1e meas %.1e", res.leak_frac_data, res.leak_frac_meas);
             std::printf("\n");
+            if (herald) {
+                FrameRunOptions blind = fro; blind.herald.use_in_decoder = false;
+                const auto nb = run_memory_frame(M, shots, seed + unsigned(r) + (basis == 'X' ? 7919u : 0u), blind);
+                std::printf("          heralds %.2f per shot (%.0f%% leaked); same syndromes decoded without heralds: P_L %.5f, eps %.5f (with: %.5f)\n",
+                            res.heralds_per_shot, 100 * res.herald_true_frac, nb.p_logical, nb.eps_per_round, res.eps_per_round);
+            }
             if (res.ignored_exchange_pairs) std::printf("    ! %d near-degenerate exchange pair(s) not modelled by the Pauli-frame simulator\n", res.ignored_exchange_pairs);
             if (sv_shots > 0 && r == rounds.front()) {
                 const auto sv = run_memory_statevector(M, nm, sv_shots, seed);

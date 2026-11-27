@@ -3,7 +3,7 @@
 All notable changes to qpuforge. Versions follow `MAJOR.MINOR.PATCH`; before 1.0, a minor release may change the API, and
 every such change is listed under **API changes**.
 
-## [0.3.0] (unreleased)
+## [0.3.0] - YYYY-MM-DD
 
 First tagged release. Adds pulse-level CZ calibration, a leakage-modelled QEC frame simulator, layout synthesis with
 GDSII output, and the Alpha-1 v1.1 (AF-17) and Beta-1 (BF-49) designs. See the README "What's new in v0.3" table.
@@ -17,7 +17,7 @@ GDSII output, and the Alpha-1 v1.1 (AF-17) and Beta-1 (BF-49) designs. See the R
   chip assembly, DRC and a GDSII writer.
 - `core.hpp`: Householder + implicit-QL tridiagonal eigensolver (`sym_eigen_tri`).
 - Circuits: mid-circuit `reset` (OpenQASM `reset`, `Circuit::reset`, `Op::RESET`) and dynamic-circuit detection.
-- CLI: the `cz` and `gds` sub-commands, plus `qec --leakage-removal`.
+- CLI: the `cz` and `gds` sub-commands, plus `qec --leakage-removal` and `--version`.
 
 ### API changes
 - **`Op::RESET` is a new enumerator, appended after `Op::X`.** All existing `Op` values keep their 0.2 numbering. A

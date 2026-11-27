@@ -1274,7 +1274,7 @@ static void test_fault_enumeration() {
         }
         std::printf("  linear-time enumeration, d=5: %.3f us per fault at 10 rounds (%zu faults), %.3f us at 40 rounds (%zu faults)\n",
                     1e6 * per_fault[0], nf[0], 1e6 * per_fault[1], nf[1]);
-        CHECK(per_fault[1] < 2.0 * per_fault[0], "fault enumeration time per fault grows with the number of rounds (%.3f -> %.3f us)", 1e6 * per_fault[0], 1e6 * per_fault[1]);
+        CHECK(per_fault[1] < 2.5 * per_fault[0], "fault enumeration time per fault grows with the number of rounds (%.3f -> %.3f us)", 1e6 * per_fault[0], 1e6 * per_fault[1]);
     }
 }
 

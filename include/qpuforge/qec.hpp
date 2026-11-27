@@ -1610,18 +1610,21 @@ inline BurstVetoResult burst_floor_veto(const ChipDesign& D, const ChipReport& R
         return sem / rr / std::pow(1 - 2 * p, double(rr - 1) / rr);
     };
     const double sem0 = sem_of(r0.p_logical, shots, rounds), sem0k = sem_of(r0.p_logical_kept, shots - r0.discarded, rounds);
-    double s = 1.0;
+    double s = 1.0, last_eps = 0.5;
     for (int k = 0; k < 16; ++k, s /= std::sqrt(10.0)) {
+        // as in burst_floor: near the peak decoding is slow and a few shots resolve "eps is large"
+        const long n = last_eps > 0.02 ? std::max<long>(1000, shots / 5) : shots;
         const MemorySetup Ms = prepare_memory(D, R, burst_noise(nm, B, s), rounds, basis, false);
-        const MemoryResult rs = run_memory_frame(Ms, shots, seed + 17 * std::uint64_t(k + 1), opt);
+        const MemoryResult rs = run_memory_frame(Ms, n, seed + 17 * std::uint64_t(k + 1), opt);
         BurstVetoPoint pt;
         pt.s = s; pt.saturated = rs.p_logical > 0.45; pt.eps = pt.saturated ? 0.5 : rs.eps_per_round;
         pt.kept = rs.shots - rs.discarded; pt.veto_frac = double(rs.discarded) / double(rs.shots);
         pt.eps_kept = pt.kept > 0 ? (rs.p_logical_kept > 0.45 ? 0.5 : rs.eps_kept) : 0.0;
         pt.mean_defects = rs.mean_defects;
         out.curve.push_back(pt);
-        const double sv = std::sqrt(std::max(pt.veto_frac * (1 - pt.veto_frac), 1e-12) / double(shots));
-        const bool err_lost = !pt.saturated && pt.eps - out.eps0 < 2 * std::hypot(sem_of(rs.p_logical, shots, rounds), sem0);
+        last_eps = pt.eps;
+        const double sv = std::sqrt(std::max(pt.veto_frac * (1 - pt.veto_frac), 1e-12) / double(n));
+        const bool err_lost = !pt.saturated && pt.eps - out.eps0 < 2 * std::hypot(sem_of(rs.p_logical, n, rounds), sem0);
         const bool kept_lost = pt.kept == 0 || (1 - pt.veto_frac) * (pt.eps_kept - out.eps0_kept) < 2 * std::hypot(sem_of(rs.p_logical_kept, pt.kept, rounds), sem0k);
         const bool veto_lost = pt.veto_frac - out.veto0 < 2 * sv;
         if (err_lost && kept_lost && veto_lost) break;

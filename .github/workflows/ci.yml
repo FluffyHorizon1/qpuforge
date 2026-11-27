@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  # nightly end-to-end smoke runs (scheduled workflows only run on the default branch)
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+jobs:
+  build-and-test:
+    if: github.event_name != 'schedule'
+    name: ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            # libomp-dev provides the OpenMP runtime so clang builds with OpenMP,
+            # matching the optional find_package(OpenMP) in CMakeLists.txt.
+            sudo apt-get install -y clang libomp-dev
+          else
+            sudo apt-get install -y g++
+          fi
+
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            export CXX=clang++
+          else
+            export CXX=g++
+          fi
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER="$CXX"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        working-directory: build
+        run: ctest -LE smoke --output-on-failure --timeout 1200
+
+  # Same build as above with -Werror, so a new compiler warning fails CI.
+  werror:
+    if: github.event_name != 'schedule'
+    name: werror (${{ matrix.compiler }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            sudo apt-get install -y clang libomp-dev
+          else
+            sudo apt-get install -y g++
+          fi
+
+      - name: Configure (-Werror)
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            export CXX=clang++
+          else
+            export CXX=g++
+          fi
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER="$CXX" \
+            -DCMAKE_CXX_FLAGS="-Werror"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        working-directory: build
+        run: ctest -LE smoke --output-on-failure --timeout 1200
+
+  # AddressSanitizer + UndefinedBehaviorSanitizer on the full labelled suite (everything except the smoke runs), with
+  # OpenMP enabled (libgomp for gcc, libomp for clang). Both worked together locally
+  # with no reduced subset and no OMP_NUM_THREADS override; the suite takes about
+  # 2-3x its Release time, so the job and ctest timeouts are raised accordingly.
+  # UBSan findings abort the test (-fno-sanitize-recover); ASan/LeakSanitizer fail
+  # the process; either way the summary line is missing and ctest fails.
+  sanitizers:
+    if: github.event_name != 'schedule'
+    name: asan+ubsan (${{ matrix.compiler }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+      UBSAN_OPTIONS: print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            sudo apt-get install -y clang libomp-dev
+          else
+            sudo apt-get install -y g++
+          fi
+
+      # Newer kernels on hosted runners use high-entropy ASLR that older sanitizer
+      # runtimes cannot map around; lowering it is the standard workaround.
+      - name: Lower ASLR entropy for ASan
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Configure (ASan + UBSan)
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            export CXX=clang++
+          else
+            export CXX=g++
+          fi
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_CXX_COMPILER="$CXX" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        working-directory: build
+        run: ctest -LE smoke --output-on-failure --timeout 2400
+
+  # End-to-end review programs (alpha1_v11_review, beta1_review --smoke) against the committed CZ cache.
+  # Scheduled / manual only: with a stale cache they re-calibrate (minutes).
+  smoke:
+    name: smoke (gcc)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Smoke tests
+        working-directory: build
+        run: ctest -L smoke --output-on-failure --timeout 1800

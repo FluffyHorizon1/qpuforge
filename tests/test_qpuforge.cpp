@@ -1,13 +1,16 @@
 // qpuforge validation suite — every layer checked against independent physics or an independent computation
 #include "qpuforge/qpuforge.hpp"
 #include "qpuforge/layout.hpp"
+#include "qpuforge/gds.hpp"
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 
 using namespace qpuforge;
 static int g_fail = 0, g_pass = 0;
@@ -751,6 +754,25 @@ static void test_layout() {
     }
 }
 
+
+// ---------------------------------------------------------------- gds_write: ofstream errors must be reported (q12)
+static void test_gds_write() {
+    std::puts("[gds_write] gds::write throws when the output path cannot be created");
+    gds::Structure c; c.name = "TOP";
+    gds::Polygon p; p.pts = {{0, 0}, {1, 0}, {0, 1}};
+    c.polys = {p};
+    bool threw = false; std::string msg;
+    try { gds::write("/nonexistent-dir-qpuforge-q12/x.gds", "LIB", {c}); }
+    catch (const std::runtime_error& e) { threw = true; msg = e.what(); }
+    CHECK(threw && msg.find("gds:") == 0, "missing directory: threw=%d msg='%s'", threw, msg.c_str());
+    CHECK(!std::filesystem::exists("/nonexistent-dir-qpuforge-q12/x.gds"), "no file should have been created");
+    // a successful write still works
+    const std::string okp = (std::filesystem::temp_directory_path() / "qpuforge-q12-ok.gds").string();
+    gds::write(okp, "LIB", {c});
+    CHECK(std::filesystem::file_size(okp) > 0, "successful write left a file");
+    std::filesystem::remove(okp);
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -772,6 +794,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"leakage_frame", test_leakage_frame},
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
+    {"gds_write", test_gds_write},
 };
 
 // test_qpuforge            run every test

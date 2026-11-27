@@ -97,7 +97,10 @@ inline void write(const std::string& path, const std::string& libname, const std
     }
     record(b, 0x04, 0x00, {});                             // ENDLIB
     std::ofstream f(path, std::ios::binary);
+    if (!f) throw std::runtime_error("gds: cannot write " + path);
     f.write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+    f.close();
+    if (!f) throw std::runtime_error("gds: cannot write " + path);
 }
 
 } // namespace gds

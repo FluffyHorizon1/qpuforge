@@ -10,6 +10,7 @@ the commands below to reproduce them.
 | `designs/beta1/BETA-1.md` | `python3 tools/fill_beta_spec.py` (from `beta1_review.json` + `BETA-1.template.md`) | same | — | — | — | — |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | same | g++ 14.2.0 | — | 2026-11-26 | — |
 | `results/cz_cache.json` | written by the alpha run from an empty cache (16 calibrations simulated), then reused by the beta run (0 simulated, 16 cached) | same | g++ 14.2.0 | 8 | 2026-11-25 | — |
+| `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0 | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, a clean build directory, run from the
   repository root. The source tree was clean at configure time (`source_tree_dirty: false` in each JSON).
@@ -19,6 +20,35 @@ the commands below to reproduce them.
 - **Thread count matters.** The Pauli-frame Monte Carlo gives each OpenMP thread its own RNG stream (`seed`,
   thread id). An exact rerun therefore needs the same thread count: `OMP_NUM_THREADS=8`. A
   different count gives a statistically equivalent but different sample.
+- **Alpha-1 v1.0 review (not regenerated for v0.3).** `results/alpha1_review.{json,txt}` reproduce digit for digit only
+  with the binary that was committed alongside them, run with two threads from a checkout of `3fe4d23`:
+  ```
+  git worktree add --detach /tmp/v10 3fe4d23 && cd /tmp/v10
+  OMP_NUM_THREADS=2 ./examples/alpha1_review      # Gen-0 eps 0.0123228449889 +- 0.000124525386964, as committed
+  ```
+  This rewrites `results/alpha1_review.json` byte for byte, and the report differs from `alpha1_review.txt` only in
+  the runtime on the last line (418 s against 421 s). Checked on 2026-11-27 with g++ 14.2 runtime libraries.
+  Rebuilt from source (`3fe4d23` or `release/v0.3`; g++ 14.2 or clang 19.1.7, `-O3`) the same program gives Gen-0
+  eps 0.0120023693144 at 8 threads. Two things differ, and they account for all of it:
+  - **Thread count** (see above): the same binary gives Gen-0 0.012151 / 0.012323 / 0.012306 / 0.012278 / 0.012108 at
+    1 / 2 / 4 / 8 / 16 threads. Only 2 threads matches the committed file.
+  - **FMA contraction:** that binary contains AVX-512 and FMA instructions (`vfmadd*`, 197 of them), so it was built
+    with `-march=native` or similar. GCC and Clang then fuse `a*b+c` by default, which changes the Gen-0 noise model in
+    the last bits (detection rate at 10 rounds 0.088772 -> 0.088812) and so the sample. Built from the same source at
+    8 threads: plain `-O3` 0.0120023693144; `-O3 -march=native` 0.0122286733965 (g++ 14.2 and clang 19.1.7 agree
+    exactly); `-O3 -march=native -ffp-contract=off` 0.0120023693144 again.
+  No code change between `3fe4d23` and `release/v0.3` affects the ladder: both trees give identical results with the
+  same flags and thread count. The frame Monte Carlo uses its own xoshiro256 generator, not `std::` distributions, so
+  libstdc++ vs libc++ is not a factor. Since this branch, CMake builds every target with `-ffp-contract=off`, so an
+  `-march` choice no longer changes results; `ctest -R fp_contract` checks it. The headline (Alpha-1 0.45-0.46 % per
+  round, Lambda about 2.6) holds within Monte Carlo spread under every combination; the v1.0 table should be read as a
+  sample, not as exact.
+  **On `main` since PR #2 (design/alpha1, merged 2026-11-27) this recipe applies to the `3fe4d23` checkout only.** PR #2
+  changed the `alpha1()` preset (direct coupling `g` 4 MHz -> 1 MHz, three-transmon coupler model on) and
+  `designs/alpha1/alpha1.json`, and added the CZ flux-noise term to `err_2q`, so the Alpha-1 rows of `examples/alpha1_review` built
+  from `main` no longer reproduce `results/alpha1_review.{json,txt}` (Gen-0 rows use `gen0_surface17()`, which PR #2 did not
+  touch); those files describe the pre-PR-#2 Alpha-1 v1.0 design
+  and have not been regenerated for it.
 - **CZ model** version 2 (`CZModel::kVersion`): dt 0.1 ns, Nelder–Mead budget 260, levels 4/4/4
   (qubit/coupler/qubit), charge cutoff 12. The cache keys encode all of these, and a cache from another model version
   is rejected.

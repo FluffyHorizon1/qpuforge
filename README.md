@@ -38,6 +38,8 @@ chip.json ──► device physics ─────────► noise model �
 | Error bars | `qec.hpp` | `fit_eps_per_round_err`: the 1σ error of a fitted logical error per round, propagated through the fit. v0.3 took it from the last round count alone, which was 20–40 % too small |
 | Faster setup | `qec.hpp` | Single-fault enumeration follows only the qubits a fault touches, skips the time slices that do not act on them, and runs in parallel. On the Gamma-1 chip (distance 7, 14 rounds) it takes 3.9 s on two cores against 33 s for the v0.3 routine, with identical output |
 | Designs | `presets.hpp` | Readout plan that scales with the chip (at most 9 resonators per feedline); Beta-1 rev C; Gamma-1 (GF-97) |
+| Reproducible Monte Carlo | `qec.hpp`, `emulator.hpp` | Every frame-simulation shot is seeded from (seed, shot) and partial sums are added in a fixed order, so every Monte Carlo result is bit-identical for any `OMP_NUM_THREADS`. Committed outputs no longer depend on the machine's core count |
+| Hardened serialisation | `json.hpp`, `gds.hpp` | RFC 8259 JSON parsing with a nesting limit; GDSII writes fail loudly on I/O errors; JSON and GDSII round-trip tests |
 
 ### What's new in v0.3
 
@@ -52,7 +54,7 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 235 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 319 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
@@ -119,7 +121,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 235 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 319 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.

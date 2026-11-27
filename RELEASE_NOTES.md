@@ -12,7 +12,11 @@ See `CHANGELOG.md` for the API changes, and the README "What's new in v0.4" tabl
 - Hardware-gate evaluation from a measured-data file (`characterise.hpp`, `qpuforge hwgate`), rehearsed on a virtual chip.
 - Beta-1 rev C: readout plan and cells corrected. Gamma-1 (GF-97): a 97-qubit distance-7 memory.
 - Error bars of fitted logical error rates corrected; they were 20–40 % too small.
-- 235 validation checks (186 in 0.3.0) and three review smoke tests.
+- Thread-count-independent Monte Carlo: every result is bit-identical for any `OMP_NUM_THREADS`.
+- Hardened JSON (RFC 8259, nesting limit) and GDSII (I/O errors) serialisation.
+- Alpha-1 v1.1, Beta-1 and Gamma-1 keep the 4 MHz direct coupling their design files were generated with; the CZ
+  flux-noise term in `e_2q` is opt-in (Alpha-1 v1.0).
+- 319 validation checks (186 in 0.3.0) and three review smoke tests.
 
 ### Known issues
 - CZ leakage: the worst frequency combination leaks 2.3e-04 per gate, above the 2e-4 limit of the Alpha

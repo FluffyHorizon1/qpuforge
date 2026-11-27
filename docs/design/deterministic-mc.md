@@ -1,8 +1,12 @@
 # Design note: thread-count-independent Monte Carlo
 
-Status: prototype on `feat/deterministic-mc` (stacked on `fix/alpha1-v1.0-repro`). **Not adopted.** Whether to adopt
-it, and when to regenerate the committed review outputs, is a release decision for Finnian. No result file is
-regenerated on this branch.
+Status: **adopted in 0.4.0.** The prototype below (on `feat/deterministic-mc`, rebased as `stack/deterministic-mc-on-q13`)
+was ported onto the 0.4 `run_memory_frame`, which adds `FrameRunOptions`, the decode-method choice and the syndrome and
+decoder statistics. They follow the same rule: the integer counts (errors, detections per round, defect counts) are
+exact in any order, and the leaked-time sums go through the fixed block order. `decode_us_per_shot` is a
+wall-clock measurement and stays machine-dependent. Every committed review output was regenerated with it
+(`results/PROVENANCE.md`), so `openmp_threads` in their provenance is informational. The rest of this note is the
+design record as written for the prototype; its check counts refer to that branch.
 
 ## Problem
 

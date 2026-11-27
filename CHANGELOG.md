@@ -7,7 +7,9 @@ every such change is listed under **API changes**.
 
 Finishes the software side of Phases Alpha and Beta and starts Phase Gamma: an exact decoder at any number of defects,
 memory experiments in both bases, correlated error bursts, hardware-gate evaluation from measured data, Beta-1 rev C and
-the Gamma-1 (GF-97) distance-7 design. See the README "What's new in v0.4" table.
+the Gamma-1 (GF-97) distance-7 design. It also adopts thread-count-independent Monte Carlo and folds in the 0.3
+follow-up fixes: JSON and GDSII hardening, and the scope of two PR #2 changes (the Alpha-1 v1.1 direct coupling and the
+CZ flux-noise term). See the README "What's new in v0.4" table.
 
 ### Added
 - `matching.hpp`: `BlossomMatcher`, Edmonds' blossom algorithm for minimum-weight perfect matching (dense, primal-dual,
@@ -31,8 +33,18 @@ the Gamma-1 (GF-97) distance-7 design. See the README "What's new in v0.4" table
   `new --preset gamma1`, `gds --synthesize --from`.
 - Designs: Beta-1 rev C, Gamma-1 (GF-97), and the Alpha-1 v1.1 characterisation plan.
 - `examples/gamma1_review.cpp`; `examples/review_util.hpp` (shared by the Beta and Gamma reviews); `tools/fill_spec.py`.
-- Tests: six new groups (`matching`, `fault_enumeration`, `memory_bases`, `bursts`, `characterisation`, `designs_v04`),
-  235 checks in all (186 in 0.3.0), and a third review smoke test.
+- Thread-count-independent Monte Carlo (`docs/design/deterministic-mc.md`). Every frame-simulation shot draws from its
+  own generator, seeded by `frame_shot_seed(seed, shot)`, and partial sums are added in a fixed block order; the
+  trajectory emulator adds its sampled XEB in trajectory order. Results are bit-identical for any `OMP_NUM_THREADS` and
+  OpenMP schedule.
+- `presets.hpp`: `alpha1_with_coupling(d, g_GHz)`. `device.hpp`: `ChipDesign::cz_flux_noise` (design JSON
+  `gates.cz_flux_noise`).
+- Tests: eleven new groups (`matching`, `fault_enumeration`, `memory_bases`, `bursts`, `characterisation`,
+  `designs_v04`, and the serialisation groups `json`, `gds`, `json_rfc`, `json_depth`, `gds_write`), 319 checks in all
+  (186 in 0.3.0), and a third review smoke test. Outside the validation checks: the `determinism` (1, 2, 3, 4 and 8
+  threads in one process) and `determinism_env` (separate processes under `OMP_NUM_THREADS` = 1, 2, 4, 8) guards, the
+  `fp_contract` and `fp_contract_flags` build-flag guards, and the `cli_version`, `cli_version_short` and `cli_usage`
+  CLI guards.
 
 ### API changes
 - **`MatchingDecoder::decode(defects, DecodeScratch&, DecodeMethod = Auto)`** replaces
@@ -50,9 +62,22 @@ the Gamma-1 (GF-97) distance-7 design. See the README "What's new in v0.4" table
 - **Behaviour change:** `ChipReport` pairs: `cz_interaction_GHz` is solved at the anharmonicity the moving qubit has at
   the interaction point (`f01_for_11_20`), 1–2.5 MHz above the 0.3 estimate.
 - `tools/fill_beta_spec.py` is replaced by `tools/fill_spec.py beta` (and `gamma`).
+- **Behaviour change:** the frame Monte Carlo seeds every shot separately. The same seed therefore gives a different,
+  statistically equivalent sample than 0.3, and the same sample at any thread count. `openmp_threads` in the review
+  provenance is informational.
+- **Behaviour change:** `alpha1_v11()`, and through it `beta1()` and `gamma1()`, keep the 4 MHz direct qubit–qubit
+  coupling (`alpha1_with_coupling`). Since PR #2 they had inherited 1 MHz from `alpha1()`, so the presets no longer
+  reproduced the committed design files; they do again. `alpha1()` (Alpha-1 v1.0) stays at 1 MHz.
+- **Behaviour change:** the CZ flux-noise term is added to `PairReport::err_2q` only when `ChipDesign::cz_flux_noise`
+  is on: on for `alpha1()`, off for `alpha1_v11()`, whose pulse calibration carries its own flux terms. Design JSON
+  without `gates.cz_flux_noise` follows `tunable_coupler.model_coupler`. Fixed-coupling and generic tunable designs get
+  their pre-PR #2 `e_2q` back. The term is still computed and printed for every design. Neither change moves a logical
+  error rate or circuit fidelity: the emulators take the control error and their own decoherence model, not `err_2q`.
+- `Json::parse` rejects input that is not RFC 8259 JSON (see Fixed).
 
 ### Changed
-- All review outputs were regenerated with CZ model version 2 and the exact decoder (`results/PROVENANCE.md`).
+- All review outputs were regenerated from the integrated code with CZ model version 2, the exact decoder and the
+  thread-count-independent Monte Carlo (`results/PROVENANCE.md`).
 - The Beta and Gamma reviews report both memory bases, the largest per-pair CZ leakage, and the mask-level DRC counts.
 - The Beta gate adds a 100-round detection-rate stability criterion and an extraction criterion for the layout.
 - Review smoke runs shorten the long experiments (setup time is quadratic in the number of rounds).
@@ -63,6 +88,13 @@ the Gamma-1 (GF-97) distance-7 design. See the README "What's new in v0.4" table
   five round counts and 40 % for four. `fit_eps_per_round_err` propagates the binomial errors of all points through
   the fit; it is checked against the scatter of 4,000 synthetic fits. Every ± on a fitted value, and on a Λ derived
   from one, is wider than in 0.3. Single-run estimates were already correct.
+- JSON: `Json::parse` accepts only RFC 8259 numbers and string escapes (`\uXXXX` is decoded; unknown escapes and raw
+  control characters are rejected), and `dump` escapes control characters. Nesting deeper than 256 levels throws
+  ("json: nesting too deep") instead of overflowing the stack.
+- GDSII: `gds::write` throws if the output file cannot be opened or written.
+- Build: the `fp_contract` guard is built with the same flags as the real targets (`QPUFORGE_COMPILE_OPTIONS`), so a
+  build that drops `-ffp-contract=off` fails it.
+- CLI: the usage text lists `--version` / `-V`.
 
 ### Known issues
 - CZ leakage: the worst frequency combination leaks 2.3e-04 per gate, above the 2e-4 limit of the Alpha

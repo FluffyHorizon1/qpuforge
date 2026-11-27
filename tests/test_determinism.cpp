@@ -7,9 +7,10 @@
 //                               tests/compare_thread_digests.cmake, which runs it under OMP_NUM_THREADS=1,2,4,8)
 //
 // Workloads: run_memory_frame on a distance-3 memory with leakage on (exercises the leaked-time double sums) and a shot
-// count that is not a multiple of the block size, also decoded with union-find, with heralded leakage, and with
-// per-shot impact injection and a calibrated veto; and the
-// trajectory emulator's sampled XEB (a double reduction).
+// count that is not a multiple of the block size, in both memory bases and with two decode methods, including the setup
+// (parallel fault enumeration -> DEM) and the 0.4 syndrome statistics; the same memory decoded with union-find, with
+// heralded leakage, and with per-shot impact injection and a calibrated veto; and the trajectory emulator's sampled XEB
+// (a double reduction).
 #include "qpuforge/qpuforge.hpp"
 #include <cstdio>
 #include <cstring>
@@ -36,22 +37,33 @@ static std::string frame_digest() {
         nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, 2e-3};
     }
     std::string out;
-    for (int rounds : {2, 5}) {
-        const auto M = prepare_memory(D, R, nm, rounds);
-        const auto r = run_memory_frame(M, 5000, 17 + unsigned(rounds));   // 5000 = 4 full blocks + a partial one
-        out += "r" + std::to_string(rounds) + " err=" + std::to_string(r.logical_errors) + " det=" + hex(r.detection_rate) +
-               " ld=" + hex(r.leak_frac_data) + " lm=" + hex(r.leak_frac_meas) + " lev=" + hex(r.leak_events_per_shot) + " ";
-        FrameRunOptions uf; uf.method = DecodeMethod::UnionFind;                          // union-find decoder
-        out += "uf=" + std::to_string(run_memory_frame(M, 3000, 23 + unsigned(rounds), uf).logical_errors) + " ";
-        FrameRunOptions h; h.herald.on = true;                                             // heralded leakage
-        const auto rh = run_memory_frame(M, 3000, 29 + unsigned(rounds), h);
-        out += "her=" + std::to_string(rh.logical_errors) + "/" + hex(rh.heralds_per_shot) + "/" + hex(rh.herald_true_frac) + " ";
-        VetoSpec V; V.threshold = calibrate_veto(M, 3000, 31 + unsigned(rounds), 5e-3, V).threshold; V.on = true;   // impacts + veto
-        FrameRunOptions iv; iv.impact.p_shot = 0.1; iv.impact.burst.radius = 1.5; iv.veto = V;
-        const auto ri = run_memory_frame(M, 3000, 37 + unsigned(rounds), iv);
-        out += "imp=" + std::to_string(V.threshold) + "/" + std::to_string(ri.impacts) + "/" + std::to_string(ri.impacts_vetoed) + "/" +
-               std::to_string(ri.discarded) + "/" + std::to_string(ri.errors_kept) + "/" + std::to_string(ri.errors_impacted) + " ";
-    }
+    // Both memory bases, the default (Auto) and an explicit decode method, and the 0.4 syndrome statistics. The DEM is
+    // included because setup (enumerate_faults) runs in parallel: its output must not depend on the thread count either.
+    for (int rounds : {2, 5})
+        for (char basis : {'Z', 'X'}) {
+            const auto M = prepare_memory(D, R, nm, rounds, basis);
+            FrameRunOptions fo;
+            if (rounds == 5) fo.method = DecodeMethod::Blossom;
+            const auto r = run_memory_frame(M, 5000, 17 + unsigned(rounds), fo);   // 5000 = 4 full blocks + a partial one
+            double pe = 0; for (const auto& e : M.dem.edges) pe += e.p;
+            out += std::string("r") + std::to_string(rounds) + basis + " err=" + std::to_string(r.logical_errors) +
+                   " det=" + hex(r.detection_rate) + " ld=" + hex(r.leak_frac_data) + " lm=" + hex(r.leak_frac_meas) +
+                   " lev=" + hex(r.leak_events_per_shot) + " md=" + hex(r.mean_defects) + " mx=" + std::to_string(r.max_defects) +
+                   " o22=" + hex(r.frac_over_22) + " dem=" + std::to_string(M.dem.edges.size()) + ":" + hex(pe) + " byr=";
+            for (double v : r.detection_by_round) out += hex(v) + ",";
+            out += " ";
+            if (basis != 'Z') continue;
+            FrameRunOptions uf; uf.method = DecodeMethod::UnionFind;                          // union-find decoder
+            out += "uf=" + std::to_string(run_memory_frame(M, 3000, 23 + unsigned(rounds), uf).logical_errors) + " ";
+            FrameRunOptions h; h.herald.on = true;                                             // heralded leakage
+            const auto rh = run_memory_frame(M, 3000, 29 + unsigned(rounds), h);
+            out += "her=" + std::to_string(rh.logical_errors) + "/" + hex(rh.heralds_per_shot) + "/" + hex(rh.herald_true_frac) + " ";
+            VetoSpec V; V.threshold = calibrate_veto(M, 3000, 31 + unsigned(rounds), 5e-3, V).threshold; V.on = true;   // impacts + veto
+            FrameRunOptions iv; iv.impact.p_shot = 0.1; iv.impact.burst.radius = 1.5; iv.veto = V;
+            const auto ri = run_memory_frame(M, 3000, 37 + unsigned(rounds), iv);
+            out += "imp=" + std::to_string(V.threshold) + "/" + std::to_string(ri.impacts) + "/" + std::to_string(ri.impacts_vetoed) + "/" +
+                   std::to_string(ri.discarded) + "/" + std::to_string(ri.errors_kept) + "/" + std::to_string(ri.errors_impacted) + " ";
+        }
     return out;
 }
 

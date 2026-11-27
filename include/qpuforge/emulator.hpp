@@ -284,7 +284,9 @@ inline RunResult run(const Compiled& prog, const NoiseModel& nm, const RunOption
     const int T = opt.noisy ? std::max(1, opt.trajectories) : 1;
     std::vector<double> F(T, 0.0);
     std::vector<std::unordered_map<std::uint64_t, long>> local_counts(64);
-    std::vector<double> xeb_sum(64, 0.0);
+    // XEB partial sums per trajectory (not per thread), added in trajectory order below: a per-thread double sum under
+    // schedule(dynamic) depends on the thread count and on timing. Counts are integers and need no such care.
+    std::vector<double> xeb_sum(std::size_t(T), 0.0);
     std::vector<long> shots_n(64, 0);
 
 #pragma omp parallel for schedule(dynamic, 1)
@@ -323,7 +325,7 @@ inline RunResult run(const Compiled& prog, const NoiseModel& nm, const RunOption
             ++local_counts[tid][key];
             ++shots_n[tid];
             auto it = pideal.find(key);
-            xeb_sum[tid] += (it == pideal.end()) ? 0.0 : it->second;
+            xeb_sum[std::size_t(t)] += (it == pideal.end()) ? 0.0 : it->second;
         }
     }
     double mean = 0; for (double f : F) mean += f; mean /= T;
@@ -332,7 +334,8 @@ inline RunResult run(const Compiled& prog, const NoiseModel& nm, const RunOption
     R.fidelity_sem = T > 1 ? std::sqrt(var / (T - 1) / T) : 0.0;
     double xs = 0; long ns = 0;
     std::unordered_map<std::uint64_t, long> merged;
-    for (int k = 0; k < 64; ++k) { xs += xeb_sum[k]; ns += shots_n[k]; for (auto& [key, c] : local_counts[k]) merged[key] += c; }
+    for (double v : xeb_sum) xs += v;
+    for (int k = 0; k < 64; ++k) { ns += shots_n[k]; for (auto& [key, c] : local_counts[k]) merged[key] += c; }
     R.shots = ns;
     for (auto& [key, c] : merged) R.counts[emu_detail::key_to_bits(key, nc)] += c;
     if (ns > 0) {

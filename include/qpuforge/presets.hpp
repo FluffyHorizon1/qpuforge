@@ -43,7 +43,7 @@ inline ChipDesign alpha1_with_coupling(int d, double g_GHz) {
     ChipDesign D = generate(s);
     D.name = d == 3 ? "Alpha-1 (AF-17)" : "Alpha-1 extended to d=" + std::to_string(d) + " (" + std::to_string(2 * d * d - 1) + " qubits)";
     D.tc_g_max_MHz = 40; D.tc_residual_zz_kHz = 5;
-    D.coupler.g_qc_MHz = 40; D.tc_coupler_EC = 0.20; D.tc_model = true;
+    D.coupler.g_qc_MHz = 40; D.tc_coupler_EC = 0.20; D.tc_model = true; D.cz_flux_noise = true;
     D.t_readout_ns = 500; D.readout_sep_err = 0.005;
     D.active_reset = true; D.t_reset_ns = 200; D.reset_err = 0.003;
     D.err_1q_control = 1e-4; D.err_2q_control = 2e-3;
@@ -60,7 +60,7 @@ inline ChipDesign alpha1(int d = 3) {
 inline ChipDesign alpha1_v11(int d = 3) {
     ChipDesign D = alpha1_with_coupling(d, 0.004); // bare g = 4 MHz (0.14 fF), as before PR #2; pulse.hpp sets g12 per pair
     D.name = d == 3 ? "Alpha-1 v1.1 (AF-17)" : "Alpha-1 v1.1 extended to d=" + std::to_string(d);
-    D.tc_model = false;
+    D.tc_model = false; D.cz_flux_noise = false;  // pulse.hpp calibration has its own flux-noise terms
     D.coupler.physical = true;
     D.coupler.f_max_GHz = 8.5; D.coupler.alpha_GHz = -0.13; D.coupler.g_qc_MHz = 160;
     D.coupler.f_on_GHz = 6.1; D.coupler.t_rise_ns = 7; D.coupler.residual_ctrl_err = 1e-3;

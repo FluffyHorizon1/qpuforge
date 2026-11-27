@@ -209,6 +209,9 @@ struct ChipDesign {
     double tc_g_max_MHz{40}, tc_residual_zz_kHz{5};
     double tc_coupler_EC{0.20};
     bool tc_model{false};
+    // add the CZ flux-noise term (PairReport::cz_flux_err) to e_2q. Off by default; alpha1() turns it on. Design JSON
+    // without gates.cz_flux_noise follows tunable_coupler.model_coupler, so the PR #2 Alpha-1 files keep it.
+    bool cz_flux_noise{false};
     CouplerElement coupler;
     LeakageSpec leakage;
     bool active_reset{false};
@@ -253,6 +256,7 @@ inline ChipDesign design_from_json(const Json& j) {
     D.tc_residual_zz_kHz = tc.get("residual_zz_kHz", D.tc_residual_zz_kHz);
     D.tc_coupler_EC = tc.get("coupler_EC_GHz", D.tc_coupler_EC);
     D.tc_model = tc.get("model_coupler", D.tc_model);
+    D.cz_flux_noise = g.get("cz_flux_noise", D.tc_model);
     D.coupler.physical = tc.get("physical", D.coupler.physical);
     D.coupler.f_max_GHz = tc.get("f_max_GHz", D.coupler.f_max_GHz);
     D.coupler.alpha_GHz = tc.get("alpha_GHz", D.coupler.alpha_GHz);
@@ -315,6 +319,7 @@ inline Json design_to_json(const ChipDesign& D) {
     g.set("t_1q_ns", D.t_1q_ns); g.set("t_readout_ns", D.t_readout_ns); g.set("t_reset_ns", D.t_reset_ns); g.set("cz_shape_factor", D.cz_shape_factor);
     g.set("cz_ramp_ns", D.cz_ramp_ns); g.set("err_1q_control", D.err_1q_control); g.set("err_2q_control", D.err_2q_control);
     g.set("readout_separation_err", D.readout_sep_err); g.set("active_reset", D.active_reset); g.set("reset_err", D.reset_err);
+    g.set("cz_flux_noise", D.cz_flux_noise);
     j.set("gates", g);
     Json tc = Json::object();
     tc.set("g_max_MHz", D.tc_g_max_MHz); tc.set("residual_zz_kHz", D.tc_residual_zz_kHz);
@@ -571,7 +576,8 @@ inline ChipReport analyze(const ChipDesign& D, const AnalyzeOptions& opt = {}) {
                 }
             }
             auto rates = [&](const QubitReport& q) { return 1e6 / q.T1_us + (std::isfinite(q.Tphi_us) ? 1e6 / q.Tphi_us : 0.0); };
-            p.err_2q = 0.8 * (tcz / 2) * (rates(qa) + rates(qb)) + D.err_2q_control + p.cz_flux_err;
+            // cz_flux_err is always reported; it is counted in e_2q only when the design opts in
+            p.err_2q = 0.8 * (tcz / 2) * (rates(qa) + rates(qb)) + D.err_2q_control + (D.cz_flux_noise ? p.cz_flux_err : 0.0);
             std::string fl;
             const double win = std::max(0.03, 5 * g);
             if (std::abs(qa.f01 - qb.f01) < win) fl += "DEGENERATE ";

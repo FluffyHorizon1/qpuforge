@@ -7,7 +7,8 @@
 //                               tests/compare_thread_digests.cmake, which runs it under OMP_NUM_THREADS=1,2,4,8)
 //
 // Workloads: run_memory_frame on a distance-3 memory with leakage on (exercises the leaked-time double sums) and a shot
-// count that is not a multiple of the block size, also decoded with union-find and with heralded leakage; and the
+// count that is not a multiple of the block size, also decoded with union-find, with heralded leakage, and with
+// per-shot impact injection and a calibrated veto; and the
 // trajectory emulator's sampled XEB (a double reduction).
 #include "qpuforge/qpuforge.hpp"
 #include <cstdio>
@@ -45,6 +46,11 @@ static std::string frame_digest() {
         FrameRunOptions h; h.herald.on = true;                                             // heralded leakage
         const auto rh = run_memory_frame(M, 3000, 29 + unsigned(rounds), h);
         out += "her=" + std::to_string(rh.logical_errors) + "/" + hex(rh.heralds_per_shot) + "/" + hex(rh.herald_true_frac) + " ";
+        VetoSpec V; V.threshold = calibrate_veto(M, 3000, 31 + unsigned(rounds), 5e-3, V).threshold; V.on = true;   // impacts + veto
+        FrameRunOptions iv; iv.impact.p_shot = 0.1; iv.impact.burst.radius = 1.5; iv.veto = V;
+        const auto ri = run_memory_frame(M, 3000, 37 + unsigned(rounds), iv);
+        out += "imp=" + std::to_string(V.threshold) + "/" + std::to_string(ri.impacts) + "/" + std::to_string(ri.impacts_vetoed) + "/" +
+               std::to_string(ri.discarded) + "/" + std::to_string(ri.errors_kept) + "/" + std::to_string(ri.errors_impacted) + " ";
     }
     return out;
 }

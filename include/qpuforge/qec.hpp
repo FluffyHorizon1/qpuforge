@@ -111,6 +111,11 @@ inline std::uint64_t splitmix64_mix(std::uint64_t z) {
 inline std::uint64_t frame_shot_seed(std::uint64_t seed, std::uint64_t shot) {
     return splitmix64_mix(seed ^ 0x6A09E667F3BCC909ULL) + shot * (4 * 0x9E3779B97F4A7C15ULL);
 }
+// The impact-injection stream of one shot (ImpactSpec): keyed like frame_shot_seed but on a different constant, so it
+// never overlaps the shot's noise stream.
+inline std::uint64_t impact_shot_seed(std::uint64_t seed, std::uint64_t shot) {
+    return splitmix64_mix(seed ^ 0xBB67AE8584CAA73BULL) + shot * (4 * 0x9E3779B97F4A7C15ULL);
+}
 
 // ================================================================== Pauli-frame program
 struct FrameProgram {
@@ -126,6 +131,7 @@ struct FrameProgram {
         std::vector<int> dqlr;            // data qubits whose leakage-removal pulse follows this slice
         std::vector<ZZTwirl> zz;
         std::vector<Pauli1> deco;
+        std::vector<std::uint8_t> known;  // per qubit during this slice: 0 |0>, 1 |1>, 2 unknown (impact injection)
         double duration_ns{0};
     };
     int n{0}, nclbits{0};
@@ -176,7 +182,7 @@ inline FrameProgram build_frame_program(const Compiled& prog, const NoiseModel& 
         }
     if (noisy && nm.exchange_on)
         for (const auto& [pr, v] : nm.exchange) if (sim[pr.first] >= 0 && sim[pr.second] >= 0) ++F.ignored_exchange_pairs;
-    std::vector<int> kn(std::size_t(F.n), 0);   // 0: |0>, 1: |1>, 2: superposition / unknown
+    std::vector<std::uint8_t> kn(std::size_t(F.n), 0);   // 0: |0>, 1: |1>, 2: superposition / unknown
     auto twirl_zz = [&](const ZZPair& z, std::vector<FrameProgram::ZZTwirl>& out) {
         if (z.phi == 0) return;
         const double s2 = std::pow(std::sin(z.phi / 2), 2);
@@ -243,6 +249,7 @@ inline FrameProgram build_frame_program(const Compiled& prog, const NoiseModel& 
             }
             fm.ops.push_back(o);
         }
+        fm.known.assign(kn.begin(), kn.end());
         if (noisy && m.duration_ns > 0) {
             const double tau = m.duration_ns;
             for (auto& z : zz) {
@@ -923,6 +930,50 @@ struct MemoryResult {
     double decode_us_per_shot{0};                  // software decoding time per shot on one core
     double heralds_per_shot{0};                    // heralded measure-qubit readouts per shot (HeraldSpec)
     double herald_true_frac{0};                    // fraction of those that were leaked
+    // impact injection and veto (ImpactSpec, VetoSpec); logical_errors counts every shot, kept or not
+    long impacts{0}, impacts_vetoed{0}, errors_impacted{0}; // shots with an impact; those discarded; their failures
+    long errors_impacted_kept{0};                  // failures of impacted shots that the veto kept (silent impact failures)
+    long discarded{0}, errors_kept{0};             // shots discarded by the veto; failures among the kept shots
+    double p_logical_kept{0}, eps_kept{0};         // over the kept shots
+    std::vector<long> veto_hist;                   // shots by burst statistic (VetoSpec), index = statistic
+};
+
+// ================================================================== correlated error bursts (high-energy impacts)
+// A cosmic-ray or gamma impact fills the chip with quasiparticles: every qubit gains an excess decay (and/or
+// dephasing) rate that then relaxes exponentially. The burst lasts for thousands of QEC rounds, so it is treated as a
+// slowly varying severity s(t) = exp(-t / tau) on top of the normal noise:
+//     1/T1(t) = 1/T1 + s(t) / t1_peak,      1/T_phi(t) = 1/T_phi + s(t) / tphi_peak.
+// The decoder is not told: it keeps the priors of the quiet chip. The logical error per round is sampled at a ladder
+// of severities and integrated over the burst.
+struct BurstSpec {
+    double rate_hz{0.1};        // impacts per second on the chip
+    double tau_ms{25};          // recovery time constant of the excess error rates
+    double t1_peak_us{1.0};     // excess energy-decay time at the peak of the burst (<= 0: T1 unaffected)
+    double tphi_peak_us{0.0};   // excess pure-dephasing time at the peak (<= 0: dephasing unaffected)
+    double radius{0.0};         // per-shot injection only: spatial extent, Gaussian sigma in lattice units (<= 0: whole chip)
+};
+
+// Per-shot impact injection (docs/design/impact-veto.md). With probability p_shot a shot contains an impact: its onset
+// time is uniform over the shot and its centre is a uniformly chosen qubit. From the onset, every qubit q gains the
+// excess rates of BurstSpec at severity s = exp(-(t - t0) / tau) * g(q), with g = exp(-r^2 / (2 radius^2)) of its
+// lattice distance r from the centre (g = 1 for radius <= 0). The excess decay and dephasing are applied as Pauli
+// channels with the same state-aware rule as the quiet noise (a qubit known to be in |1> decays as a bit flip, one in
+// |0> is untouched). Every draw of the impact uses its own generator keyed on (seed, shot) (impact_shot_seed), so a
+// shot without an impact is bit for bit the same shot as in a run without injection.
+struct ImpactSpec {
+    BurstSpec burst;
+    double p_shot{0};
+};
+
+// Impact veto: the largest number of detection events in a sliding space-time window (detectors whose stabilisers lie
+// within `radius` lattice units of a centre stabiliser, Chebyshev distance, over `window_rounds` consecutive rounds) is
+// the shot's burst statistic. A shot whose statistic reaches `threshold` is discarded (post-selection).
+// calibrate_veto picks the threshold for a target false-veto rate on burst-free shots.
+struct VetoSpec {
+    bool on{false};
+    int window_rounds{3};
+    double radius{2.0};
+    int threshold{std::numeric_limits<int>::max()};   // max(): record the statistic only
 };
 
 // Heralded leakage (docs/design/heralded-leakage.md): 3-state readout of the measure qubits. A leaked measure qubit is
@@ -952,6 +1003,8 @@ struct FrameRunOptions {
     const MatchingDecoder* decoder{nullptr};         // decode with this instead of the setup's own (model-mismatch studies)
     DecodeMethod method{DecodeMethod::Auto};
     HeraldSpec herald;
+    ImpactSpec impact;
+    VetoSpec veto;
 };
 
 inline double eps_from_PL(double PL, int R) { return PL < 0.5 ? 0.5 * (1 - std::pow(1 - 2 * PL, 1.0 / R)) : 0.5; }
@@ -964,6 +1017,8 @@ struct MemorySetup {
     DetectorErrorModel dem;
     std::unique_ptr<MatchingDecoder> decoder;
     std::vector<char> is_data;                 // by sim index
+    std::vector<std::pair<double, double>> sim_xy;   // lattice position of each sim qubit (unit: the data-qubit pitch)
+    std::vector<std::pair<double, double>> det_xy;   // lattice position of each detector's stabiliser
     // herald footprints (HeraldSpec::footprint), by classical bit of a measure-qubit measurement: the decoder-graph
     // edges (union_find().edge index) of the single faults in that qubit's round, flagged 1 for the bit's own
     // measurement-error edge. Built with the decoder.
@@ -1036,6 +1091,13 @@ inline MemorySetup prepare_memory(const ChipDesign& D, const ChipReport& R, cons
         const auto sim = sim_index(M.prog);
         M.is_data.assign(std::size_t(M.frame.n), 0);
         for (const auto& dq : M.code.data) { const int s = sim[std::size_t(D.index_of(dq.qubit))]; if (s >= 0) M.is_data[std::size_t(s)] = 1; }
+        M.sim_xy.assign(std::size_t(M.frame.n), {0.0, 0.0});
+        for (const auto& dq : M.code.data) { const int s = sim[std::size_t(D.index_of(dq.qubit))]; if (s >= 0) M.sim_xy[std::size_t(s)] = {0.5 * dq.x, 0.5 * dq.y}; }
+        for (const auto& st : M.code.stabs) { const int s = sim[std::size_t(D.index_of(st.qubit))]; if (s >= 0) M.sim_xy[std::size_t(s)] = {0.5 * st.x, 0.5 * st.y}; }
+        // detectors come in blocks of rounds + 1 per stabiliser of the memory basis (memory_experiment)
+        for (const auto& st : M.code.stabs)
+            if (st.type == basis) for (int r = 0; r <= rounds; ++r) M.det_xy.push_back({0.5 * st.x, 0.5 * st.y});
+        if (M.det_xy.size() != M.exp.detectors.size()) throw std::runtime_error("prepare_memory: detector layout mismatch");
     }
     if (build_decoder) {
         const auto faults = enumerate_faults(M.frame, M.exp);
@@ -1097,7 +1159,31 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
     const std::size_t n_layers = std::size_t(M.exp.rounds) + 1;
     std::vector<double> per_layer(n_layers, 0.0);
     for (int r : M.exp.detector_round) per_layer[std::size_t(r)] += 1;
-    struct Tally { long errors{0}, fired{0}, leak_ev{0}, over22{0}, heralds{0}, heralds_true{0}; int max_def{0}; double leak_d{0}, leak_m{0}, decode_s{0}; };
+    struct Tally {
+        long errors{0}, fired{0}, leak_ev{0}, over22{0}, heralds{0}, heralds_true{0};
+        long impacts{0}, impacts_vetoed{0}, errors_impacted{0}, errors_impacted_kept{0}, discarded{0}, errors_kept{0};
+        int max_def{0}; double leak_d{0}, leak_m{0}, decode_s{0};
+        std::vector<long> hist;
+    };
+    // impact injection: start time of each slice
+    const ImpactSpec& IS = opt.impact;
+    const bool inject = IS.p_shot > 0;
+    std::vector<double> t_start(F.moments.size(), 0.0);
+    for (std::size_t m = 1; m < F.moments.size(); ++m) t_start[m] = t_start[m - 1] + F.moments[m - 1].duration_ns;
+    if (inject && M.sim_xy.size() != std::size_t(F.n)) throw std::runtime_error("run_memory_frame: impact injection needs qubit positions");
+    // veto: the stabilisers within the window radius of each stabiliser of the memory basis
+    const VetoSpec& VS = opt.veto;
+    const int Rp1 = M.exp.rounds + 1;
+    const std::size_t n_bs = M.exp.detectors.size() / std::size_t(Rp1);
+    std::vector<std::vector<int>> vnbr(VS.on ? n_bs : 0);
+    if (VS.on) {
+        if (M.det_xy.size() != M.exp.detectors.size()) throw std::runtime_error("run_memory_frame: the veto needs detector positions");
+        for (std::size_t c = 0; c < n_bs; ++c)
+            for (std::size_t o = 0; o < n_bs; ++o) {
+                const auto& a = M.det_xy[c * std::size_t(Rp1)]; const auto& b = M.det_xy[o * std::size_t(Rp1)];
+                if (std::max(std::abs(a.first - b.first), std::abs(a.second - b.second)) <= VS.radius + 1e-9) vnbr[c].push_back(int(o));
+            }
+    }
     const HeraldSpec& HS = opt.herald;
     if (HS.on && HS.use_in_decoder && HS.footprint && (M.herald_edges.empty() || &decoder != M.decoder.get()))
         throw std::runtime_error("run_memory_frame: herald footprints need the setup's own decoder");
@@ -1115,6 +1201,9 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
         std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
         std::vector<int> fired, heralded; std::vector<std::pair<int, int>> heralded_dets; std::vector<std::pair<int, double>> scaled; DecodeScratch ws;
         std::vector<long> my_round(n_layers, 0);
+        Xoshiro256 irng(0);
+        std::vector<double> g(inject ? std::size_t(F.n) : 0);
+        std::vector<int> vcount(VS.on ? n_bs * std::size_t(Rp1) : 0, 0), vtouched;
         auto randomize = [&](int q) { x[std::size_t(q)] = rng.uniform() < 0.5; z[std::size_t(q)] = rng.uniform() < 0.5; };
 #pragma omp for schedule(dynamic, 1)
         for (long b = 0; b < nblocks; ++b) {
@@ -1126,7 +1215,24 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                 std::fill(L.begin(), L.end(), 0);
                 heralded.clear();
                 int nleaked = 0;
-                for (const auto& fm : F.moments) {
+                bool hit = false; double t_hit = 0;
+                if (inject) {
+                    irng = Xoshiro256(impact_shot_seed(seed, std::uint64_t(s)));
+                    hit = irng.uniform() < IS.p_shot;
+                    if (hit) {
+                        T_.impacts += 1;
+                        t_hit = irng.uniform() * F.duration_ns;
+                        const int c = std::min(F.n - 1, int(irng.uniform() * F.n));
+                        const double r = IS.burst.radius;
+                        for (int q = 0; q < F.n; ++q) {
+                            const double dx = M.sim_xy[std::size_t(q)].first - M.sim_xy[std::size_t(c)].first;
+                            const double dy = M.sim_xy[std::size_t(q)].second - M.sim_xy[std::size_t(c)].second;
+                            g[std::size_t(q)] = r > 0 ? std::exp(-(dx * dx + dy * dy) / (2 * r * r)) : 1.0;
+                        }
+                    }
+                }
+                for (std::size_t mi = 0; mi < F.moments.size(); ++mi) {
+                    const auto& fm = F.moments[mi];
                     for (const auto& o : fm.ops) {
                         if (nleaked == 0 || !F.leakage) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
                         else {
@@ -1186,6 +1292,26 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                         else if (r < dq.px + dq.py) { x[std::size_t(dq.q)] ^= 1; z[std::size_t(dq.q)] ^= 1; }
                         else if (r < dq.px + dq.py + dq.pz) z[std::size_t(dq.q)] ^= 1;
                     }
+                    if (hit && fm.duration_ns > 0 && t_start[mi] + 0.5 * fm.duration_ns >= t_hit) {
+                        // excess decay / dephasing of the impact, state-aware as in build_frame_program
+                        const double tmid = t_start[mi] + 0.5 * fm.duration_ns, dur = fm.duration_ns;
+                        const double decay = std::exp(-(tmid - t_hit) / (IS.burst.tau_ms * 1e6));
+                        for (int q = 0; q < F.n; ++q) {
+                            const double sv = decay * g[std::size_t(q)];
+                            if (sv < 1e-9) continue;
+                            const int kq = fm.known[std::size_t(q)];
+                            if (kq == 0) continue;
+                            const double r1 = IS.burst.t1_peak_us > 0 ? sv / (IS.burst.t1_peak_us * 1e3) : 0.0;
+                            const double rphi = IS.burst.tphi_peak_us > 0 ? sv / (IS.burst.tphi_peak_us * 1e3) : 0.0;
+                            const double gamma = 1 - std::exp(-dur * r1);
+                            if (kq == 1) { if (irng.uniform() < gamma) x[std::size_t(q)] ^= 1; continue; }
+                            const double px = gamma / 4, pz = std::max(0.0, (1 - std::exp(-dur * (0.5 * r1 + rphi))) / 2 - px);
+                            const double u = irng.uniform();
+                            if (u < px) x[std::size_t(q)] ^= 1;
+                            else if (u < 2 * px) { x[std::size_t(q)] ^= 1; z[std::size_t(q)] ^= 1; }
+                            else if (u < 2 * px + pz) z[std::size_t(q)] ^= 1;
+                        }
+                    }
                     if (F.leakage) {
                         for (int q : fm.dqlr) {
                             if (L[std::size_t(q)] && rng.uniform() < F.dqlr_eff) { L[std::size_t(q)] = 0; --nleaked; randomize(q); }
@@ -1229,7 +1355,31 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                     predicted = decoder.decode_scaled(fired, scaled, ws, method);
                 } else predicted = decoder.decode(fired, ws, method);
                 T_.decode_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-                if (predicted != obs) ++T_.errors;
+                bool vetoed = false;
+                if (VS.on) {
+                    // the burst statistic: the most detection events in one space-time window
+                    int stat = 0;
+                    for (int f : fired) {
+                        const int sf = f / Rp1, rf = f % Rp1;
+                        for (int c : vnbr[std::size_t(sf)])
+                            for (int r = std::max(0, rf - VS.window_rounds + 1); r <= rf; ++r) {
+                                int& v = vcount[std::size_t(c) * std::size_t(Rp1) + std::size_t(r)];
+                                if (v == 0) vtouched.push_back(c * Rp1 + r);
+                                stat = std::max(stat, ++v);
+                            }
+                    }
+                    for (int k : vtouched) vcount[std::size_t(k)] = 0;
+                    vtouched.clear();
+                    if (T_.hist.size() <= std::size_t(stat)) T_.hist.resize(std::size_t(stat) + 1, 0);
+                    T_.hist[std::size_t(stat)] += 1;
+                    vetoed = stat >= VS.threshold;
+                    if (vetoed) { T_.discarded += 1; if (hit) T_.impacts_vetoed += 1; }
+                }
+                if (predicted != obs) {
+                    ++T_.errors;
+                    if (!vetoed) ++T_.errors_kept;
+                    if (hit) { ++T_.errors_impacted; if (!vetoed) ++T_.errors_impacted_kept; }
+                }
             }
         }
 #pragma omp critical(qpuforge_frame_rounds)
@@ -1240,6 +1390,14 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
         errors += t.errors; fired_tot += t.fired; leak_ev += t.leak_ev; over22 += t.over22; max_def = std::max(max_def, t.max_def);
         heralds += t.heralds; heralds_true += t.heralds_true;
         leak_d += t.leak_d; leak_m += t.leak_m; decode_s += t.decode_s;
+    }
+    long impacts = 0, impacts_vetoed = 0, errors_impacted = 0, errors_impacted_kept = 0, discarded = 0, errors_kept = 0;
+    std::vector<long> hist;
+    for (const Tally& t : part) {
+        impacts += t.impacts; impacts_vetoed += t.impacts_vetoed; errors_impacted += t.errors_impacted; errors_impacted_kept += t.errors_impacted_kept;
+        discarded += t.discarded; errors_kept += t.errors_kept;
+        if (hist.size() < t.hist.size()) hist.resize(t.hist.size(), 0);
+        for (std::size_t k = 0; k < t.hist.size(); ++k) hist[k] += t.hist[k];
     }
     auto r = summarize(M, shots, errors, double(fired_tot));
     r.detection_by_round.resize(n_layers);
@@ -1255,6 +1413,12 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
     r.leak_events_per_shot = double(leak_ev) / double(shots);
     r.heralds_per_shot = double(heralds) / double(shots);
     r.herald_true_frac = heralds ? double(heralds_true) / double(heralds) : 0.0;
+    r.impacts = impacts; r.impacts_vetoed = impacts_vetoed; r.errors_impacted = errors_impacted; r.errors_impacted_kept = errors_impacted_kept;
+    if (!VS.on) errors_kept = errors;
+    r.discarded = discarded; r.errors_kept = errors_kept;
+    r.p_logical_kept = shots > discarded ? double(errors_kept) / double(shots - discarded) : 0.0;
+    r.eps_kept = eps_from_PL(r.p_logical_kept, r.rounds);
+    r.veto_hist = std::move(hist);
     return r;
 }
 
@@ -1313,19 +1477,7 @@ inline double fit_eps_per_round_err(const std::vector<MemoryResult>& rs) {
 }
 
 // ================================================================== correlated error bursts (high-energy impacts)
-// A cosmic-ray or gamma impact fills the chip with quasiparticles: every qubit gains an excess decay (and/or
-// dephasing) rate that then relaxes exponentially. The burst lasts for thousands of QEC rounds, so it is treated as a
-// slowly varying severity s(t) = exp(-t / tau) on top of the normal noise:
-//     1/T1(t) = 1/T1 + s(t) / t1_peak,      1/T_phi(t) = 1/T_phi + s(t) / tphi_peak.
-// The decoder is not told: it keeps the priors of the quiet chip. The logical error per round is sampled at a ladder
-// of severities and integrated over the burst.
-struct BurstSpec {
-    double rate_hz{0.1};        // impacts per second on the chip
-    double tau_ms{25};          // recovery time constant of the excess error rates
-    double t1_peak_us{1.0};     // excess energy-decay time at the peak of the burst (<= 0: T1 unaffected)
-    double tphi_peak_us{0.0};   // excess pure-dephasing time at the peak (<= 0: dephasing unaffected)
-};
-
+// (BurstSpec is defined above, with the frame-run options.)
 inline NoiseModel burst_noise(const NoiseModel& nm, const BurstSpec& B, double s) {
     NoiseModel N = nm;
     if (B.t1_peak_us > 0)
@@ -1397,6 +1549,125 @@ inline BurstResult burst_floor(const ChipDesign& D, const ChipReport& R, const N
     for (std::size_t i = 0; i < out.curve.size(); ++i) { ex.push_back(excess(i)); dx.push_back(std::max(0.0, out.curve[i].mean_defects - out.mean_defects0)); }
     out.dead_time_ms = B.tau_ms * crossing(ex, std::max(out.eps0, 1e-12));
     out.detectable_ms = B.tau_ms * crossing(dx, 0.5 * std::max(out.mean_defects0, 1e-9));
+    return out;
+}
+
+// ================================================================== impact veto
+// Threshold for a target false-veto rate: the burst statistic of `shots` burst-free shots (same options otherwise),
+// and the smallest threshold whose tail fraction is at most `target`.
+struct VetoCalibration { int threshold{0}; double false_rate{0}; long shots{0}; std::vector<long> hist; };
+inline VetoCalibration calibrate_veto(const MemorySetup& M, long shots, std::uint64_t seed, double target, const VetoSpec& spec,
+                                      const FrameRunOptions& base = {}) {
+    FrameRunOptions o = base;
+    o.impact.p_shot = 0;
+    o.veto = spec; o.veto.on = true; o.veto.threshold = std::numeric_limits<int>::max();
+    const auto r = run_memory_frame(M, shots, seed, o);
+    VetoCalibration c; c.shots = shots; c.hist = r.veto_hist;
+    long tail = 0;
+    int T = int(c.hist.size());                                   // above the largest value seen: nothing is vetoed
+    for (int k = int(c.hist.size()) - 1; k >= 0; --k) {
+        if (double(tail + c.hist[std::size_t(k)]) > target * double(shots)) break;
+        tail += c.hist[std::size_t(k)]; T = k;
+    }
+    c.threshold = std::max(T, 1);
+    long t2 = 0; for (std::size_t k = std::size_t(c.threshold); k < c.hist.size(); ++k) t2 += c.hist[k];
+    c.false_rate = double(t2) / double(std::max(shots, 1L));
+    return c;
+}
+
+// The impact floor with a veto (docs/design/impact-veto.md): burst_floor's ladder of chip-wide severities, each run
+// with the veto on. A vetoed shot is discarded, so a burst costs logical errors only through the shots the veto keeps:
+//   rounds_lost_veto = integral over the burst of (1 - v(s)) * max(0, eps_kept(s) - eps_kept(0)) dt / t_round
+// and the veto costs the time it discards, integral of (v(s) - v(0)) dt (v: discarded fraction). The ladder stops
+// where neither the excess error nor the excess discard rate is resolved any more.
+// A latched veto holds the discard for `hold` after it first fires at the onset; only the tail after the hold costs
+// logical errors: rounds_lost(hold) = integral over t > hold of max(0, eps(s) - eps0) dt / t_round (no-veto curve,
+// interpolated linearly in log s; below the ladder the excess is taken as linear in s, as in burst_floor), and the
+// time lost is rate x hold. Failures before the veto first fires are measured separately with impact injection.
+struct BurstVetoPoint { double s{0}, eps{0}, eps_kept{0}, veto_frac{0}, mean_defects{0}; long kept{0}; bool saturated{false}; };
+struct BurstVetoResult {
+    std::vector<BurstVetoPoint> curve;
+    double eps0{0}, eps0_kept{0}, veto0{0}, round_ns{0};
+    double rounds_lost{0}, p_fail{0}, floor_per_round{0};                // without the veto (as burst_floor)
+    double rounds_lost_veto{0}, p_fail_veto{0}, floor_per_round_veto{0}; // with it
+    double discarded_ms{0};            // burst time discarded per impact, beyond the quiet false-veto rate
+    double discarded_time_frac{0};     // of the chip's time (rate x discarded_ms)
+    struct Latched { double hold_tau{0}, rounds_lost{0}, p_fail{0}, floor_per_round{0}, dead_time_frac{0}; };
+    std::vector<Latched> latched;      // by hold time (units of tau)
+};
+inline BurstVetoResult burst_floor_veto(const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, const BurstSpec& B, int rounds,
+                                        long shots, std::uint64_t seed, const VetoSpec& veto, char basis = 'Z', DecodeMethod method = DecodeMethod::Auto,
+                                        const std::vector<double>& holds_tau = {1, 2, 3, 5, 7, 10, 15, 20}) {
+    BurstVetoResult out;
+    const MemorySetup M0 = prepare_memory(D, R, nm, rounds, basis);
+    FrameRunOptions opt; opt.decoder = M0.decoder.get(); opt.veto = veto; opt.veto.on = true; opt.method = method;
+    const MemoryResult r0 = run_memory_frame(M0, shots, seed, opt);
+    out.eps0 = r0.eps_per_round; out.eps0_kept = r0.eps_kept; out.round_ns = r0.round_ns;
+    out.veto0 = double(r0.discarded) / double(shots);
+    auto sem_of = [](double p, long n, int rr) {
+        if (p > 0.45) return 0.05;
+        const double sem = std::sqrt(std::max(p * (1 - p), 1e-12) / double(std::max(n, 1L)));
+        return sem / rr / std::pow(1 - 2 * p, double(rr - 1) / rr);
+    };
+    const double sem0 = sem_of(r0.p_logical, shots, rounds), sem0k = sem_of(r0.p_logical_kept, shots - r0.discarded, rounds);
+    double s = 1.0;
+    for (int k = 0; k < 16; ++k, s /= std::sqrt(10.0)) {
+        const MemorySetup Ms = prepare_memory(D, R, burst_noise(nm, B, s), rounds, basis, false);
+        const MemoryResult rs = run_memory_frame(Ms, shots, seed + 17 * std::uint64_t(k + 1), opt);
+        BurstVetoPoint pt;
+        pt.s = s; pt.saturated = rs.p_logical > 0.45; pt.eps = pt.saturated ? 0.5 : rs.eps_per_round;
+        pt.kept = rs.shots - rs.discarded; pt.veto_frac = double(rs.discarded) / double(rs.shots);
+        pt.eps_kept = pt.kept > 0 ? (rs.p_logical_kept > 0.45 ? 0.5 : rs.eps_kept) : 0.0;
+        pt.mean_defects = rs.mean_defects;
+        out.curve.push_back(pt);
+        const double sv = std::sqrt(std::max(pt.veto_frac * (1 - pt.veto_frac), 1e-12) / double(shots));
+        const bool err_lost = !pt.saturated && pt.eps - out.eps0 < 2 * std::hypot(sem_of(rs.p_logical, shots, rounds), sem0);
+        const bool kept_lost = pt.kept == 0 || (1 - pt.veto_frac) * (pt.eps_kept - out.eps0_kept) < 2 * std::hypot(sem_of(rs.p_logical_kept, pt.kept, rounds), sem0k);
+        const bool veto_lost = pt.veto_frac - out.veto0 < 2 * sv;
+        if (err_lost && kept_lost && veto_lost) break;
+    }
+    auto integrate = [&](auto f) {
+        double I = f(out.curve.size() - 1);                       // tail below the last point: linear in s
+        for (std::size_t i = 0; i + 1 < out.curve.size(); ++i) I += 0.5 * (f(i) + f(i + 1)) * std::log(out.curve[i].s / out.curve[i + 1].s);
+        return I;
+    };
+    const double tau_ns = B.tau_ms * 1e6;
+    out.rounds_lost = integrate([&](std::size_t i) { return std::max(0.0, out.curve[i].eps - out.eps0); }) * tau_ns / out.round_ns;
+    out.rounds_lost_veto = integrate([&](std::size_t i) {
+        const auto& c = out.curve[i];
+        return c.kept > 0 ? (1 - c.veto_frac) * std::max(0.0, c.eps_kept - out.eps0_kept) : 0.0;
+    }) * tau_ns / out.round_ns;
+    out.p_fail = 0.5 * (1 - std::exp(-2 * out.rounds_lost));
+    out.p_fail_veto = 0.5 * (1 - std::exp(-2 * out.rounds_lost_veto));
+    out.floor_per_round = B.rate_hz * out.round_ns * 1e-9 * out.p_fail;
+    out.floor_per_round_veto = B.rate_hz * out.round_ns * 1e-9 * out.p_fail_veto;
+    out.discarded_ms = integrate([&](std::size_t i) { return std::max(0.0, out.curve[i].veto_frac - out.veto0); }) * B.tau_ms;
+    out.discarded_time_frac = B.rate_hz * out.discarded_ms * 1e-3;
+    // latched hold: integral of the excess below s_h = exp(-hold / tau)
+    auto ex = [&](std::size_t i) { return std::max(0.0, out.curve[i].eps - out.eps0); };
+    auto below = [&](double sh) {
+        const auto& c = out.curve;
+        const std::size_t n = c.size();
+        if (sh <= c[n - 1].s) return ex(n - 1) * sh / c[n - 1].s;   // linear tail
+        double I = ex(n - 1);
+        for (std::size_t i = n - 1; i-- > 0;) {
+            const double L0 = std::log(c[i].s), L1 = std::log(c[i + 1].s);
+            if (sh >= c[i].s) { I += 0.5 * (ex(i) + ex(i + 1)) * (L0 - L1); continue; }
+            const double Lh = std::log(sh), f = (Lh - L1) / (L0 - L1);
+            I += 0.5 * (ex(i + 1) + (ex(i + 1) + f * (ex(i) - ex(i + 1)))) * (Lh - L1);
+            break;
+        }
+        return I;
+    };
+    for (double h : holds_tau) {
+        BurstVetoResult::Latched L;
+        L.hold_tau = h;
+        L.rounds_lost = below(std::exp(-h)) * tau_ns / out.round_ns;
+        L.p_fail = 0.5 * (1 - std::exp(-2 * L.rounds_lost));
+        L.floor_per_round = B.rate_hz * out.round_ns * 1e-9 * L.p_fail;
+        L.dead_time_frac = B.rate_hz * h * B.tau_ms * 1e-3;
+        out.latched.push_back(L);
+    }
     return out;
 }
 

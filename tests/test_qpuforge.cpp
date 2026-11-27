@@ -1450,6 +1450,68 @@ static void test_heralds() {
     }
 }
 
+// ---------------------------------------------------------------- impact injection and veto
+static void test_impact_veto() {
+    std::puts("[impact veto] per-shot impact injection (deterministic, separate stream), veto calibration, residual floor");
+    const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+    const auto M = prepare_memory(D, R, nm, 8);
+    const long shots = 20000;
+    // 1. an impact with no excess noise changes nothing: the injection draws come from their own stream
+    FrameRunOptions clean;
+    FrameRunOptions null_hit; null_hit.impact.p_shot = 0.5; null_hit.impact.burst.t1_peak_us = 0; null_hit.impact.burst.tphi_peak_us = 0;
+    const auto r0 = run_memory_frame(M, shots, 61, clean), rn = run_memory_frame(M, shots, 61, null_hit);
+    const double fh = double(rn.impacts) / double(shots);
+    std::printf("  impacts without excess noise in %.3f of shots: %ld vs %ld failures, detection %.6f vs %.6f\n", fh, rn.logical_errors, r0.logical_errors,
+                rn.detection_rate, r0.detection_rate);
+    CHECK(rn.logical_errors == r0.logical_errors && rn.detection_rate == r0.detection_rate && rn.mean_defects == r0.mean_defects,
+          "impact injection disturbs the shot's own noise stream");
+    CHECK(std::abs(fh - 0.5) < 4 * std::sqrt(0.25 / double(shots)), "impact rate %.4f, expected 0.5", fh);
+    // 2. veto calibrated on burst-free shots holds its false-veto rate on fresh burst-free shots
+    VetoSpec V;
+    const auto cal = calibrate_veto(M, 40000, 63, 2e-3, V);
+    V.on = true; V.threshold = cal.threshold;
+    FrameRunOptions vclean; vclean.veto = V;
+    const auto rf = run_memory_frame(M, 40000, 65, vclean);
+    const double fv = double(rf.discarded) / double(rf.shots);
+    std::printf("  veto (%d rounds x radius %.0f): threshold %d, false-veto rate %.2e on the calibration shots, %.2e on fresh ones (target 2e-3)\n",
+                V.window_rounds, V.radius, V.threshold, cal.false_rate, fv);
+    CHECK(cal.false_rate <= 2e-3 && fv < 2e-3 + 4 * std::sqrt(2e-3 / 40000.0), "false-veto rate %.2e (calibration %.2e)", fv, cal.false_rate);
+    // 3. chip-wide T1 impacts in 5% of shots: the veto catches most and brings the kept error back near the clean one
+    FrameRunOptions inj; inj.impact.p_shot = 0.05;
+    FrameRunOptions vet = inj; vet.veto = V;
+    const auto ri = run_memory_frame(M, shots, 67, inj), rv = run_memory_frame(M, shots, 67, vet), rc = run_memory_frame(M, shots, 67, vclean);
+    const double caught = double(rv.impacts_vetoed) / double(std::max(rv.impacts, 1L));
+    std::printf("  %ld chip-wide impacts: %.0f%% caught; eps %.5f (no impacts), %.5f (impacts, no veto), %.5f (impacts, veto; %.1f%% discarded)\n",
+                rv.impacts, 100 * caught, rc.eps_kept, ri.eps_per_round, rv.eps_kept, 100.0 * double(rv.discarded) / double(shots));
+    std::printf("  failures in impacted shots: %ld without the veto, %ld kept by it\n", ri.errors_impacted, rv.errors_impacted_kept);
+    CHECK(caught > 0.6, "veto catches only %.0f%% of chip-wide impacts", 100 * caught);
+    // (impacts late in a shot leave too few rounds to be seen: the residual excess comes from those)
+    CHECK(ri.eps_per_round > 1.5 * rc.eps_kept && rv.eps_kept - rc.eps_kept < 0.3 * (ri.eps_per_round - rc.eps_kept),
+          "veto does not remove most of the impact excess (%.5f, %.5f, %.5f)", rc.eps_kept, ri.eps_per_round, rv.eps_kept);
+    // 4. a local impact (sigma 1 lattice unit) does less damage than a chip-wide one
+    FrameRunOptions loc = inj; loc.impact.burst.radius = 1.0;
+    const auto rl = run_memory_frame(M, shots, 67, loc);
+    std::printf("  failures per impact: chip-wide %.3f, local (sigma 1) %.3f\n", double(ri.errors_impacted) / double(ri.impacts), double(rl.errors_impacted) / double(rl.impacts));
+    CHECK(rl.errors_impacted * ri.impacts < ri.errors_impacted * rl.impacts, "a local impact is not milder than a chip-wide one");
+    // 5. the floor over the burst profile with the veto (d = 3, gap-engineered dephasing burst, 1 ms)
+    {
+        const auto D3 = surface_chip(3); const auto R3 = analyze(D3); const auto nm3 = noise_model(D3, R3);
+        BurstSpec B; B.tau_ms = 1; B.t1_peak_us = 0; B.tphi_peak_us = 0.1;
+        VetoSpec V3; V3.threshold = calibrate_veto(prepare_memory(D3, R3, nm3, 6), 20000, 69, 2e-3, V3).threshold;
+        const auto bv = burst_floor_veto(D3, R3, nm3, B, 6, 6000, 71, V3, 'X');
+        std::printf("  d=3 dephasing burst: floor %.2e without the veto, %.2e with shot-by-shot discard (%.3f ms discarded per impact); latched:",
+                    bv.floor_per_round, bv.floor_per_round_veto, bv.discarded_ms);
+        bool mono = true;
+        for (std::size_t i = 0; i < bv.latched.size(); ++i) {
+            std::printf(" %.0ftau %.1e", bv.latched[i].hold_tau, bv.latched[i].floor_per_round);
+            if (i && bv.latched[i].floor_per_round > bv.latched[i - 1].floor_per_round) mono = false;
+        }
+        std::printf("\n");
+        CHECK(bv.floor_per_round_veto <= bv.floor_per_round && bv.discarded_ms > 0 && mono && bv.latched.back().floor_per_round < 0.01 * bv.floor_per_round,
+              "veto floor %.2e vs %.2e, discarded %.3f ms, latched monotone %d", bv.floor_per_round_veto, bv.floor_per_round, bv.discarded_ms, int(mono));
+    }
+}
+
 // ---------------------------------------------------------------- v0.4: memory in both bases
 static void test_memory_bases() {
     std::puts("[memory-X] X-basis memory: determinism, distance, logical operators (exact emulator), agreement with the Z basis");
@@ -1721,6 +1783,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"designs_v04", test_designs_v04},
     {"union_find", test_union_find},
     {"heralds", test_heralds},
+    {"impact_veto", test_impact_veto},
 };
 
 // test_qpuforge            run every test

@@ -76,6 +76,18 @@ static void test_transmon() {
         CHECK(std::abs(disp - disp_asym) / disp_asym < 0.25, "charge dispersion vs asymptotic (%.3e vs %.3e)", disp, disp_asym);
         CHECK(std::abs(std::abs(T.n(0, 1)) - n01_asym) / n01_asym < 0.05, "n01");
     }
+    // |11> = |20> must use alpha at the tuned EJ, not the idle alpha.
+    {
+        const double EC = 0.20, f_partner = 5.20;
+        const auto idle = transmon_fa(solve_EJ_for_f01(5.90, EC), EC);
+        const double naive = f_partner - idle.alpha;
+        const double tuned = f01_for_11_20(EC, f_partner, idle.alpha);
+        const auto at = transmon_fa(solve_EJ_for_f01(tuned, EC), EC);
+        std::printf("  11-20: idle alpha %.1f MHz, naive f %.4f GHz, tuned f %.4f GHz, alpha there %.1f MHz\n",
+                    idle.alpha * 1e3, naive, tuned, at.alpha * 1e3);
+        CHECK(std::abs((at.f01 + at.alpha) - f_partner) < 1e-6, "tuned 11-20 resonance");
+        CHECK(tuned > naive + 1e-3, "idle alpha places the interaction too low");
+    }
     const double EJ = EJ_from_Rn_GHz(10.0, 180.0);
     std::printf("  E_J(Rn=10 kOhm, Delta=180 ueV) = %.3f GHz (hand calc 14.04)\n", EJ);
     CHECK(std::abs(EJ - 14.04) < 0.05, "Ambegaokar-Baratoff E_J");

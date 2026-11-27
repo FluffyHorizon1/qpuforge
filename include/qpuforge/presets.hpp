@@ -32,11 +32,12 @@ inline ChipDesign gen0_surface17(int d = 3) {
     return D;
 }
 
-// Alpha-1: tunable couplers, fast Purcell-filtered readout, active reset.
-inline ChipDesign alpha1(int d = 3) {
+// Alpha-1 chip with a given bare direct coupling g (GHz) per data-measure link. alpha1() uses 1 MHz (PR #2: the coupler
+// transmon supplies the gate coupling); alpha1_v11() and beta1() keep the 4 MHz (0.14 fF) their v0.3 outputs were built with.
+inline ChipDesign alpha1_with_coupling(int d, double g_GHz) {
     GenSpec s = surface_spec(d);
     s.architecture = "tunable-coupler-cz";
-    s.g = 0.001;                                   // direct capacitance only; the coupler supplies the gate coupling
+    s.g = g_GHz;
     s.kappa_MHz = 4.0; s.chi_MHz = 4.0;            // 2chi = kappa: optimal readout SNR
     s.purcell_filter = 100;                        // dedicated band-pass Purcell filter per feedline
     ChipDesign D = generate(s);
@@ -49,10 +50,15 @@ inline ChipDesign alpha1(int d = 3) {
     return D;
 }
 
+// Alpha-1: tunable couplers, fast Purcell-filtered readout, active reset.
+inline ChipDesign alpha1(int d = 3) {
+    return alpha1_with_coupling(d, 0.001);         // direct capacitance only; the coupler supplies the gate coupling
+}
+
 // Alpha-1 v1.1: the same chip with the abstract couplers replaced by physical coupler transmons (calibrated pulse-level
 // CZ, per-pair direct coupling for an exchange-free park point at the coupler sweet spot) and a leakage model.
 inline ChipDesign alpha1_v11(int d = 3) {
-    ChipDesign D = alpha1(d);
+    ChipDesign D = alpha1_with_coupling(d, 0.004); // bare g = 4 MHz (0.14 fF), as before PR #2; pulse.hpp sets g12 per pair
     D.name = d == 3 ? "Alpha-1 v1.1 (AF-17)" : "Alpha-1 v1.1 extended to d=" + std::to_string(d);
     D.tc_model = false;
     D.coupler.physical = true;

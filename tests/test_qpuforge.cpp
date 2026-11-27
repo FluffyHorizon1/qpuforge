@@ -129,6 +129,14 @@ static void test_coupler_and_flux() {
     CHECK(roundtrip.tc_model && std::abs(roundtrip.tc_coupler_EC - 0.20) < 1e-12 && std::abs(roundtrip.coupler.g_qc_MHz - 40) < 1e-12,
           "three-transmon parameters survive design JSON round-trip");
     CHECK(!alpha1_v11(3).tc_model, "v1.1 pulse coupler retains its existing idle model");
+    // Alpha-1 v1.1 and Beta-1 keep the 4 MHz direct coupling their v0.3 outputs were generated with (alpha1() is 1 MHz)
+    for (const auto& D : {alpha1_v11(3), beta1(5)}) {
+        const auto R = analyze(D);
+        double glo = 1e99, ghi = -1e99; int n = 0;
+        for (const auto& q : R.pairs) if (q.designed) { ++n; glo = std::min(glo, q.g_MHz); ghi = std::max(ghi, q.g_MHz); }
+        std::printf("  %s: %d links, direct g %.3f-%.3f MHz\n", D.name.c_str(), n, glo, ghi);
+        CHECK(n > 0 && std::abs(glo - 4.0) < 0.05 && std::abs(ghi - 4.0) < 0.05, "%s direct coupling is 4 MHz", D.name.c_str());
+    }
 }
 
 static void test_zz_and_inverse_design() {

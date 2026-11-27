@@ -10,7 +10,7 @@ See `CHANGELOG.md` for the API changes, and the README "What's new in v0.3" tabl
 - Leakage-modelled QEC (`qec.hpp`): leakage is simulated; the decoder does not use it.
 - Layout synthesis and GDSII (`layout.hpp`, `gds.hpp`), including placement/spacing checks and merged-etch width/space DRC.
 - Alpha-1 v1.1 (AF-17) and Beta-1 (BF-49) design reviews, regenerated from code with provenance.
-- 101 validation checks, plus labelled CTest entries and two review smoke tests.
+- 186 validation checks, plus labelled CTest entries and two review smoke tests.
 
 ## Known issues
 - Alpha-1 v1.1 pair Q8–Q11 leaks 2.3e-4 per CZ, above the 2e-4 gate limit.

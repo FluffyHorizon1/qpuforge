@@ -34,7 +34,10 @@ foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp de
   list(GET parts 1 src)
   add_executable(${name} ${src})
   target_link_libraries(${name} PRIVATE qpuforge)
-  target_compile_options(${name} PRIVATE -Wall -Wextra -O3)
+  # -ffp-contract=off: no fused multiply-add contraction, so results do not depend on -march / -mfma (or on an
+  # FMA-by-default target such as aarch64). With contraction, -march=native moves the Alpha-1 Gen-0 noise model
+  # enough to change eps from 0.01200 to 0.01223 at 8 threads (see results/PROVENANCE.md).
+  target_compile_options(${name} PRIVATE -Wall -Wextra -O3 -ffp-contract=off)
   if(NOT OpenMP_CXX_FOUND)
     # serial build: the '#pragma omp' lines are intentionally ignored
     target_compile_options(${name} PRIVATE -Wno-unknown-pragmas)
@@ -48,6 +51,11 @@ endforeach()
 # One CTest entry per validation test, labelled by layer:  ctest -L unit | physics | pulse | qec | layout | smoke
 #   ctest -LE smoke    everything except the end-to-end review smoke runs
 enable_testing()
+# Build-flag guard (not one of the validation checks): fails if this build contracts a*b+c into an FMA.
+add_executable(test_fp_contract tests/test_fp_contract.cpp)
+target_compile_options(test_fp_contract PRIVATE -Wall -Wextra -O3 -ffp-contract=off)
+add_test(NAME fp_contract COMMAND test_fp_contract)
+set_tests_properties(fp_contract PROPERTIES LABELS unit)
 set(QPUFORGE_TESTS
   "decomposition:unit" "transmon:physics" "zz_and_inverse_design:physics" "qasm:unit" "compiler:unit" "decoherence:physics"
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"

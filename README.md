@@ -36,7 +36,7 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 101 validation checks (~2 min on 8 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 186 validation checks (~2 min on 8 cores); or: ctest --test-dir build -LE smoke
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review 60000     # Beta-1 review        -> designs/beta1/beta1_review.json
 ```

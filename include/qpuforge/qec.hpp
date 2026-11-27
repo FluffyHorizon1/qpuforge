@@ -355,17 +355,16 @@ inline std::vector<FaultSignature> enumerate_faults_reference(const FrameProgram
     return out;
 }
 
-// Fast version, same output in the same order. A single fault touches a handful of qubits, so only the operations on
-// the qubits that currently carry a Pauli are applied, and only the detectors of the classical bits it flipped are
-// evaluated. Moments without an operation on those qubits are skipped altogether: a chip with per-pair CZ durations
-// is cut into several times more time slices than it has gate layers, and most of them only carry idle noise.
-// Signatures are computed in parallel.
-inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const MemoryExperiment& E) {
-    struct Desc { int moment; int kind; int cbit; int np; int P[2]; int q[2]; double p; std::string what; };   // kind 0: Paulis, 1: readout flip
-    std::vector<Desc> list;
+namespace frame_detail {
+// One single-fault mechanism: Paulis placed after the operations of `moment` (kind 0) or a readout flip (kind 1).
+struct FaultDesc { int moment; int kind; int cbit; int np; int P[2]; int q[2]; double p; std::string what; };
+
+// Every fault mechanism of the program, in the order of enumerate_faults_reference.
+inline std::vector<FaultDesc> list_faults(const FrameProgram& F) {
+    std::vector<FaultDesc> list;
     auto pauli = [&](std::size_t m, std::initializer_list<std::pair<int, int>> ps, double p, std::string what) {
         if (p <= 0) return;
-        Desc d{int(m), 0, -1, 0, {0, 0}, {0, 0}, p, std::move(what)};
+        FaultDesc d{int(m), 0, -1, 0, {0, 0}, {0, 0}, p, std::move(what)};
         for (auto [P, q] : ps) { d.P[d.np] = P; d.q[d.np] = q; ++d.np; }
         list.push_back(std::move(d));
     };
@@ -395,96 +394,233 @@ inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const
             pauli(m, {{3, dq.q}}, dq.pz, "decoherence q" + std::to_string(dq.q));
         }
     }
-    // operations of each moment by qubit (in program order), detectors of each classical bit, observable membership
-    const std::size_t nq = std::size_t(F.n), nm = F.moments.size(), ncl = std::size_t(std::max(F.nclbits, 1));
-    std::vector<std::vector<std::vector<int>>> ops_of(nm, std::vector<std::vector<int>>(nq));
-    for (std::size_t m = 0; m < nm; ++m)
-        for (std::size_t k = 0; k < F.moments[m].ops.size(); ++k) {
-            const auto& o = F.moments[m].ops[k];
-            ops_of[m][std::size_t(o.a)].push_back(int(k));
-            if (o.op == Op::CZ) ops_of[m][std::size_t(o.b)].push_back(int(k));
-        }
-    std::vector<std::vector<int>> dets_of(ncl);
-    for (std::size_t d = 0; d < E.detectors.size(); ++d) for (int c : E.detectors[d]) dets_of[std::size_t(c)].push_back(int(d));
-    std::vector<char> in_obs(ncl, 0);
-    for (int c : E.observable) in_obs[std::size_t(c)] ^= 1;
-    // the moments in which each qubit has an operation, ascending
-    std::vector<std::vector<int>> active(nq);
-    for (std::size_t m = 0; m < nm; ++m) for (std::size_t q = 0; q < nq; ++q) if (!ops_of[m][q].empty()) active[q].push_back(int(m));
-    const int none = std::numeric_limits<int>::max();
+    return list;
+}
 
+// Index of a program for sparse propagation: operations of each moment by qubit (in program order), the moments in
+// which each qubit has an operation, detectors of each classical bit, observable membership.
+struct SparseIndex {
+    std::size_t nq{0}, nm{0}, ncl{0}, ndet{0};
+    std::vector<std::vector<std::vector<int>>> ops_of;
+    std::vector<std::vector<int>> active, dets_of;
+    std::vector<char> in_obs;
+    SparseIndex(const FrameProgram& F, const MemoryExperiment& E)
+        : nq(std::size_t(F.n)), nm(F.moments.size()), ncl(std::size_t(std::max(F.nclbits, 1))), ndet(E.detectors.size()) {
+        ops_of.assign(nm, std::vector<std::vector<int>>(nq));
+        for (std::size_t m = 0; m < nm; ++m)
+            for (std::size_t k = 0; k < F.moments[m].ops.size(); ++k) {
+                const auto& o = F.moments[m].ops[k];
+                ops_of[m][std::size_t(o.a)].push_back(int(k));
+                if (o.op == Op::CZ) ops_of[m][std::size_t(o.b)].push_back(int(k));
+            }
+        dets_of.assign(ncl, {});
+        for (std::size_t d = 0; d < E.detectors.size(); ++d) for (int c : E.detectors[d]) dets_of[std::size_t(c)].push_back(int(d));
+        in_obs.assign(ncl, 0);
+        for (int c : E.observable) in_obs[std::size_t(c)] ^= 1;
+        active.assign(nq, {});
+        for (std::size_t m = 0; m < nm; ++m) for (std::size_t q = 0; q < nq; ++q) if (!ops_of[m][q].empty()) active[q].push_back(int(m));
+    }
+};
+
+// Per-thread workspace: a sparse Pauli frame. Only the operations on qubits that carry a Pauli are applied, and
+// moments without an operation on those qubits are skipped altogether.
+struct SparseFrame {
+    const FrameProgram* F;
+    const SparseIndex* I;
+    std::vector<std::uint8_t> x, z, flips, dpar;
+    std::vector<char> in_sup;
+    std::vector<std::size_t> next_of;                        // per qubit: index into active[q] of its next moment
+    std::vector<int> sup, cb_touched, det_touched, pending, extra;
+    int cur{0};                                              // the last moment processed
+    std::uint8_t obs{0};
+    SparseFrame(const FrameProgram& F_, const SparseIndex& I_)
+        : F(&F_), I(&I_), x(I_.nq, 0), z(I_.nq, 0), flips(I_.ncl, 0), dpar(I_.ndet, 0), in_sup(I_.nq, 0), next_of(I_.nq, 0) {}
+    void add(int q) {
+        if (in_sup[std::size_t(q)]) return;
+        in_sup[std::size_t(q)] = 1; sup.push_back(q);
+        const auto& a = I->active[std::size_t(q)];
+        next_of[std::size_t(q)] = std::size_t(std::upper_bound(a.begin(), a.end(), cur) - a.begin());
+    }
+    void place(int P, int q) { apply_pauli(P, q, x.data(), z.data()); add(q); }
+    // apply the moments cur+1 .. stop (inclusive)
+    void run(int stop) {
+        const int none = std::numeric_limits<int>::max();
+        for (;;) {
+            // the next moment with an operation on a qubit that carries a Pauli
+            int nxt = none;
+            for (int q : sup) {
+                if (!(x[std::size_t(q)] | z[std::size_t(q)])) continue;
+                const auto& a = I->active[std::size_t(q)];
+                std::size_t& p = next_of[std::size_t(q)];
+                while (p < a.size() && a[p] <= cur) ++p;
+                if (p < a.size()) nxt = std::min(nxt, a[p]);
+            }
+            if (nxt == none || nxt > stop) { cur = std::max(cur, stop); return; }
+            cur = nxt;
+            const std::size_t m = std::size_t(cur);
+            // operations of this moment on the qubits that carry a Pauli, in program order; a CZ can bring its
+            // partner in, whose later operations in the same moment then join the list
+            pending.clear();
+            for (int q : sup) if (x[std::size_t(q)] | z[std::size_t(q)]) for (int k : I->ops_of[m][std::size_t(q)]) pending.push_back(k);
+            std::sort(pending.begin(), pending.end());
+            pending.erase(std::unique(pending.begin(), pending.end()), pending.end());
+            for (std::size_t n = 0; n < pending.size(); ++n) {
+                const int k = pending[n];
+                const auto& o = F->moments[m].ops[std::size_t(k)];
+                if (o.op == Op::CZ) {
+                    for (int q : {o.a, o.b}) {
+                        add(q);
+                        extra.clear();
+                        for (int k2 : I->ops_of[m][std::size_t(q)])
+                            if (k2 > k && !std::binary_search(pending.begin() + std::ptrdiff_t(n) + 1, pending.end(), k2)) extra.push_back(k2);
+                        if (!extra.empty()) {
+                            pending.insert(pending.end(), extra.begin(), extra.end());
+                            std::sort(pending.begin() + std::ptrdiff_t(n) + 1, pending.end());
+                        }
+                    }
+                } else if (o.op == Op::MEASURE) cb_touched.push_back(o.cbit);
+                apply_op(o, x.data(), z.data(), flips.data());
+            }
+        }
+    }
+    void flip_bit(int c) { flips[std::size_t(c)] ^= 1; cb_touched.push_back(c); }
+    void toggle_det(int d) { if (!dpar[std::size_t(d)]) det_touched.push_back(d); dpar[std::size_t(d)] ^= 1; }
+    // fold the flipped classical bits into detector parities and the observable
+    void fold_bits() {
+        for (int c : cb_touched) if (flips[std::size_t(c)]) {
+            flips[std::size_t(c)] = 0;                                   // also clears duplicates in cb_touched
+            obs ^= std::uint8_t(I->in_obs[std::size_t(c)]);
+            for (int dt : I->dets_of[std::size_t(c)]) toggle_det(dt);
+        }
+        cb_touched.clear();
+    }
+    // the fired detectors (ascending); clears the detector parities
+    void take_dets(std::vector<int>& out) {
+        std::sort(det_touched.begin(), det_touched.end());
+        det_touched.erase(std::unique(det_touched.begin(), det_touched.end()), det_touched.end());
+        for (int dt : det_touched) { if (dpar[std::size_t(dt)]) out.push_back(dt); dpar[std::size_t(dt)] = 0; }
+        det_touched.clear();
+    }
+    void clear_frame() {
+        for (int q : sup) { x[std::size_t(q)] = 0; z[std::size_t(q)] = 0; in_sup[std::size_t(q)] = 0; }
+        sup.clear();
+    }
+};
+} // namespace frame_detail
+
+// Sparse version, same output in the same order. A single fault touches a handful of qubits, so only the operations
+// on the qubits that currently carry a Pauli are applied, and only the detectors of the classical bits it flipped are
+// evaluated. Moments without an operation on those qubits are skipped altogether: a chip with per-pair CZ durations
+// is cut into several times more time slices than it has gate layers, and most of them only carry idle noise.
+// A data-qubit Pauli survives every later round, so each fault still costs time proportional to the rounds after it
+// and the whole enumeration is quadratic in the number of rounds. Kept for timing comparisons (enumerate_faults is
+// the linear-time version).
+inline std::vector<FaultSignature> enumerate_faults_direct(const FrameProgram& F, const MemoryExperiment& E) {
+    const auto list = frame_detail::list_faults(F);
+    const frame_detail::SparseIndex I(F, E);
     std::vector<FaultSignature> out(list.size());
 #pragma omp parallel
     {
-        std::vector<std::uint8_t> x(nq, 0), z(nq, 0), flips(ncl, 0), dpar(E.detectors.size(), 0);
-        std::vector<char> in_sup(nq, 0);
-        std::vector<std::size_t> next_of(nq, 0);                        // per qubit: index into active[q] of its next moment
-        std::vector<int> sup, cb_touched, det_touched, pending, extra;
+        frame_detail::SparseFrame S(F, I);
 #pragma omp for schedule(dynamic, 256)
         for (long i = 0; i < long(list.size()); ++i) {
-            const Desc& d = list[std::size_t(i)];
-            int cur = d.moment;                                         // the moment being processed (the fault's own at first)
-            auto add = [&](int q) {
-                if (in_sup[std::size_t(q)]) return;
-                in_sup[std::size_t(q)] = 1; sup.push_back(q);
-                const auto& a = active[std::size_t(q)];
-                next_of[std::size_t(q)] = std::size_t(std::upper_bound(a.begin(), a.end(), cur) - a.begin());
-            };
-            if (d.kind == 1) { flips[std::size_t(d.cbit)] = 1; cb_touched.push_back(d.cbit); }
+            const auto& d = list[std::size_t(i)];
+            S.cur = d.moment;
+            if (d.kind == 1) S.flip_bit(d.cbit);
             else {
-                for (int k = 0; k < d.np; ++k) { frame_detail::apply_pauli(d.P[k], d.q[k], x.data(), z.data()); add(d.q[k]); }
-                for (;;) {
-                    // the next moment with an operation on a qubit that carries a Pauli
-                    int nxt = none;
-                    for (int q : sup) {
-                        if (!(x[std::size_t(q)] | z[std::size_t(q)])) continue;
-                        const auto& a = active[std::size_t(q)];
-                        std::size_t& p = next_of[std::size_t(q)];
-                        while (p < a.size() && a[p] <= cur) ++p;
-                        if (p < a.size()) nxt = std::min(nxt, a[p]);
-                    }
-                    if (nxt == none) break;
-                    cur = nxt;
-                    const std::size_t m = std::size_t(cur);
-                    // operations of this moment on the qubits that carry a Pauli, in program order; a CZ can bring its
-                    // partner in, whose later operations in the same moment then join the list
-                    pending.clear();
-                    for (int q : sup) if (x[std::size_t(q)] | z[std::size_t(q)]) for (int k : ops_of[m][std::size_t(q)]) pending.push_back(k);
-                    std::sort(pending.begin(), pending.end());
-                    pending.erase(std::unique(pending.begin(), pending.end()), pending.end());
-                    for (std::size_t n = 0; n < pending.size(); ++n) {
-                        const int k = pending[n];
-                        const auto& o = F.moments[m].ops[std::size_t(k)];
-                        if (o.op == Op::CZ) {
-                            for (int q : {o.a, o.b}) {
-                                add(q);
-                                extra.clear();
-                                for (int k2 : ops_of[m][std::size_t(q)])
-                                    if (k2 > k && !std::binary_search(pending.begin() + std::ptrdiff_t(n) + 1, pending.end(), k2)) extra.push_back(k2);
-                                if (!extra.empty()) {
-                                    pending.insert(pending.end(), extra.begin(), extra.end());
-                                    std::sort(pending.begin() + std::ptrdiff_t(n) + 1, pending.end());
-                                }
-                            }
-                        } else if (o.op == Op::MEASURE) cb_touched.push_back(o.cbit);
-                        frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                    }
-                }
+                for (int k = 0; k < d.np; ++k) S.place(d.P[k], d.q[k]);
+                S.run(int(I.nm) - 1);
+            }
+            S.fold_bits();
+            FaultSignature s; s.p = d.p; s.moment = d.moment; s.what = d.what;
+            S.take_dets(s.dets);
+            s.obs = S.obs != 0;
+            S.obs = 0;
+            S.clear_frame();
+            out[std::size_t(i)] = std::move(s);
+        }
+    }
+    return out;
+}
+
+// Linear-time version, same output in the same order (docs/design/linear-fault-enumeration.md).
+// Pauli-frame propagation is linear over GF(2), so the effect of a frame on the rest of the circuit is the XOR of the
+// effects of its single-qubit X and Z components. The program is cut after every moment that contains a measurement.
+// For each cut c and each qubit q, tail[c][q][X or Z] holds the detectors and the logical flipped by that one Pauli,
+// placed after cut c, from there to the end of the program. The tails are built backwards: propagate the Pauli to the
+// next cut, collect the bits it flips there, and XOR in the tails of whatever frame is left. A fault is then
+// propagated only to the first cut at or after it and finished with tails. Each propagation spans one segment (about
+// one QEC round), so the enumeration costs O(rounds x faults per round) instead of O(rounds^2 x faults per round).
+inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const MemoryExperiment& E) {
+    const auto list = frame_detail::list_faults(F);
+    const frame_detail::SparseIndex I(F, E);
+    std::vector<int> cuts;                                       // moments that contain a measurement
+    for (std::size_t m = 0; m < I.nm; ++m)
+        for (const auto& o : F.moments[m].ops) if (o.op == Op::MEASURE) { cuts.push_back(int(m)); break; }
+    const std::size_t nc = cuts.size();
+    std::vector<int> cut_at(I.nm, -1);                           // index of the first cut at or after moment m
+    for (std::size_t m = 0, k = 0; m < I.nm; ++m) { while (k < nc && cuts[k] < int(m)) ++k; cut_at[m] = k < nc ? int(k) : -1; }
+    struct Tail { std::vector<int> dets; std::uint8_t obs{0}; };
+    std::vector<Tail> tail(nc * I.nq * 2);
+    auto tail_of = [&](std::size_t c, int q, int t) -> Tail& { return tail[(c * I.nq + std::size_t(q)) * 2 + std::size_t(t)]; };
+    // finish a frame that has been propagated up to cut c: XOR in the tails of its remaining Paulis
+    auto finish = [&](frame_detail::SparseFrame& S, int c) {
+        if (c < 0) return;
+        for (int q : S.sup)
+            for (int t = 0; t < 2; ++t) {
+                if (!(t == 0 ? S.x[std::size_t(q)] : S.z[std::size_t(q)])) continue;
+                const Tail& T = tail_of(std::size_t(c), q, t);
+                S.obs ^= T.obs;
+                for (int dt : T.dets) S.toggle_det(dt);
+            }
+    };
+    // propagate the frame in S from moment `from` to the first cut after it (or the end), fold, finish with tails
+    auto segment = [&](frame_detail::SparseFrame& S, int next_cut) {
+        S.run(next_cut >= 0 ? cuts[std::size_t(next_cut)] : int(I.nm) - 1);
+        S.fold_bits();
+        finish(S, next_cut);
+    };
+    // one workspace per thread for all levels (allocating it per level would cost O(rounds^2)); the implicit barrier
+    // at the end of each omp for orders the levels
+#pragma omp parallel
+    {
+        frame_detail::SparseFrame S(F, I);
+        for (std::size_t c = nc; c-- > 0;) {
+            const int next = c + 1 < nc ? int(c + 1) : -1;
+#pragma omp for schedule(dynamic, 8)
+            for (long j = 0; j < long(I.nq * 2); ++j) {
+                const int q = int(j / 2), t = int(j % 2);
+                S.cur = cuts[c];
+                S.place(t == 0 ? 1 : 3, q);
+                segment(S, next);
+                Tail& T = tail_of(c, q, t);
+                S.take_dets(T.dets);
+                T.obs = S.obs; S.obs = 0;
+                S.clear_frame();
+            }
+        }
+    }
+    std::vector<FaultSignature> out(list.size());
+#pragma omp parallel
+    {
+        frame_detail::SparseFrame S(F, I);
+#pragma omp for schedule(dynamic, 256)
+        for (long i = 0; i < long(list.size()); ++i) {
+            const auto& d = list[std::size_t(i)];
+            S.cur = d.moment;
+            if (d.kind == 1) { S.flip_bit(d.cbit); S.fold_bits(); }
+            else {
+                for (int k = 0; k < d.np; ++k) S.place(d.P[k], d.q[k]);
+                const int c = cut_at[std::size_t(d.moment)];
+                if (c >= 0 && cuts[std::size_t(c)] == d.moment) finish(S, c);   // placed right after a cut
+                else segment(S, c);
             }
             FaultSignature s; s.p = d.p; s.moment = d.moment; s.what = d.what;
-            std::uint8_t ob = 0;
-            for (int c : cb_touched) if (flips[std::size_t(c)]) {
-                flips[std::size_t(c)] = 0;                               // also clears duplicates in cb_touched
-                ob ^= std::uint8_t(in_obs[std::size_t(c)]);
-                for (int dt : dets_of[std::size_t(c)]) { if (!dpar[std::size_t(dt)]) det_touched.push_back(dt); dpar[std::size_t(dt)] ^= 1; }
-            }
-            std::sort(det_touched.begin(), det_touched.end());
-            det_touched.erase(std::unique(det_touched.begin(), det_touched.end()), det_touched.end());
-            for (int dt : det_touched) { if (dpar[std::size_t(dt)]) s.dets.push_back(dt); dpar[std::size_t(dt)] = 0; }
-            s.obs = ob;
+            S.take_dets(s.dets);
+            s.obs = S.obs != 0;
+            S.obs = 0;
+            S.clear_frame();
             out[std::size_t(i)] = std::move(s);
-            for (int q : sup) { x[std::size_t(q)] = 0; z[std::size_t(q)] = 0; in_sup[std::size_t(q)] = 0; }
-            sup.clear(); cb_touched.clear(); det_touched.clear();
         }
     }
     return out;

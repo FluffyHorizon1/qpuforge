@@ -1201,30 +1201,38 @@ static void test_matching() {
 
 // ---------------------------------------------------------------- v0.4: fast fault enumeration
 static void test_fault_enumeration() {
-    std::puts("[faults] fast single-fault enumeration against the reference, fault by fault");
-    long total = 0, differ = 0; double t_ref = 0, t_fast = 0;
-    auto compare = [&](const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, int rounds, char basis) {
-        const auto M = prepare_memory(D, R, nm, rounds, basis, false);
+    std::puts("[faults] sparse and linear-time single-fault enumeration against the reference, fault by fault");
+    long total = 0, differ = 0, differ_direct = 0; double t_ref = 0, t_direct = 0, t_fast = 0;
+    auto same = [](const FaultSignature& a, const FaultSignature& b) {
+        return a.dets == b.dets && a.obs == b.obs && a.p == b.p && a.moment == b.moment && a.what == b.what;
+    };
+    auto compare_frame = [&](const FrameProgram& F, const MemoryExperiment& E) {
         const auto t0 = std::chrono::steady_clock::now();
-        const auto a = enumerate_faults_reference(M.frame, M.exp);
+        const auto a = enumerate_faults_reference(F, E);
         const auto t1 = std::chrono::steady_clock::now();
-        const auto b = enumerate_faults(M.frame, M.exp);
+        const auto b = enumerate_faults_direct(F, E);
         const auto t2 = std::chrono::steady_clock::now();
-        t_ref += std::chrono::duration<double>(t1 - t0).count(); t_fast += std::chrono::duration<double>(t2 - t1).count();
-        if (a.size() != b.size()) { differ += long(std::max(a.size(), b.size())); return; }
+        const auto c = enumerate_faults(F, E);
+        const auto t3 = std::chrono::steady_clock::now();
+        t_ref += std::chrono::duration<double>(t1 - t0).count(); t_direct += std::chrono::duration<double>(t2 - t1).count();
+        t_fast += std::chrono::duration<double>(t3 - t2).count();
+        if (a.size() != b.size() || a.size() != c.size()) { differ += long(std::max(a.size(), c.size())); return; }
         for (std::size_t i = 0; i < a.size(); ++i) {
             ++total;
-            if (a[i].dets != b[i].dets || a[i].obs != b[i].obs || a[i].p != b[i].p || a[i].moment != b[i].moment || a[i].what != b[i].what) ++differ;
+            if (!same(a[i], c[i])) ++differ;
+            if (!same(a[i], b[i])) ++differ_direct;
         }
+    };
+    auto compare = [&](const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, int rounds, char basis) {
+        const auto M = prepare_memory(D, R, nm, rounds, basis, false);
+        compare_frame(M.frame, M.exp);
     };
     {
         const auto D = surface_chip(3); const auto R = analyze(D); const auto nm = noise_model(D, R);
-        compare(D, R, nm, 5, 'Z'); compare(D, R, nm, 5, 'X'); compare(D, R, nm, 1, 'Z');
+        compare(D, R, nm, 5, 'Z'); compare(D, R, nm, 5, 'X'); compare(D, R, nm, 1, 'Z'); compare(D, R, nm, 2, 'X');
         auto lk = nm; lk.leakage = true; lk.dqlr = true; lk.dqlr_err = 5e-4; lk.dqlr_eff = 0.98;      // DQLR faults
-        const auto ML = prepare_memory(D, R, lk, 3);                                                  // (also builds the DQLR partner map)
-        const auto a = enumerate_faults_reference(ML.frame, ML.exp), b = enumerate_faults(ML.frame, ML.exp);
-        for (std::size_t i = 0; i < std::min(a.size(), b.size()); ++i) { ++total; if (a[i].dets != b[i].dets || a[i].obs != b[i].obs || a[i].p != b[i].p) ++differ; }
-        if (a.size() != b.size()) ++differ;
+        const auto ML = prepare_memory(D, R, lk, 3, 'Z', false);                                      // (also builds the DQLR partner map)
+        compare_frame(ML.frame, ML.exp);
     }
     {
         const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
@@ -1241,11 +1249,33 @@ static void test_fault_enumeration() {
         slices_unequal = prepare_memory(D, R, nm, 6, 'Z', false).frame.moments.size();
         compare(D, R, nm, 6, 'Z'); compare(D, R, nm, 6, 'X');
     }
-    std::printf("  %ld faults compared over 8 experiments (d = 3 and 5, both bases, with DQLR, equal and unequal CZ durations): %ld differ; reference %.2f s, fast %.2f s\n",
-                total, differ, t_ref, t_fast);
+    std::printf("  %ld faults compared over 10 experiments (d = 3 and 5, both bases, 1 to 8 rounds, with DQLR, equal and unequal CZ durations):\n"
+                "  linear-time %ld differ, sparse %ld differ; reference %.2f s, sparse %.2f s, linear-time %.2f s\n",
+                total, differ, differ_direct, t_ref, t_direct, t_fast);
     std::printf("  time slices of a 6-round d=3 memory: %zu with equal CZ durations, %zu with unequal ones\n", slices_equal, slices_unequal);
-    CHECK(total > 100000 && differ == 0, "fast fault enumeration differs from the reference on %ld of %ld faults", differ, total);
+    CHECK(total > 100000 && differ == 0, "linear-time fault enumeration differs from the reference on %ld of %ld faults", differ, total);
+    CHECK(differ_direct == 0, "sparse fault enumeration differs from the reference on %ld of %ld faults", differ_direct, total);
     CHECK(2 * slices_unequal > 3 * slices_equal, "the unequal-duration case does not exercise the many-slice regime (%zu vs %zu slices)", slices_unequal, slices_equal);
+    // scaling: time per fault must not grow with the number of rounds (d = 5, 10 against 40 rounds; the sparse
+    // version takes about 4x longer per fault at 40 rounds)
+    {
+        const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        double per_fault[2] = {0, 0}; std::size_t nf[2] = {0, 0};
+        const int rr[2] = {10, 40};
+        for (int i = 0; i < 2; ++i) {
+            const auto M = prepare_memory(D, R, nm, rr[i], 'Z', false);
+            double best = 1e30;
+            for (int rep = 0; rep < 3; ++rep) {
+                const auto t0 = std::chrono::steady_clock::now();
+                nf[i] = enumerate_faults(M.frame, M.exp).size();
+                best = std::min(best, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+            }
+            per_fault[i] = best / double(nf[i]);
+        }
+        std::printf("  linear-time enumeration, d=5: %.3f us per fault at 10 rounds (%zu faults), %.3f us at 40 rounds (%zu faults)\n",
+                    1e6 * per_fault[0], nf[0], 1e6 * per_fault[1], nf[1]);
+        CHECK(per_fault[1] < 2.0 * per_fault[0], "fault enumeration time per fault grows with the number of rounds (%.3f -> %.3f us)", 1e6 * per_fault[0], 1e6 * per_fault[1]);
+    }
 }
 
 // ---------------------------------------------------------------- v0.4: memory in both bases

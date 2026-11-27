@@ -1,6 +1,7 @@
 // qpuforge — minimal JSON value, parser and writer (enough for chip design files)
 #pragma once
 #include <cmath>
+#include <cstdint>
 #include <cctype>
 #include <cstdlib>
 #include <map>
@@ -118,10 +119,21 @@ private:
 
     static void write_str(std::ostream& os, const std::string& s) {
         os << '"';
-        for (char c : s) {
-            if (c == '"' || c == '\\') os << '\\' << c;
-            else if (c == '\n') os << "\\n";
-            else os << c;
+        for (unsigned char c : s) {
+            switch (c) {
+            case '"':  os << "\\\""; break;
+            case '\\': os << "\\\\"; break;
+            case '\b': os << "\\b"; break;
+            case '\f': os << "\\f"; break;
+            case '\n': os << "\\n"; break;
+            case '\r': os << "\\r"; break;
+            case '\t': os << "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    const char* hex = "0123456789abcdef";
+                    os << "\\u00" << hex[c >> 4] << hex[c & 0xf];
+                } else os << char(c);
+            }
         }
         os << '"';
     }
@@ -168,19 +180,93 @@ private:
         if (t.compare(i, 4, "true") == 0) { i += 4; return Json(true); }
         if (t.compare(i, 5, "false") == 0) { i += 5; return Json(false); }
         if (t.compare(i, 4, "null") == 0) { i += 4; return Json(); }
-        const char* start = t.c_str() + i;
+        // RFC 8259 number: optional minus, integer, optional frac, optional exp. No nan/inf/hex/leading +.
+        const std::size_t n0 = i;
+        if (i < t.size() && t[i] == '-') ++i;
+        if (i >= t.size() || !std::isdigit(static_cast<unsigned char>(t[i])))
+            throw std::runtime_error("json: bad value at " + std::to_string(n0));
+        if (t[i] == '0') {
+            ++i;
+        } else {
+            while (i < t.size() && std::isdigit(static_cast<unsigned char>(t[i]))) ++i;
+        }
+        if (i < t.size() && t[i] == '.') {
+            ++i;
+            if (i >= t.size() || !std::isdigit(static_cast<unsigned char>(t[i])))
+                throw std::runtime_error("json: bad number at " + std::to_string(n0));
+            while (i < t.size() && std::isdigit(static_cast<unsigned char>(t[i]))) ++i;
+        }
+        if (i < t.size() && (t[i] == 'e' || t[i] == 'E')) {
+            ++i;
+            if (i < t.size() && (t[i] == '+' || t[i] == '-')) ++i;
+            if (i >= t.size() || !std::isdigit(static_cast<unsigned char>(t[i])))
+                throw std::runtime_error("json: bad number at " + std::to_string(n0));
+            while (i < t.size() && std::isdigit(static_cast<unsigned char>(t[i]))) ++i;
+        }
         char* end = nullptr;
-        const double v = std::strtod(start, &end);
-        if (end == start) throw std::runtime_error("json: bad value at " + std::to_string(i));
-        i += std::size_t(end - start);
+        const double v = std::strtod(t.c_str() + n0, &end);
+        if (end != t.c_str() + i || !std::isfinite(v))
+            throw std::runtime_error("json: bad number at " + std::to_string(n0));
         return Json(v);
+    }
+    static int hex4(const std::string& t, std::size_t i) {
+        if (i + 4 > t.size()) throw std::runtime_error("json: truncated \\u escape at " + std::to_string(i));
+        int v = 0;
+        for (int k = 0; k < 4; ++k) {
+            const unsigned char c = static_cast<unsigned char>(t[i + k]);
+            v <<= 4;
+            if (c >= '0' && c <= '9') v += c - '0';
+            else if (c >= 'a' && c <= 'f') v += c - 'a' + 10;
+            else if (c >= 'A' && c <= 'F') v += c - 'A' + 10;
+            else throw std::runtime_error("json: invalid \\u escape at " + std::to_string(i));
+        }
+        return v;
+    }
+    static void append_utf8(std::string& s, std::uint32_t cp) {
+        if (cp < 0x80) s += char(cp);
+        else if (cp < 0x800) { s += char(0xC0 | (cp >> 6)); s += char(0x80 | (cp & 0x3F)); }
+        else if (cp < 0x10000) {
+            s += char(0xE0 | (cp >> 12)); s += char(0x80 | ((cp >> 6) & 0x3F)); s += char(0x80 | (cp & 0x3F));
+        } else {
+            s += char(0xF0 | (cp >> 18)); s += char(0x80 | ((cp >> 12) & 0x3F));
+            s += char(0x80 | ((cp >> 6) & 0x3F)); s += char(0x80 | (cp & 0x3F));
+        }
     }
     static std::string parse_string(const std::string& t, std::size_t& i) {
         std::string s; ++i;
         while (i < t.size() && t[i] != '"') {
-            if (t[i] == '\\' && i + 1 < t.size()) {
+            const unsigned char c = static_cast<unsigned char>(t[i]);
+            if (c < 0x20) throw std::runtime_error("json: unescaped control in string at " + std::to_string(i));
+            if (t[i] == '\\') {
+                if (i + 1 >= t.size()) throw std::runtime_error("json: unterminated string");
                 ++i;
-                switch (t[i]) { case 'n': s += '\n'; break; case 't': s += '\t'; break; default: s += t[i]; }
+                switch (t[i]) {
+                case '"': case '\\': case '/': s += t[i]; break;
+                case 'b': s += '\b'; break;
+                case 'f': s += '\f'; break;
+                case 'n': s += '\n'; break;
+                case 'r': s += '\r'; break;
+                case 't': s += '\t'; break;
+                case 'u': {
+                    int u = hex4(t, i + 1); i += 4;
+                    if (u >= 0xD800 && u <= 0xDBFF) {   // surrogate pair
+                        if (i + 6 < t.size() && t[i + 1] == '\\' && t[i + 2] == 'u') {
+                            const int lo = hex4(t, i + 3);
+                            if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                                append_utf8(s, 0x10000u + (std::uint32_t(u - 0xD800) << 10) + std::uint32_t(lo - 0xDC00));
+                                i += 6;
+                                break;
+                            }
+                        }
+                        throw std::runtime_error("json: unpaired surrogate at " + std::to_string(i));
+                    }
+                    if (u >= 0xDC00 && u <= 0xDFFF)
+                        throw std::runtime_error("json: unpaired surrogate at " + std::to_string(i));
+                    append_utf8(s, std::uint32_t(u));
+                    break;
+                }
+                default: throw std::runtime_error(std::string("json: unknown escape \\") + t[i]);
+                }
             } else s += t[i];
             ++i;
         }

@@ -21,7 +21,9 @@ static void usage() {
         "  qpuforge new <chip.json> [--grid RxC | --line N | --ring N] [--f-hi GHz] [--f-lo GHz]\n"
         "                [--alpha GHz] [--g-MHz g] [--arch fixed|tunable] [--Q Q] [--plan 2|4|8]\n"
         "                [--stagger-MHz s] [--name NAME]\n"
-        "  qpuforge analyze <chip.json>                      device physics report\n"
+        "  qpuforge analyze <chip.json> [--materials <sidecar.json> [--loss-tangent]]\n"
+        "                device physics report; --materials first applies a forge.materials.v0 sidecar (atomforge),\n"
+        "                --loss-tangent lets it set Q_dielectric = 1/loss_tangent when Q_dielectric is null\n"
         "  qpuforge run <chip.json> <circuit> [--traj N] [--shots N] [--seed S] [--off SRC,..] [--top K]\n"
         "  qpuforge budget <chip.json> <circuit> [--traj N]  error budget by noise source\n"
         "  qpuforge fab <chip.json> [--samples N] [--seed S] fabrication Monte Carlo (junction spread)\n"
@@ -149,9 +151,40 @@ static int cmd_new(int argc, char** argv) {
     return 0;
 }
 
+// --materials: one line per sidecar quantity, applied or skipped, before the device report
+static void print_materials(const std::string& path, const MaterialsSidecar& S, const MaterialsReport& M) {
+    const auto& p = S.produced_by;
+    std::string meta;
+    for (const std::string& s : {p.commit.empty() ? std::string() : "commit " + p.commit, p.potential_or_method, p.timestamp})
+        if (!s.empty()) meta += (meta.empty() ? "" : ", ") + s;
+    std::string sys;
+    for (const auto& el : S.system) sys += (sys.empty() ? "" : "-") + el;
+    std::printf("\nmaterials sidecar %s: %s", path.c_str(), S.schema.c_str());
+    if (!p.tool.empty()) std::printf(" from %s", p.tool.c_str());
+    if (!meta.empty()) std::printf(" (%s)", meta.c_str());
+    if (!sys.empty()) std::printf(", system %s", sys.c_str());
+    std::printf("\n");
+    for (const auto& l : M.lines) {
+        if (l.applied) std::printf("  applied  %-17s %s %.6g -> %.6g, %s\n", l.quantity.c_str(), l.field.c_str(), l.before, l.after, l.note.c_str());
+        else std::printf("  skipped  %-17s %s\n", l.quantity.c_str(), l.note.c_str());
+    }
+}
+
 static int cmd_analyze(int argc, char** argv) {
     if (argc < 3) { usage(); return 1; }
-    const auto D = load_design(argv[2]);
+    auto D = load_design(argv[2]);
+    const std::string mat = arg(argc, argv, "--materials");
+    if (has_flag(argc, argv, "--materials") && (mat.empty() || mat.rfind("--", 0) == 0))
+        throw std::runtime_error("--materials needs a sidecar file");
+    if (!mat.empty()) {
+        MaterialsApplyOptions o;
+        o.use_loss_tangent = has_flag(argc, argv, "--loss-tangent");
+        const auto S = load_materials(mat);
+        const auto M = apply_materials(S, D, o);
+        print_materials(mat, S, M);
+    } else if (has_flag(argc, argv, "--loss-tangent")) {
+        throw std::runtime_error("--loss-tangent needs --materials <sidecar.json>");
+    }
     print_report(D, analyze(D));
     return 0;
 }

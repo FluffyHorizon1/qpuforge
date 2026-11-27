@@ -10,7 +10,7 @@ the commands below to reproduce them.
 | `designs/beta1/BETA-1.md` | `python3 tools/fill_beta_spec.py` (from `beta1_review.json` + `BETA-1.template.md`) | same | — | — | — | — |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | same | g++ 14.2.0 | — | 2026-11-26 | — |
 | `results/cz_cache.json` | written by the alpha run from an empty cache (16 calibrations simulated), then reused by the beta run (0 simulated, 16 cached) | same | g++ 14.2.0 | 8 | 2026-11-25 | — |
-| `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0 | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
+| `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, a clean build directory, run from the
   repository root. The source tree was clean at configure time (`source_tree_dirty: false` in each JSON).

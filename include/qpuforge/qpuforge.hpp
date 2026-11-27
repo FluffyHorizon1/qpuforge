@@ -12,3 +12,4 @@
 #include "pulse.hpp"
 #include "characterise.hpp"
 #include "presets.hpp"
+#include "surgery.hpp"

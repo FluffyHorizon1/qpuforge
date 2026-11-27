@@ -70,6 +70,19 @@ add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)
 set_tests_properties(fp_contract_flags PROPERTIES LABELS unit)
+# Thread-count determinism guard (not one of the validation checks): Monte Carlo results must be bit-identical for any
+# OpenMP thread count (docs/design/deterministic-mc.md). 'determinism' compares 1/2/3/4/8 threads in one process;
+# 'determinism_env' runs separate processes under OMP_NUM_THREADS=1,2,4,8 and compares their digests.
+add_executable(test_determinism tests/test_determinism.cpp)
+target_link_libraries(test_determinism PRIVATE qpuforge)
+target_compile_options(test_determinism PRIVATE ${QPUFORGE_COMPILE_OPTIONS})
+if(NOT OpenMP_CXX_FOUND)
+  target_compile_options(test_determinism PRIVATE -Wno-unknown-pragmas)
+endif()
+add_test(NAME determinism COMMAND test_determinism)
+add_test(NAME determinism_env COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:test_determinism>
+         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_thread_digests.cmake)
+set_tests_properties(determinism determinism_env PROPERTIES LABELS unit)
 set(QPUFORGE_TESTS
   "decomposition:unit" "transmon:physics" "coupler_and_flux:physics" "zz_and_inverse_design:physics" "qasm:unit" "compiler:unit" "decoherence:physics"
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"

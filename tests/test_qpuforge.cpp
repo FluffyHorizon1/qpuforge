@@ -2,12 +2,14 @@
 #include "qpuforge/qpuforge.hpp"
 #include "qpuforge/layout.hpp"
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 
 using namespace qpuforge;
 static int g_fail = 0, g_pass = 0;
@@ -751,6 +753,46 @@ static void test_layout() {
     }
 }
 
+
+// ---------------------------------------------------------------- json: RFC 8259 parser/writer (q10)
+static bool json_throws(const std::string& text) {
+    try { Json::parse(text); } catch (const std::runtime_error&) { return true; } return false;
+}
+static std::string json_dump(const Json& j, int indent = 0) {
+    std::ostringstream o; j.dump(o, indent); return o.str();
+}
+static void test_json() {
+    std::puts("[json] RFC 8259: well-formed numbers/strings/escapes; reject nan/inf/hex/leading + or dot; dump escapes controls");
+    const Json v = Json::parse("{\"n\": -1.5e2, \"i\": 42, \"b\": true, \"s\": \"a\\\"b\\\\c\\nd\\te\", \"a\": [1, {\"k\": []}]}");
+    CHECK(v["n"].num() == -150.0 && v["i"].num() == 42 && v["b"].boolean() && v["s"].str() == std::string("a\"b\\c\nd\te"), "well-formed scalars");
+    CHECK(v["a"].size() == 2 && v["a"][1]["k"].size() == 0, "nested containers");
+    CHECK(Json::parse("\"\\u0041\"").str() == "A", "\\u0041 decodes to A");
+    CHECK(Json::parse("\"\\u00e9\"").str() == "\xc3\xa9", "\\u00e9 decodes to UTF-8");
+    CHECK(Json::parse("[0, 0.5, 1e-3, -2]").size() == 4, "canonical numbers");
+    const char* bad[] = {
+        "{\"a\": nan}", "{\"a\": inf}", "[0x10]", "[+5]", "[.5]", "[1e999]",
+        "\"\\u0041", "\"\\q\"", "\"a\\qb\"", "\"\t\"",
+        "[1.]", "[01]", "[-]", "[1e]", "[+1]", "NaN", "Infinity", "-Infinity",
+        "\"\\u12\"", "\"\\uGGGG\""
+    };
+    int accepted = 0;
+    for (const char* b : bad) if (!json_throws(b)) { ++accepted; std::printf("  accepted non-JSON: %s\n", b); }
+    CHECK(accepted == 0, "%d non-RFC documents were accepted", accepted);
+
+    Json w = Json::array();
+    w.push(std::string("a\tb\rc") + char(1) + "d");
+    const std::string dumped = json_dump(w, 0);
+    CHECK(dumped.find('\t') == std::string::npos && dumped.find('\r') == std::string::npos && dumped.find('\x01') == std::string::npos,
+          "dump must escape controls, got %s", dumped.c_str());
+    CHECK(dumped.find("\\t") != std::string::npos && dumped.find("\\r") != std::string::npos && dumped.find("\\u0001") != std::string::npos,
+          "dump should use \\t \\r \\u0001: %s", dumped.c_str());
+    const Json back = Json::parse(dumped);
+    CHECK(back[0].str() == std::string("a\tb\rc") + char(1) + "d", "round-trip of escaped controls");
+    // documented writer behaviour: non-finite numbers become null (and that is legal JSON)
+    Json nf = Json::array(); nf.push(std::nan("")); nf.push(HUGE_VAL);
+    CHECK(json_dump(nf, 0) == "[null, null]", "non-finite dump: %s", json_dump(nf, 0).c_str());
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -772,6 +814,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"leakage_frame", test_leakage_frame},
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
+    {"json", test_json},
 };
 
 // test_qpuforge            run every test

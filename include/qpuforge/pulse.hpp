@@ -289,24 +289,38 @@ inline std::vector<double> nelder_mead(F&& f, std::vector<double> x0, const std:
 // Calibrate a CZ: three knobs, as on hardware: qubit-1 interaction flux (|11>-|20> detuning), flat-top length (one full
 // |11> -> |20> -> |11> cycle) and coupler "on" flux (coupling strength, which also sets the off-resonant |01>-|10> swap
 // so that it closes at the end of the gate). Minimises 1 - F_avg (leakage and conditional-phase error included).
-inline std::pair<CZPulse, CZResult> optimize_cz(const CZSystem& S, double fluxc_on, double t_rise, double dt = 0.1, int max_eval = 260) {
+// Leakage fallback: F_avg weighs a leaked population no more than a phase error, and the coarse scan can pick a
+// short-flat-top branch that leaks several times more than the neighbouring branch (docs/design/cz-leakage.md). If the
+// plain calibration leaks more than leak_cap, it is repeated with the objective 1 - F_avg + leak_weight * leakage and
+// the result kept if it leaks less. Pairs under the cap are calibrated exactly as before; leak_weight = 0 disables it.
+inline std::pair<CZPulse, CZResult> optimize_cz(const CZSystem& S, double fluxc_on, double t_rise, double dt = 0.1, int max_eval = 260,
+                                                double leak_weight = 0, double leak_cap = 1.0) {
     const auto [x0, g0] = cz_avoided_crossing(S, fluxc_on);
     CZPulse P; P.fluxc_on = fluxc_on; P.t_rise = t_rise;
     const double t_full = 1.0 / std::max(g0, 1e-6);
     auto run = [&](double fx, double tf, double fc) { CZPulse q = P; q.flux1_int = fx; q.t_flat = std::max(0.0, tf); q.fluxc_on = fc; return simulate_cz(S, q, dt); };
-    double bx = x0, bt = std::max(0.0, t_full - t_rise), bc = 1e9;
-    for (int b = -5; b <= 5; ++b) {
-        const double tf = std::max(0.0, t_full - t_rise + b * 0.1 * t_full);
-        for (int a = -2; a <= 2; ++a) {
-            const double fx = x0 + a * 0.0010;
-            const double c = 1 - run(fx, tf, fluxc_on).fidelity;
-            if (c < bc) { bc = c; bx = fx; bt = tf; }
+    auto calibrate = [&](double w) {
+        auto objective = [&](const CZResult& r) { return 1 - r.fidelity + w * r.leakage; };
+        double bx = x0, bt = std::max(0.0, t_full - t_rise), bc = 1e9;
+        for (int b = -5; b <= 5; ++b) {
+            const double tf = std::max(0.0, t_full - t_rise + b * 0.1 * t_full);
+            for (int a = -2; a <= 2; ++a) {
+                const double fx = x0 + a * 0.0010;
+                const double c = objective(run(fx, tf, fluxc_on));
+                if (c < bc) { bc = c; bx = fx; bt = tf; }
+            }
         }
+        auto cost = [&](const std::vector<double>& x) { return objective(run(x[0], x[1], x[2])); };
+        const auto best = nelder_mead(cost, {bx, bt, fluxc_on}, {0.0008, 0.05 * t_full + 0.3, 0.002}, max_eval, 1e-10);
+        CZPulse q = P; q.flux1_int = best[0]; q.t_flat = std::max(0.0, best[1]); q.fluxc_on = best[2];
+        return std::make_pair(q, simulate_cz(S, q, dt));
+    };
+    auto out = calibrate(0.0);
+    if (leak_weight > 0 && out.second.leakage > leak_cap) {
+        auto alt = calibrate(leak_weight);
+        if (alt.second.leakage < out.second.leakage) out = alt;
     }
-    auto cost = [&](const std::vector<double>& x) { return 1 - run(x[0], x[1], x[2]).fidelity; };
-    const auto best = nelder_mead(cost, {bx, bt, fluxc_on}, {0.0008, 0.05 * t_full + 0.3, 0.002}, max_eval, 1e-10);
-    P.flux1_int = best[0]; P.t_flat = std::max(0.0, best[1]); P.fluxc_on = best[2];
-    return {P, simulate_cz(S, P, dt)};
+    return out;
 }
 
 // ---------------------------------------------------------------- chip-level calibration
@@ -344,9 +358,11 @@ inline CZSystem design_pair_system(double f_hi, double a_hi, double f_lo, double
 // the cache key; bump kVersion whenever the CZ Hamiltonian, pulse shape, calibration procedure or fidelity metric
 // changes, so stale entries miss instead of being reused silently.
 struct CZModel {
-    static constexpr int kVersion = 2;        // v1 = qpuforge 0.3 pre-release (key had no model fields)
+    static constexpr int kVersion = 3;        // v1 = qpuforge 0.3 pre-release (key had no model fields); v3 adds the leakage fallback
     static constexpr double dt_ns = 0.1;      // ramp time step of simulate_cz during calibration
     static constexpr int max_eval = 260;      // Nelder-Mead budget of optimize_cz
+    static constexpr double leak_cap = 1e-4;  // leakage above which optimize_cz re-calibrates (half the 2e-4 Alpha limit)
+    static constexpr double leak_weight = 10; //   with the objective 1 - F_avg + leak_weight * leakage
 };
 struct CZCalibration {
     int a{0}, b{0}, mover{0}, target{0};
@@ -370,7 +386,7 @@ inline CZCalibration calibrate_cz_pair(double f_hi, double a_hi, double f_lo, do
     c.park_fc_GHz = S.c.f01(S.fluxc_idle);
     c.zz_idle_kHz = S.zz(S.fluxc_idle) * 1e6;
     // named variables, not a structured binding: P is captured by the lambda below (capturing bindings is C++20)
-    const auto opt = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval);
+    const auto opt = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval, CZModel::leak_weight, CZModel::leak_cap);
     const CZPulse P = opt.first;
     const CZResult R = opt.second;
     c.pulse = P;
@@ -401,8 +417,8 @@ inline double flux_noise_variance(double A_uPhi0) {
 inline std::string cz_cache_key(double fh, double ah, double fl, double al, const CouplerElement& ce) {
     const CZSystem ref;                       // level truncations / charge cutoff actually used by design_pair_system
     char b[320];
-    std::snprintf(b, sizeof b, "v%d|dt%.4f_ev%d_L%d.%d.%d_nc%d.%d.%d|%.5f_%.5f_%.5f_%.5f|%.4f_%.4f_%.3f_%.4f_%.3f", CZModel::kVersion,
-                  CZModel::dt_ns, CZModel::max_eval, ref.L1, ref.Lc, ref.L2, ref.q1.ncut, ref.c.ncut, ref.q2.ncut, fh, ah, fl, al,
+    std::snprintf(b, sizeof b, "v%d|dt%.4f_ev%d_lw%.3g_lc%.3g_L%d.%d.%d_nc%d.%d.%d|%.5f_%.5f_%.5f_%.5f|%.4f_%.4f_%.3f_%.4f_%.3f", CZModel::kVersion,
+                  CZModel::dt_ns, CZModel::max_eval, CZModel::leak_weight, CZModel::leak_cap, ref.L1, ref.Lc, ref.L2, ref.q1.ncut, ref.c.ncut, ref.q2.ncut, fh, ah, fl, al,
                   ce.f_max_GHz, ce.alpha_GHz, ce.g_qc_MHz, ce.f_on_GHz, ce.t_rise_ns);
     return b;
 }

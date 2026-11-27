@@ -623,7 +623,7 @@ static void test_pulse_cz() {
         CHECK(std::abs(gap - pert) < 1.5 * nlo * pert, "gap vs perturbation theory");
     }
     // calibration of the 3 knobs
-    const auto [P, R] = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns);
+    const auto [P, R] = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval, CZModel::leak_weight, CZModel::leak_cap);
     const auto Rf = simulate_cz(S, P, 0.05);
     std::printf("  calibrated CZ: %.1f ns, 1-F %.2e, leakage %.2e, phase error %+.1e rad; dt 0.1 -> 0.05 ns changes F by %.1e\n", R.duration_ns,
                 1 - R.fidelity, R.leakage, R.cphase - PI, std::abs(Rf.fidelity - R.fidelity));
@@ -632,6 +632,18 @@ static void test_pulse_cz() {
     CHECK(std::abs(R.cphase - PI) < 5e-3, "CZ conditional phase");
     CHECK(R.duration_ns > 30 && R.duration_ns < 60, "CZ duration %.1f", R.duration_ns);
     CHECK(std::abs(Rf.fidelity - R.fidelity) < 2e-6, "time-step convergence");
+    {   // worst pair class of Alpha/Beta/Gamma (5.81/5.29 GHz): the plain 1 - F calibration settles on a leaky short-flat-top
+        // branch (2.3e-4 per gate); the leakage fallback (CZModel::leak_cap / leak_weight) moves it to the low-leakage branch
+        const auto Sw = design_pair_system(5.81, -0.22, 5.29, -0.22, ce);
+        const double xw = Sw.c.flux_for_f01(ce.f_on_GHz);
+        const auto plain = optimize_cz(Sw, xw, ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval);
+        const auto cal = optimize_cz(Sw, xw, ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval, CZModel::leak_weight, CZModel::leak_cap);
+        std::printf("  pair 5.81/5.29 GHz: plain calibration 1-F %.2e, leakage %.2e (%.1f ns); with the leakage fallback 1-F %.2e, leakage %.2e (%.1f ns)\n",
+                    1 - plain.second.fidelity, plain.second.leakage, plain.second.duration_ns, 1 - cal.second.fidelity, cal.second.leakage, cal.second.duration_ns);
+        CHECK(plain.second.leakage > CZModel::leak_cap, "plain calibration no longer on the leaky branch (%.2e): revisit the fallback", plain.second.leakage);
+        CHECK(cal.second.leakage < 0.5 * CZModel::leak_cap && 1 - cal.second.fidelity < 5e-4, "leakage fallback: leakage %.2e, 1-F %.2e",
+              cal.second.leakage, 1 - cal.second.fidelity);
+    }
     // level-truncation convergence: the calibrated pulse re-simulated with one more coupler / qubit level
     // (Lc = 3 was not converged: it left ~4e-3 rad of conditional-phase error, hence the default Lc = 4)
     {

@@ -69,6 +69,18 @@ static void test_transmon() {
         CHECK(std::abs(disp - disp_asym) / disp_asym < 0.25, "charge dispersion vs asymptotic (%.3e vs %.3e)", disp, disp_asym);
         CHECK(std::abs(std::abs(T.n(0, 1)) - n01_asym) / n01_asym < 0.05, "n01");
     }
+    // |11> = |20> must use alpha at the tuned EJ, not the idle alpha.
+    {
+        const double EC = 0.20, f_partner = 5.20;
+        const auto idle = transmon_fa(solve_EJ_for_f01(5.90, EC), EC);
+        const double naive = f_partner - idle.alpha;
+        const double tuned = f01_for_11_20(EC, f_partner);
+        const auto at = transmon_fa(solve_EJ_for_f01(tuned, EC), EC);
+        std::printf("  11-20: idle alpha %.1f MHz, naive f %.4f GHz, tuned f %.4f GHz, alpha there %.1f MHz\n",
+                    idle.alpha * 1e3, naive, tuned, at.alpha * 1e3);
+        CHECK(std::abs((at.f01 + at.alpha) - f_partner) < 1e-6, "tuned 11-20 resonance");
+        CHECK(tuned > naive + 1e-3, "idle alpha places the interaction too low");
+    }
     const double EJ = EJ_from_Rn_GHz(10.0, 180.0);
     std::printf("  E_J(Rn=10 kOhm, Delta=180 ueV) = %.3f GHz (hand calc 14.04)\n", EJ);
     CHECK(std::abs(EJ - 14.04) < 0.05, "Ambegaokar-Baratoff E_J");
@@ -120,6 +132,23 @@ static void test_coupler_and_flux() {
                 nd, gdev, flo, fhi, zlo, zhi, RA.n_collisions);
     CHECK(nd == 24 && RA.n_collisions == 0, "Alpha-1 still collision-free");
     CHECK(gdev < 0.05, "direct coupling realised at 1 MHz");
+    {   // analyze() places each CZ at the tuned-alpha |11>-|20> point, 0.5-5 MHz above the idle-alpha estimate
+        double worst = 0, smin = 1e99, smax = -1e99, elo = 1e99, ehi = -1e99;
+        for (const auto& q : RA.pairs) if (q.designed) {
+            auto rep = [&](int id) -> const QubitReport& { for (const auto& r : RA.q) if (r.id == id) return r; return RA.q[0]; };
+            const auto& qa = rep(q.a); const auto& qb = rep(q.b);
+            const auto& hi = qa.f01 >= qb.f01 ? qa : qb; const auto& lo = qa.f01 >= qb.f01 ? qb : qa;
+            const auto at = transmon_fa(solve_EJ_for_f01(q.cz_interaction_GHz, hi.EC), hi.EC);
+            worst = std::max(worst, std::abs(at.f01 + at.alpha - lo.f01));
+            const double shift = (q.cz_interaction_GHz - (lo.f01 - hi.alpha)) * 1e3;
+            smin = std::min(smin, shift); smax = std::max(smax, shift);
+            elo = std::min(elo, q.cz_excursion_MHz); ehi = std::max(ehi, q.cz_excursion_MHz);
+        }
+        std::printf("  Alpha-1 CZ points: tuned-alpha shift %.2f to %.2f MHz above idle alpha, excursions %.1f-%.1f MHz, |11>-|20> miss %.1e GHz\n",
+                    smin, smax, elo, ehi, worst);
+        CHECK(worst < 1e-6, "analyze() CZ point is the tuned-alpha 11-20 resonance");
+        CHECK(smin > 0.5 && smax < 5.0, "tuned-alpha shift above the idle-alpha estimate");
+    }
     const auto roundtrip = design_from_json(design_to_json(alpha1(3)));
     CHECK(roundtrip.tc_model && std::abs(roundtrip.tc_coupler_EC - 0.20) < 1e-12 && std::abs(roundtrip.coupler.g_qc_MHz - 40) < 1e-12,
           "three-transmon parameters survive design JSON round-trip");

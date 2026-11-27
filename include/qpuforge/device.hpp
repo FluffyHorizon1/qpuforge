@@ -95,6 +95,19 @@ inline std::pair<double, double> solve_EJ_EC(double f01, double alpha) {
     return {solve_EJ_for_f01(f01, EC), EC};
 }
 
+// f01 of a transmon with this EC such that f01 + alpha(EJ) = f_partner: the |11> = |20> point when this transmon is
+// the higher-frequency qubit tuned down onto f_partner. Idle alpha is not enough: |alpha| grows as EJ falls, so
+// f_partner - alpha_idle sits about 2 MHz low at EC/h = 200 MHz.
+inline double f01_for_11_20(double EC, double f_partner) {
+    double lo = std::log(0.2), hi = std::log(4000.0);
+    for (int b = 0; b < 80 && hi - lo > 1e-13; ++b) {
+        const double mid = 0.5 * (lo + hi);
+        const auto fa = transmon_fa(std::exp(mid), EC);
+        ((fa.f01 + fa.alpha) < f_partner ? lo : hi) = mid;
+    }
+    return transmon_fa(std::exp(0.5 * (lo + hi)), EC).f01;
+}
+
 inline double flux_dephasing_rate(double A_Phi0, double df_dflux_GHz, double d2f_dflux2_GHz, double t_s) {
     const double ln_ir = std::abs(std::log(2 * PI * std::max(t_s, 1e-30)));
     return 2 * PI * (A_Phi0 * std::abs(df_dflux_GHz) * 1e9 * std::sqrt(2 * ln_ir)
@@ -545,7 +558,7 @@ inline ChipReport analyze(const ChipDesign& D, const AnalyzeOptions& opt = {}) {
             const auto& hi = (qa.f01 >= qb.f01) ? qa : qb;
             const auto& lo = (qa.f01 >= qb.f01) ? qb : qa;
             const auto& hiD = D.qubits[(qa.f01 >= qb.f01) ? i : j];
-            p.cz_interaction_GHz = lo.f01 - hi.alpha;               // |11> = |20>: f_hi + alpha_hi = f_lo
+            p.cz_interaction_GHz = f01_for_11_20(hi.EC, lo.f01);   // |11> = |20> at the tuned alpha of the higher qubit
             p.cz_excursion_MHz = (hi.f01 - p.cz_interaction_GHz) * 1e3;
             const double tcz = p.t_cz_ns * 1e-9;
             if (hiD.tunable) {

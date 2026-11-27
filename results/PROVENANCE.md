@@ -19,7 +19,9 @@ the commands below to reproduce them.
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference), 12 + rounds (d=5 at 9 rounds), 21 + rounds (long runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
 - **Thread count matters.** The Pauli-frame Monte Carlo gives each OpenMP thread its own RNG stream (`seed`,
   thread id). An exact rerun therefore needs the same thread count: `OMP_NUM_THREADS=8`. A
-  different count gives a statistically equivalent but different sample.
+  different count gives a statistically equivalent but different sample. (Prototype on `feat/deterministic-mc`: per-shot
+  seeding makes the Monte Carlo independent of the thread count; see `docs/design/deterministic-mc.md`. Not adopted;
+  the outputs listed here were produced by the per-thread code at the commits shown.)
 - **Alpha-1 v1.0 review (not regenerated for v0.3).** `results/alpha1_review.{json,txt}` reproduce digit for digit only
   with the binary that was committed alongside them, run with two threads from a checkout of `3fe4d23`:
   ```

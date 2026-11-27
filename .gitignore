@@ -65,3 +65,4 @@ Testing/
 *.user
 .DS_Store
 Thumbs.db
+!tests/compare_thread_digests.cmake

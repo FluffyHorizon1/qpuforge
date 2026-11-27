@@ -49,9 +49,9 @@ The gate used here brings |11⟩ into resonance with |20⟩ of the higher-freque
 
 f_tuned + α(EJ_tuned) = f_partner.
 
-α depends on EJ. The idle value is the wrong one to subtract, because |α| grows as the measure qubit is tuned down. qpuforge now solves that equation in the same charge basis as the idle spectrum, instead of using `f_partner − α_idle`.
+α depends on EJ. The idle value is the wrong one to subtract, because |α| grows as the measure qubit is tuned down. The right point is the solution of that equation in the same charge basis as the idle spectrum. **The `analyze()` in this release does not solve it yet:** it still uses the idle-α estimate `f_partner − α_idle` (`include/qpuforge/device.hpp`, `cz_interaction_GHz`). The worked example below is a standalone charge-basis check, not a library function. Moving the solve into `analyze()` is proposed separately (branch `fix/cz-tuned-alpha-solve`).
 
-For EC/h = 200 MHz and an idle frequency of 5.90 GHz, idle α is −217 MHz and the idle-alpha estimate of the interaction is 5.417 GHz. The solved point is 5.419 GHz, where α is −219 MHz. The idle estimate sits about 2 MHz low, so the flux excursion it implies is about 2 MHz too long. On Alpha-1 the solved excursions span 299–658 MHz. The device analysis still reports no frequency collisions.
+For EC/h = 200 MHz and an idle frequency of 5.90 GHz, idle α is −217 MHz and the idle-alpha estimate of the interaction is 5.417 GHz. The solved point is 5.419 GHz, where α is −219 MHz. The idle estimate sits about 2 MHz low, so the flux excursion it implies is about 2 MHz too long. On Alpha-1, `analyze()` reports excursions of 300–660 MHz, which carry that offset; solving at the tuned α would give 298.9–657.5 MHz (interaction points 1.9–2.5 MHz higher). Either way the device analysis reports no frequency collisions.
 
 While the pair sits on that resonance, |2⟩ is occupied on purpose. The processor emulator in this repository is still two-level. Leakage during the flux pulse is not integrated; it is folded into the 0.2% CZ control error. That is a model limit, not a measured leakage.
 
@@ -108,7 +108,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ./build/qpuforge analyze examples/alpha1.json
 ```
 
-The anharmonicity table above is the charge-basis diagonalisation at the EJ/EC ratios in `designs/alpha1/ALPHA-1.md`. The logical-error table is `designs/alpha1/alpha1_review.txt`. The excursion range is `analyze` after the tuned-α correction.
+The anharmonicity table above is the charge-basis diagonalisation at the EJ/EC ratios in `designs/alpha1/ALPHA-1.md`. The logical-error table is `designs/alpha1/alpha1_review.txt`. The excursion range is `analyze`, which uses the idle-α estimate (see above); the tuned-α worked example is a standalone diagonalisation of H = 4 EC n² − EJ cos φ.
 
 ## Licence
 

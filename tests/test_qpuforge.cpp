@@ -793,6 +793,28 @@ static void test_json_rfc() {
     CHECK(json_dump(nf, 0) == "[null, null]", "non-finite dump: %s", json_dump(nf, 0).c_str());
 }
 
+// ---------------------------------------------------------------- json_depth: nesting limit so a hostile file cannot overflow the stack (q11)
+static void test_json_depth() {
+    std::puts("[json_depth] a 200-level nest parses; a 10,000-level nest throws instead of crashing");
+    auto nest = [](int n) { return std::string(std::size_t(n), '[') + std::string(std::size_t(n), ']'); };
+    bool deep_ok = false, over_threw = false;
+    try {
+        const Json j = Json::parse(nest(200));
+        // 200 nested one-element arrays end in a single empty array at the centre
+        const Json* p = &j;
+        for (int k = 0; k < 199; ++k) p = &(*p)[0];
+        deep_ok = p->is_arr() && p->size() == 0;
+    } catch (const std::exception& e) { std::printf("  200-level nest threw: %s\n", e.what()); }
+    CHECK(deep_ok, "200-level nest must parse");
+    try {
+        Json::parse(nest(10000));
+    } catch (const std::runtime_error& e) {
+        over_threw = std::string(e.what()).find("nesting too deep") != std::string::npos;
+        if (!over_threw) std::printf("  10000-level nest threw a different error: %s\n", e.what());
+    }
+    CHECK(over_threw, "10000-level nest must throw json: nesting too deep (not crash)");
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -815,6 +837,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
     {"json_rfc", test_json_rfc},
+    {"json_depth", test_json_depth},
 };
 
 // test_qpuforge            run every test

@@ -103,6 +103,19 @@ static void test_coupler_and_flux() {
     CHECK(p.cz_flux_err > 1e-6 && p.cz_flux_err < 5e-4, "short-time flux error");
     const int hi = R.q[0].f01 >= R.q[1].f01 ? 0 : 1;
     CHECK(std::abs(p.cz_df_dflux) > 100 * std::abs(R.q[hi].df_dflux), "idle sweet spot is first-order insensitive");
+    // the flux term is opt-in: reported for every design, counted in e_2q only with cz_flux_noise (alpha1() and its JSON)
+    {
+        auto on = generate(s); on.cz_flux_noise = true;
+        const auto po = analyze(on).pairs[0];
+        std::printf("  flux term opt-in: e_2q %.4e without, %.4e with (difference %.3e)\n", p.err_2q, po.err_2q, po.err_2q - p.err_2q);
+        CHECK(!generate(s).cz_flux_noise && std::abs((po.err_2q - p.err_2q) - p.cz_flux_err) < 1e-12, "flux term counted only when opted in");
+        CHECK(!gen0_surface17(3).cz_flux_noise && !alpha1_v11(3).cz_flux_noise && !beta1(5).cz_flux_noise && alpha1(3).cz_flux_noise,
+              "presets: flux term on for Alpha-1 only");
+        const bool old_on = design_from_json(Json::parse(R"({"tunable_coupler": {"model_coupler": true}})")).cz_flux_noise;
+        const bool old_off = design_from_json(Json::parse(R"({"tunable_coupler": {"g_max_MHz": 40}})")).cz_flux_noise;
+        CHECK(design_from_json(design_to_json(alpha1(3))).cz_flux_noise && old_on && !old_off,
+              "design JSON: flux term round-trips, and files without the key follow model_coupler");
+    }
 
     const auto RA = analyze(alpha1(3));
     double zlo = 1e99, zhi = -1e99, flo = 1e99, fhi = 0, gdev = 0;

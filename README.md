@@ -43,6 +43,8 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 
 `ctest` runs one entry per test, labelled `unit`, `physics`, `pulse`, `qec`, `layout` and `smoke`.
 
+The `json` and `gds` unit groups (64 checks) cover the JSON parser/writer (including a lossless design-file round trip for every preset) and the GDSII stream writer (record framing, UNITS encoding, coordinate/record-length guards, reproducible `SOURCE_DATE_EPOCH` dates).
+
 - The two `smoke` entries run both review programs end to end with 200 shots. They write into the build tree and leave
   the committed outputs untouched.
 - Each review program also takes `--out DIR`, `--cache FILE` and `--smoke`; see `examples/review_io.hpp`.
@@ -91,7 +93,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Dynamic circuits | Mid-circuit measurement (collapse + assignment error), reset (+ reset error) | Classical record per shot |
 | Error correction | Rotated surface code of any odd d; memory experiment; detector error model; decoder | Pauli-frame Monte Carlo with state-aware decoherence and coherent-ZZ windows; DEM from single-fault enumeration; exact minimum-weight matching |
 
-## Validation (`tests/test_qpuforge.cpp`, 186 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 265 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -108,6 +110,8 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   experiments give zero detection events.
 * Circuit distance: every single fault is corrected at d = 3 (6,434 faults). At d = 5 every single fault (12,975) and 20,000
   random fault pairs are corrected.
+* JSON: parser/writer round trips, typed accessors, error paths, and a lossless `design_to_json` / `design_from_json` cycle for every preset.
+* GDSII: record framing, UNITS encoding, closed-ring coordinates, record-length and int32 guards, `SOURCE_DATE_EPOCH` stamps.
 * Pauli-frame model vs exact statevector trajectories (1,000): detection rates and logical error agree within statistics
   (P_L 0.0240 ± 0.0048 vs 0.0243).
 * Eigensolver: Householder + QL vs Jacobi on random symmetric matrices (eigenvalues to 1e-13, orthogonality 4e-15).

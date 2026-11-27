@@ -40,6 +40,11 @@ static void usage() {
         "                pulse-level CZ calibration of every pair (physical tunable coupler)\n"
         "  qpuforge gds <chip.json> <out.gds> [--cells cells.json] [--synthesize [--from cells0.json]] [--cell NAME]\n"
         "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, GDSII\n"
+        "  qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input 00|01|++|+-|..] [--readout Z|X] [--chip beta1|alpha1_v11]\n"
+        "                [--shots N] [--seed S] [--merge-rounds R] [--pre R] [--post R] [--samples N] [--cache file]\n"
+        "                lattice surgery: logical ZZ / XX measurement between two patches or the three-patch CNOT;\n"
+        "                noiseless tableau check of detectors and observables, then logical error per operation\n"
+        "                (Pauli-frame Monte Carlo, exact matching per observable); --shots 0 runs the check only\n"
         "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gamma1|gen0 [--distance D]   named designs\n"
         "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"
         "  qpuforge --version | -V                           print the version and exit (first argument only)\n"
@@ -475,6 +480,51 @@ static int cmd_hwgate(int argc, char** argv) {
     return G.pass ? 0 : 3;
 }
 
+static int cmd_surgery(int argc, char** argv) {
+    const std::string op = arg(argc, argv, "--op", "zz");
+    const std::string input = arg(argc, argv, "--input", op == "xx" ? "++" : "00");
+    const std::string ro = arg(argc, argv, "--readout", "");
+    const std::string chip = arg(argc, argv, "--chip", "beta1");
+    const long shots = std::stol(arg(argc, argv, "--shots", "20000"));
+    const std::uint64_t seed = std::stoull(arg(argc, argv, "--seed", "2026"));
+    const int samples = std::stoi(arg(argc, argv, "--samples", "4"));
+    SurgeryRounds rr;
+    rr.merge = std::stoi(arg(argc, argv, "--merge-rounds", "0"));
+    rr.pre = std::stoi(arg(argc, argv, "--pre", "1"));
+    rr.post = std::stoi(arg(argc, argv, "--post", "1"));
+    std::vector<int> ds;
+    { std::stringstream ss(arg(argc, argv, "--d", "3")); std::string t; while (std::getline(ss, t, ',')) ds.push_back(std::stoi(t)); }
+    int bad = 0;
+    for (int d : ds) {
+        const auto E = surgery_experiment(op, d, input, ro.empty() ? char(0) : ro[0], rr);
+        const auto c = check_surgery_noiseless(E, samples, seed);
+        int nz = 0; for (char t : E.detector_type) nz += t == 'Z';
+        std::printf("\n%s: %d qubits, %d rounds (", E.sched.name.c_str(), E.circuit.n, E.total_rounds);
+        for (std::size_t p = 0; p < E.sched.phases.size(); ++p) std::printf("%s%s %d", p ? ", " : "", E.sched.phases[p].label.c_str(), E.sched.phases[p].rounds);
+        std::printf("), %zu detectors (%d Z, %zu X)\n", E.detectors.size(), nz, E.detectors.size() - std::size_t(nz));
+        std::printf("  noiseless tableau check, %d random branches: %d detector firings, %d wrong observables, %d wrong reference bits%s\n",
+                    c.samples, c.fired, c.wrong_observables, c.wrong_reference + c.random_reference, (c.fired || c.wrong_observables || c.wrong_reference || c.random_reference) ? "  FAILED" : "  (ok)");
+        for (std::size_t k = 0; k < E.observables.size(); ++k)
+            std::printf("    %-8s = %d (expected %d)\n", E.observables[k].name.c_str(), c.observable_values[k], E.observables[k].expected);
+        if (c.fired || c.wrong_observables || c.wrong_reference || c.random_reference) ++bad;
+        if (shots <= 0) continue;
+        const char basis = surgery_decode_basis(E);
+        const auto D = surgery_chip(E.sched.lat, chip);
+        auto R = analyze(D);
+        if (D.coupler.physical) calibrate_chip_cz(D, R, false, arg(argc, argv, "--cache"));
+        const auto nm = noise_model(D, R);
+        const auto M = prepare_surgery(D, R, nm, E, basis);
+        const auto r = run_surgery_frame(M, shots, seed);
+        std::printf("  %s, Pauli-frame Monte Carlo, %ld shots, %c-type detectors (%d), duration %.2f us\n", D.name.c_str(), shots, basis, r.n_detectors, r.total_ns / 1e3);
+        std::printf("    detection %.4f, defects/shot %.2f (max %d); DEM: %zu fault mechanisms, %d hyperedge (p %.1e), %d undetectable logical\n",
+                    r.detection_rate, r.mean_defects, r.max_defects, M.n_faults, r.hyperedge_faults, r.hyperedge_p, r.undetectable_logical);
+        for (std::size_t k = 0; k < r.names.size(); ++k)
+            std::printf("    logical error %-8s %.5f +- %.5f\n", r.names[k].c_str(), r.p[k], r.p_sem[k]);
+        std::printf("    any observable wrong  %.5f +- %.5f\n", r.p_any, r.p_any_sem);
+    }
+    return bad ? 3 : 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 1; }
     const std::string cmd = argv[1];
@@ -491,6 +541,7 @@ int main(int argc, char** argv) {
         if (cmd == "gds") return cmd_gds(argc, argv);
         if (cmd == "synth-chip") return cmd_synth(argc, argv);
         if (cmd == "hwgate") return cmd_hwgate(argc, argv);
+        if (cmd == "surgery") return cmd_surgery(argc, argv);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 2;

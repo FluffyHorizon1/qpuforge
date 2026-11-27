@@ -7,6 +7,12 @@
   EJ/EC=  80  f01 6.0635 (asym 6.0746)  alpha -0.2774 (-EC=-0.250)  disp 9.270e-08 (asym 1.069e-07)  |n01| 1.2310 (asym 1.2574)
   E_J(Rn=10 kOhm, Delta=180 ueV) = 14.043 GHz (hand calc 14.04)
   (transmon: 0.0 s)
+[coupler] exchange null is not a ZZ null; CZ flux noise uses the short-time 1/f error
+  g_qq=1 MHz g_qc=40 MHz: null 3.877 GHz, J -0.000 MHz, ZZ -7.02 kHz
+  g_qq=4 MHz g_qc=70 MHz: null 4.232 GHz, ZZ -119.3 kHz (typed residual was 5 kHz)
+  CZ flux 0.177 Phi0, df/dPhi -5.51 GHz/Phi0, flux infidelity 3.262e-05 (e_2q 2.323e-03)
+  Alpha-1: 24 links, |g-1 MHz| max 0.000, couplers 3.787–3.967 GHz, ZZ -13.81 to -4.33 kHz, collisions 0
+  (coupler_and_flux: 10.4 s)
 [pair physics] exact two-transmon ZZ vs 2nd-order perturbation theory; inverse design hits targets
   g=  3.0 MHz: realised g 3.000 MHz, ZZ exact   -24.41 kHz, perturbative   -25.42 kHz, t_CZ 186.8 ns
   g=  6.0 MHz: realised g 6.000 MHz, ZZ exact   -97.61 kHz, perturbative  -101.67 kHz, t_CZ 98.4 ns
@@ -87,4 +93,4 @@
   AF-17 layout: 14388 etch polygons, placement clean; GDSII: 72779 records, 14505 boundaries (expected 14505), ends with ENDLIB: yes
   (layout: 37.6 s)
 
-101 checks passed, 0 failed
+186 checks passed, 0 failed

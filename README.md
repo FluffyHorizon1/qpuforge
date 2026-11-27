@@ -80,10 +80,10 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Junctions | E_J from normal-state resistance | Ambegaokar–Baratoff; SQUID flux tuning with asymmetry |
 | Capacitance | E_C of every qubit, every coupling, parasitics | Full Maxwell capacitance matrix, inverted |
 | Transmon | f01, anharmonicity, charge dispersion, ⟨i\|n\|j⟩ | Exact diagonalisation in the charge basis |
-| Couplers | Static ZZ, dressed frequencies | Exact diagonalisation of each coupled pair (5 levels each) |
+| Couplers | Static ZZ, dressed frequencies; Alpha-1 idle ZZ | Pair diagonalisation (5 levels). With `model_coupler`, a third transmon is parked at the exchange null (3 levels) |
 | Crowding | Exchange between near-degenerate qubits | 2nd-order Schrieffer–Wolff through every other qubit; parked tunable couplers block it |
 | Coherence | T1 = dielectric (Q) + Purcell; Tφ = flux 1/f + charge + thermal photons | Koch 2007, Clerk–Utami; thermal population at T_eff |
-| CZ gate | Duration, interaction point, feasibility | t = shape / (2√2 g) + ramps; tunable couplers via g_max and residual ZZ |
+| CZ gate | Duration, interaction point, feasibility, flux-pulse error | t = shape / (2√2 g) + ramps; off-sweet-spot 1/f noise uses the short-time t² infidelity |
 | Design rules | Degenerate pairs, \|11⟩–\|20⟩ resonance, ZZ > 1 MHz, infeasible CZ, parasitic resonance | Flags + collision count, used for fab yield |
 | Inverse design | Targets (f01, α, g, χ) → C_shunt, R_n, C_c, resonator coupling | Iterated against the full capacitance-matrix model |
 | Compiler | Layout, SWAP routing, 1q merging, {RZ, SX, X, CZ, measure, reset} | ≤ 2 physical pulses per 1q gate; per-qubit ASAP timelines cut into exact time slices |
@@ -91,7 +91,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Dynamic circuits | Mid-circuit measurement (collapse + assignment error), reset (+ reset error) | Classical record per shot |
 | Error correction | Rotated surface code of any odd d; memory experiment; detector error model; decoder | Pauli-frame Monte Carlo with state-aware decoherence and coherent-ZZ windows; DEM from single-fault enumeration; exact minimum-weight matching |
 
-## Validation (`tests/test_qpuforge.cpp`, 101 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 186 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.

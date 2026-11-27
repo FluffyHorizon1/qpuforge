@@ -36,12 +36,13 @@ inline ChipDesign gen0_surface17(int d = 3) {
 inline ChipDesign alpha1(int d = 3) {
     GenSpec s = surface_spec(d);
     s.architecture = "tunable-coupler-cz";
-    s.g = 0.004;                                   // bare capacitive coupling; the coupler cancels it at idle
+    s.g = 0.001;                                   // direct capacitance only; the coupler supplies the gate coupling
     s.kappa_MHz = 4.0; s.chi_MHz = 4.0;            // 2chi = kappa: optimal readout SNR
     s.purcell_filter = 100;                        // dedicated band-pass Purcell filter per feedline
     ChipDesign D = generate(s);
     D.name = d == 3 ? "Alpha-1 (AF-17)" : "Alpha-1 extended to d=" + std::to_string(d) + " (" + std::to_string(2 * d * d - 1) + " qubits)";
     D.tc_g_max_MHz = 40; D.tc_residual_zz_kHz = 5;
+    D.coupler.g_qc_MHz = 40; D.tc_coupler_EC = 0.20; D.tc_model = true;
     D.t_readout_ns = 500; D.readout_sep_err = 0.005;
     D.active_reset = true; D.t_reset_ns = 200; D.reset_err = 0.003;
     D.err_1q_control = 1e-4; D.err_2q_control = 2e-3;
@@ -53,6 +54,7 @@ inline ChipDesign alpha1(int d = 3) {
 inline ChipDesign alpha1_v11(int d = 3) {
     ChipDesign D = alpha1(d);
     D.name = d == 3 ? "Alpha-1 v1.1 (AF-17)" : "Alpha-1 v1.1 extended to d=" + std::to_string(d);
+    D.tc_model = false;
     D.coupler.physical = true;
     D.coupler.f_max_GHz = 8.5; D.coupler.alpha_GHz = -0.13; D.coupler.g_qc_MHz = 160;
     D.coupler.f_on_GHz = 6.1; D.coupler.t_rise_ns = 7; D.coupler.residual_ctrl_err = 1e-3;

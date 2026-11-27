@@ -10,7 +10,7 @@ logical qubit, using a physics package that, extended to distance 5, is predicte
 | | |
 |---|---|
 | Qubits | 17 flux-tunable transmons: 9 data, 4 X-stabiliser and 4 Z-stabiliser measure qubits |
-| Coupling | 24 tunable couplers, one per data–measure link, parked at zero coupling (≤ 5 kHz residual ZZ) |
+| Coupling | 24 tunable couplers, one per data–measure link; 1 MHz direct exchange cancelled at the coupler null; idle ZZ −4 to −14 kHz |
 | Native gates | virtual RZ · SX / X (25 ns) · CZ (23 ns, \|11⟩↔\|20⟩ via coupler, g_max 40 MHz) · measure (500 ns) · active reset (200 ns) |
 | Frequencies | data 5.11–5.29 GHz, measure 5.81–5.99 GHz, anharmonicity −220 MHz, all qubits parked at their flux sweet spot |
 | Readout | 17 resonators at 6.90–7.20 GHz on 3 feedlines; κ = 4 MHz, 2χ = κ; one band-pass Purcell filter per feedline |
@@ -54,13 +54,15 @@ frequency, which removes the parasitic and mediated resonances the emulator foun
 | Q15 | data | 5.110 | -220 | 89 | 96.8 | 7.93 | 76 | 77 | 7.14 | 2 |
 | Q16 | measure-X | 5.990 | -220 | 117 | 95.4 | 5.92 | 65 | 72 | 7.14 | 3 |
 
-Common to all qubits: coupling capacitance 0.14 fF per link (bare g = 4 MHz, cancelled by the coupler at idle). Readout
+Common to all qubits: coupling capacitance 0.035 fF per link (bare g = 1 MHz, cancelled by the coupler at idle). Readout
 coupling 102–204 MHz, chosen per qubit so that 2χ = κ = 4 MHz. Junctions are Al/AlOx with gap Δ = 180 µeV. Dielectric quality
 factor Q = 3 × 10⁶. Effective temperature 45 mK. 1/f flux noise 2 µΦ₀.
 
-Predicted physical errors: single-qubit gate 2.8 × 10⁻⁴, CZ 2.4 × 10⁻³ (2.0 × 10⁻³ calibration-level control error plus
-decoherence), readout P(0|1) ≈ 0.85 % and P(1|0) 0.5 %, reset 0.3 %. CZ interaction points need 300–660 MHz of flux
-excursion on the measure qubits. The device analysis flags no frequency collisions on any of the 24 links.
+Each coupler is a transmon with EC/h = 200 MHz and g_qc = 40 MHz to both qubits. The exchange nulls lie at 3.787–3.967 GHz;
+three-level diagonalisation gives idle ZZ from −4.3 to −13.8 kHz. Predicted physical errors: single-qubit gate 2.8 × 10⁻⁴,
+CZ 2.4 × 10⁻³ (including 2–5 × 10⁻⁵ of flux-noise dephasing), readout P(0|1) ≈ 0.85 % and P(1|0) 0.5 %, reset 0.3 %.
+CZ interaction points need 300–660 MHz of flux excursion on the measure qubits. The device analysis flags no frequency
+collisions on any of the 24 links.
 
 ## 3. Design decisions and the evidence for them
 
@@ -137,8 +139,8 @@ frequency trimming) is enough for Alpha-1's frequency plan.
   rounds is a major error source on real surface-code chips.
 * **Correlated and time-varying errors:** TLS defects drifting in frequency, quasiparticle bursts and cosmic rays,
   measurement-induced dephasing of neighbours, readout crosstalk, flux crosstalk between lines.
-* **Flux-pulse dephasing:** measure qubits leave their sweet spot by up to 660 MHz during CZ, and the extra dephasing during
-  those excursions is not modelled.
+* **Flux-pulse dephasing:** the reported CZ error includes the short-time 1/f flux-noise estimate; the 24 November logical-error
+  review did not include this term.
 * **Layout electromagnetics:** capacitances come from the lumped model and the inverse design, not from an EM solve of a real
   layout. Box modes, slotline modes and spurious couplings are absent.
 * **Pauli-frame approximation:** validated against exact statevector trajectories (amplitude damping, readout, reset, control

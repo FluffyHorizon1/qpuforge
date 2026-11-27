@@ -783,7 +783,8 @@ static void test_layout() {
         const auto L = assemble_chip(D, cs);
         double worst = 0; for (const auto& r : L.resonators) worst = std::max(worst, std::abs(r.drawn_um - r.target_um));
         CHECK(L.problems.empty(), "chip placement/spacing: %s", L.problems.empty() ? "" : L.problems.front().c_str());
-        std::printf("  AF-17 mask DRC (not asserted; first-cut layout): %s\n", drc_summary(L).c_str());
+        std::printf("  AF-17 mask DRC: %s\n", drc_summary(L).c_str());
+        CHECK(L.drc.empty(), "AF-17 mask DRC: %d width + %d space violations", L.drc_count("width"), L.drc_count("space"));
         CHECK(worst < 1.0 && L.resonators.size() == 17, "resonator lengths");
         const std::string gds_path = temp_path("af17.gds");
         write_gds(L, gds_path, "T");
@@ -1545,6 +1546,43 @@ static void test_layout_geometry() {
     }
 }
 
+// ---------------------------------------------------------------- layout_presets: the committed chips are mask-clean and on target
+#ifndef QPUFORGE_SOURCE_DIR
+#define QPUFORGE_SOURCE_DIR "."
+#endif
+static void test_layout_presets() {
+    std::puts("[layout_presets] AF-17, BF-49, GF-97 from the committed cell files: placement + mask DRC clean, extraction on target, re-nullable");
+    using namespace layout;
+    struct Chip { const char* name; ChipDesign D; const char* cells; };
+    const std::vector<Chip> chips{{"AF-17", alpha1_v11(3), "designs/alpha1-v11/layout_cells.json"},
+                                  {"BF-49", beta1(5), "designs/beta1/layout_cells.json"},
+                                  {"GF-97", gamma1(7), "designs/beta1/layout_cells.json"}};
+    std::map<std::string, LayoutMetrics> metrics;                    // the Gamma-1 chip reuses the Beta-1 cells
+    for (const auto& c : chips) {
+        std::ifstream f(std::string(QPUFORGE_SOURCE_DIR) + "/" + c.cells);
+        CHECK(bool(f), "%s: cannot open %s", c.name, c.cells);
+        if (!f) continue;
+        std::stringstream ss; ss << f.rdbuf();
+        const CellSet C = cells_from_json(Json::parse(ss.str()));
+        const auto L = assemble_chip(c.D, C);
+        if (!metrics.count(c.cells)) metrics[c.cells] = evaluate_cells(C, MeshOptions{1.5, 50.0, 1.6});
+        const auto& m = metrics[c.cells];
+        const auto R = analyze(c.D);
+        const auto T = targets_from_design(c.D, R);
+        const auto P = post_layout(c.D, R, m);
+        auto rel = [](double a, double t) { return std::abs(a / t - 1); };
+        const double ec = std::max({rel(m.EC_m, T.EC_m), rel(m.EC_d, T.EC_d), rel(m.EC_c, T.EC_c)});
+        const double g = std::max({rel(m.G_mc, T.G_mc), rel(m.G_cd, T.G_cd), rel(m.G_md, T.G_md)});
+        const double cr = rel(m.C_qr_fF, T.C_qr_fF);
+        std::printf("  %s: %s; %d sliver fills; E_C within %.2f%%, couplings within %.2f%%, readout C within %.2f%%, re-nulled gap %.1e MHz\n", c.name,
+                    drc_summary(L).c_str(), L.slivers_filled, 100 * ec, 100 * g, 100 * cr, P.park_gap_MHz);
+        CHECK(L.problems.empty(), "%s placement: %s", c.name, L.problems.empty() ? "" : L.problems.front().c_str());
+        CHECK(L.drc.empty(), "%s mask DRC: %d width + %d space violations", c.name, L.drc_count("width"), L.drc_count("space"));
+        CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);
+        CHECK(std::abs(P.park_gap_MHz) < 0.05, "%s parked exchange not re-nullable (%.3f MHz)", c.name, P.park_gap_MHz);
+    }
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -1567,6 +1605,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
     {"layout_geometry", test_layout_geometry},
+    {"layout_presets", test_layout_presets},
     {"json_rfc", test_json_rfc},
     {"json_depth", test_json_depth},
     {"gds_write", test_gds_write},

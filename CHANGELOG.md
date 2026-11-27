@@ -3,6 +3,39 @@
 All notable changes to qpuforge. Versions follow `MAJOR.MINOR.PATCH`; before 1.0, a minor release may change the API, and
 every such change is listed under **API changes**.
 
+## [Unreleased]
+
+The decoding items of Phase Gamma: a union-find decoder, leakage-aware decoding from heralded leakage, per-shot impact
+injection with an impact veto, and linear-time fault enumeration. Study: `examples/decoder_study.cpp` ->
+`results/decoder_study.{txt,json}`.
+
+### Added
+- `unionfind.hpp`: `UnionFindDecoder`, Delfosse-Nickerson union-find with weighted growth and peeling
+  (docs/design/union-find-decoder.md). `DecodeMethod::UnionFind`; `qpuforge qec --decoder uf`.
+- `qec.hpp`:
+  - Heralded leakage (docs/design/heralded-leakage.md): `HeraldSpec` in `FrameRunOptions` (3-state readout of the
+    measure qubits with a herald fidelity and a false-herald rate), `MatchingDecoder::decode_scaled` (exact matching on
+    a per-shot re-weighted graph), `herald_touch_edges`, `herald_footprints`, `MemorySetup::herald_edges`.
+    `qpuforge qec --herald [--herald-fidelity F] [--herald-false P] [--herald-factor X] [--herald-rule footprint|detector]`.
+  - Impact injection and veto (docs/design/impact-veto.md): `ImpactSpec` and `VetoSpec` in `FrameRunOptions`,
+    `BurstSpec::radius`, `impact_shot_seed`, `calibrate_veto`, `burst_floor_veto`. `qpuforge qec --bursts --veto
+    [--veto-window R] [--veto-radius L] [--veto-false P] [--impact-p P] [--burst-radius L]`.
+  - `MemoryResult`: herald counts, impact and discard counts, `p_logical_kept`, `eps_kept`, `veto_hist`.
+  - `MemorySetup::sim_xy`, `det_xy` (lattice positions); `FrameProgram::FMoment::known` (known basis state per slice).
+  - `enumerate_faults_direct`: the 0.4 sparse enumeration, kept for timing comparisons.
+- Tests: groups `union_find`, `heralds`, `impact_veto` (label qec); `fault_enumeration` now also checks the linear-time
+  version and its scaling; the thread-count determinism digest covers union-find, heralds, and impacts with the veto.
+
+### Changed
+- `enumerate_faults` is linear in the number of rounds (docs/design/linear-fault-enumeration.md): faults are propagated
+  to the next measurement cut and finished with precomputed per-qubit tails. Output unchanged, fault by fault.
+- The matching decoder's DP, blossom and greedy paths read distances through an oracle, so that `decode_scaled` can
+  reuse them; results of `decode` are unchanged.
+
+### API changes
+- `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
+- `frame_detail::FaultDesc` (internal) gained `owner`.
+
 ## [0.4.0] (unreleased)
 
 Finishes the software side of Phases Alpha and Beta and starts Phase Gamma: an exact decoder at any number of defects,

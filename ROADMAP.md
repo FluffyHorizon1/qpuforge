@@ -168,11 +168,21 @@ the chip in the same data file.
 
 - Two distance-5 patches with lattice surgery, giving a logical CNOT. qpuforge needs multi-patch circuits with merge
   and split schedules.
-- Leakage-aware decoding using heralded leakage from 3-state readout.
 - Real-time decoding at < 1 µs per round: FPGA first, then an ASIC. The exact software decoder is the reference.
-- An impact veto: detect a burst of detection events and discard or restart the affected window.
+  Done in software: a weighted union-find decoder (`DecodeMethod::UnionFind`), within 1.1× of the exact decoder's
+  logical error at d = 3 and 5 (`results/decoder_study.txt` for Gamma-1). Open: a streaming (sliding-window) version
+  and the hardware.
 - Wiring: about 380 coaxial lines at distance 7. High-density flex lines or multiplexed flux control are needed before
   this chip can be operated.
+
+### Done in Phase Gamma (software)
+
+- Leakage-aware decoding from heralded leakage (3-state readout of the measure qubits): `HeraldSpec`, with the
+  leakage-removing reset. See `docs/design/heralded-leakage.md` and `results/decoder_study.txt`.
+- An impact veto: per-shot impact injection, a sliding space-time window veto calibrated to a false-veto rate, and the
+  floor with shot-by-shot discard or a latched hold. See `docs/design/impact-veto.md`.
+- Linear-time fault enumeration: setup cost linear in the number of rounds (Gamma-1, d = 7, 50 rounds: 1.3 s against
+  41 s for the 0.4 routine on four threads).
 
 **Main risks.**
 - Wiring scale (above).

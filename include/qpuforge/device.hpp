@@ -84,6 +84,21 @@ inline double solve_EJ_for_f01(double f01, double EC) {
     }
     return std::exp(0.5 * (lo + hi));
 }
+// f01 of a transmon (charging energy EC) tuned down until |20> meets |11> of a partner at f_partner:
+//     f01(E_J) + alpha(E_J) = f_partner.
+// The anharmonicity is taken at the tuned E_J. |alpha| grows as E_J falls, so the idle value would place the
+// interaction point a few MHz too low. Secant iteration on log(E_J), started from the idle-alpha estimate.
+inline double f01_for_11_20(double EC, double f_partner, double alpha_idle) {
+    auto F = [&](double x) { const auto fa = transmon_fa(std::exp(x), EC); return fa.f01 + fa.alpha - f_partner; };
+    const double f0 = f_partner - alpha_idle;
+    double x0 = std::log(std::max(0.5, (f0 + EC) * (f0 + EC) / (8 * EC))), x1 = x0 + 0.01;
+    double F0 = F(x0), F1 = F(x1);
+    for (int it = 0; it < 40 && std::abs(F1) > 1e-10 && F1 != F0; ++it) {
+        const double x2 = x1 - F1 * (x1 - x0) / (F1 - F0);
+        x0 = x1; F0 = F1; x1 = x2; F1 = F(x1);
+    }
+    return transmon_fa(std::exp(x1), EC).f01;
+}
 inline std::pair<double, double> solve_EJ_EC(double f01, double alpha) {
     double EC = -alpha, EJ = 10;
     for (int it = 0; it < 60; ++it) {
@@ -209,6 +224,9 @@ struct ChipDesign {
     double tc_g_max_MHz{40}, tc_residual_zz_kHz{5};
     double tc_coupler_EC{0.20};
     bool tc_model{false};
+    // add the CZ flux-noise term (PairReport::cz_flux_err) to e_2q. Off by default; alpha1() turns it on. Design JSON
+    // without gates.cz_flux_noise follows tunable_coupler.model_coupler, so the PR #2 Alpha-1 files keep it.
+    bool cz_flux_noise{false};
     CouplerElement coupler;
     LeakageSpec leakage;
     bool active_reset{false};
@@ -253,6 +271,7 @@ inline ChipDesign design_from_json(const Json& j) {
     D.tc_residual_zz_kHz = tc.get("residual_zz_kHz", D.tc_residual_zz_kHz);
     D.tc_coupler_EC = tc.get("coupler_EC_GHz", D.tc_coupler_EC);
     D.tc_model = tc.get("model_coupler", D.tc_model);
+    D.cz_flux_noise = g.get("cz_flux_noise", D.tc_model);
     D.coupler.physical = tc.get("physical", D.coupler.physical);
     D.coupler.f_max_GHz = tc.get("f_max_GHz", D.coupler.f_max_GHz);
     D.coupler.alpha_GHz = tc.get("alpha_GHz", D.coupler.alpha_GHz);
@@ -315,6 +334,7 @@ inline Json design_to_json(const ChipDesign& D) {
     g.set("t_1q_ns", D.t_1q_ns); g.set("t_readout_ns", D.t_readout_ns); g.set("t_reset_ns", D.t_reset_ns); g.set("cz_shape_factor", D.cz_shape_factor);
     g.set("cz_ramp_ns", D.cz_ramp_ns); g.set("err_1q_control", D.err_1q_control); g.set("err_2q_control", D.err_2q_control);
     g.set("readout_separation_err", D.readout_sep_err); g.set("active_reset", D.active_reset); g.set("reset_err", D.reset_err);
+    g.set("cz_flux_noise", D.cz_flux_noise);
     j.set("gates", g);
     Json tc = Json::object();
     tc.set("g_max_MHz", D.tc_g_max_MHz); tc.set("residual_zz_kHz", D.tc_residual_zz_kHz);
@@ -545,7 +565,7 @@ inline ChipReport analyze(const ChipDesign& D, const AnalyzeOptions& opt = {}) {
             const auto& hi = (qa.f01 >= qb.f01) ? qa : qb;
             const auto& lo = (qa.f01 >= qb.f01) ? qb : qa;
             const auto& hiD = D.qubits[(qa.f01 >= qb.f01) ? i : j];
-            p.cz_interaction_GHz = lo.f01 - hi.alpha;               // |11> = |20>: f_hi + alpha_hi = f_lo
+            p.cz_interaction_GHz = f01_for_11_20(hi.EC, lo.f01, hi.alpha);   // |11> = |20> at the tuned anharmonicity
             p.cz_excursion_MHz = (hi.f01 - p.cz_interaction_GHz) * 1e3;
             const double tcz = p.t_cz_ns * 1e-9;
             if (hiD.tunable) {
@@ -571,7 +591,8 @@ inline ChipReport analyze(const ChipDesign& D, const AnalyzeOptions& opt = {}) {
                 }
             }
             auto rates = [&](const QubitReport& q) { return 1e6 / q.T1_us + (std::isfinite(q.Tphi_us) ? 1e6 / q.Tphi_us : 0.0); };
-            p.err_2q = 0.8 * (tcz / 2) * (rates(qa) + rates(qb)) + D.err_2q_control + p.cz_flux_err;
+            // cz_flux_err is always reported; it is counted in e_2q only when the design opts in
+            p.err_2q = 0.8 * (tcz / 2) * (rates(qa) + rates(qb)) + D.err_2q_control + (D.cz_flux_noise ? p.cz_flux_err : 0.0);
             std::string fl;
             const double win = std::max(0.03, 5 * g);
             if (std::abs(qa.f01 - qb.f01) < win) fl += "DEGENERATE ";

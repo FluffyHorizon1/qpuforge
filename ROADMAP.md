@@ -13,10 +13,10 @@ assumptions listed in each design spec. They are design targets, not measured pe
 
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
-| 0 — Tooling | atomforge, qpuforge v0.1–v0.3 | Materials and processor emulation, validated physics | done (186 validation checks) | n/a |
+| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (319 validation checks) | n/a |
 | **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11) | open: fabricate and characterise |
-| **Beta** | **BF-49 (Beta-1)** | Show logical error falling with code size: distance 5, 49 qubits | see designs/beta1 | open |
-| Gamma | GF-97 + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | planned | planned |
+| **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask DRC open (designs/beta1) | open |
+| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask DRC open (designs/gamma1). Logical operations open | planned |
 | Delta | modular | Several logical qubits linked between modules; logical-level benchmarks | planned | planned |
 
 ---
@@ -34,6 +34,9 @@ assumptions listed in each design spec. They are design targets, not measured pe
   - Pulse-level tunable-coupler CZ (v0.3).
   - Leakage-modelled QEC (v0.3): leakage is simulated; the decoder is not leakage-aware.
   - Method-of-moments (MoM) capacitance extraction, layout synthesis and GDSII output (v0.3).
+  - Exact matching decoder for any number of defects; memory experiments in both bases (v0.4).
+  - Correlated error bursts from high-energy impacts (v0.4).
+  - Hardware-gate evaluation from measured data, with a virtual chip to rehearse it (v0.4).
 
 ## Phase Alpha — AF-17
 
@@ -43,7 +46,7 @@ After this phase the model is calibrated against our own hardware, not just agai
 ### Alpha design iterations
 
 - **v1.0** (qpuforge v0.2): architecture and frequency plan. Tunable couplers (abstract model), fast readout and active reset. Simulation: 0.45% logical error per round.
-- **v1.1** (qpuforge v0.3, this release): the open modelling gaps of v1.0 are closed.
+- **v1.1** (qpuforge v0.3): the open modelling gaps of v1.0 are closed.
   - Physical coupler transmons with pulse-level CZ calibration.
   - Leakage model, with a leakage-removing (multi-level) reset chosen.
   - MoM-synthesised layout and GDSII.
@@ -78,6 +81,12 @@ After this phase the model is calibrated against our own hardware, not just agai
 **Deliverables:** GDSII (`AF17_v11.gds`), design JSON, CZ calibration table, a characterisation plan, and an updated
 model fitted to measured T1/T2, gate errors and leakage.
 
+- The characterisation plan is `designs/alpha1-v11/CHARACTERISATION-PLAN.md`. It defines the data file
+  (`qpuforge.characterisation.v0`) and the order of measurements.
+- `qpuforge hwgate` evaluates every row of the table above from that file, including the last one: it puts the measured
+  parameters into the model, re-runs the memory experiments and compares. The chain has been rehearsed on a virtual chip;
+  it has not seen hardware data.
+
 **Main risks.**
 - TLS defects lowering T1 → mitigated by materials work: tantalum or improved surface treatment.
 - Flux-pulse distortion raising the CZ error → mitigated by predistortion and closed-loop calibration.
@@ -88,7 +97,7 @@ model fitted to measured T1/T2, gate errors and leakage.
 
 **Objective.** Demonstrate error suppression with code size: a distance-5 logical qubit beating distance 3 by Λ ≥ 2.
 
-**Design.** The Alpha-1 v1.1 architecture and cells at distance 5, plus the upgrades the Alpha reviews ranked highest:
+**Design.** The Alpha-1 v1.1 architecture at distance 5, plus the upgrades the Alpha reviews ranked highest:
 - dielectric Q ×2;
 - effective temperature 35 mK;
 - 300 ns readout;
@@ -97,19 +106,24 @@ model fitted to measured T1/T2, gate errors and leakage.
 - leakage-removing reset (data-qubit leakage removal evaluated, kept as an option);
 - junction trimming to 0.5% spread.
 
+Rev C (qpuforge v0.4) corrects two things the second review found:
+- the readout plan: at most 9 resonators per feedline (6 feedlines), where rev B had 17 on each of 3;
+- the cells: re-synthesised for the Beta-1 readout coupling, which the reused Alpha-1 cells missed by 30%.
+
 Details are in `designs/beta1/BETA-1.md`.
 
 ### Beta simulation gate (all must hold)
 
 | Criterion | Threshold |
 |---|---|
-| Λ(3→5) | ≥ 2 |
-| Distance-5 logical error per round | ≤ 0.1% |
+| Λ(3→5), both memory bases | ≥ 2 |
+| Distance-5 logical error per round, both bases | ≤ 0.1% |
 | Distance-5 vs Alpha-1 v1.1 distance-3 | ≥ 3× lower |
 | Distance-5 logical lifetime | > 5× best physical T1 |
 | Trimmed fabrication yield (0.5% spread) | ≥ 80% collision-free |
 | Leakage removal over 50 rounds | chosen scheme at least as good as the alternative |
-| Layout | Placement/spacing checks clean in simulation; mask width/space DRC clean before tape-out |
+| Detection rate over 100 rounds with the leakage-removing reset | drift < 5% |
+| Layout | Placement/spacing checks clean; extracted E_C within 3%, couplings and readout capacitance within 6% of target; residual parked exchange re-nullable. Mask width/space DRC clean before tape-out (reported, not gated in simulation) |
 
 ### Beta hardware gate
 
@@ -120,23 +134,52 @@ Details are in `designs/beta1/BETA-1.md`.
 | Median T1 | ≥ 100 µs |
 | CZ error (simultaneous) | ≤ 3e-3 |
 | Readout error at 300 ns | ≤ 1% |
-| Long runs (≥ 100 rounds) | no growth of the detection-event rate |
+| Long runs (≥ 100 rounds) | no growth of the detection-event rate (drift < 5%) |
+| Model vs measurement | ε within 2× of the re-run model fed with measured parameters |
+
+`qpuforge hwgate --phase beta` evaluates this table. The measured Λ(3→5) needs distance-3 memory runs on sub-patches of
+the chip in the same data file.
 
 **Main risks.**
-- Wiring scale (~180 lines): needs high-density flex cabling and a large dilution refrigerator.
+- Wiring scale (~190 lines): needs high-density flex cabling and a large dilution refrigerator.
 - Decoder latency for real-time operation.
 - Run-to-run calibration drift across 80 couplers.
 
-## Phase Gamma — distance 7 and logical operations (planned)
+## Phase Gamma — distance 7 and logical operations
 
-- Distance 7 (97 qubits), targeting Λ(5→7) ≥ 2.
-- Two distance-5 patches with lattice surgery, giving a logical CNOT.
-- Real-time decoding at < 1 µs per round: FPGA first, then an ASIC.
+**Objective.** A distance-7 memory with Λ(5→7) ≥ 2, then logical operations between two distance-5 patches.
+
+**Gamma-1 (GF-97).** Beta-1 physics and cells at distance 7: 97 qubits, 168 couplers, 11 feedlines. Details are in
+`designs/gamma1/GAMMA-1.md`.
+
+### Gamma memory gate (simulation; all must hold)
+
+| Criterion | Threshold |
+|---|---|
+| Λ(5→7), both memory bases | ≥ 2 |
+| Distance-7 logical error per round, both bases | ≤ 0.01% |
+| Distance-7 logical lifetime | > 50× best physical T1 |
+| Logical-error floor from high-energy impacts | < 10% of the distance-7 error |
+| Detection rate over 40 rounds with the leakage-removing reset | drift < 5% |
+| Trimmed fabrication yield (0.5% spread) | ≥ 80% collision-free |
+| Layout | as Beta (mask width/space DRC reported, not gated) |
+
+### Still open in Phase Gamma
+
+- Two distance-5 patches with lattice surgery, giving a logical CNOT. qpuforge needs multi-patch circuits with merge
+  and split schedules.
 - Leakage-aware decoding using heralded leakage from 3-state readout.
-- qpuforge work this phase needs:
-  - multi-patch circuits;
-  - correlated-error models, including cosmic-ray bursts;
-  - a decoder for more than 22 defects (sparse blossom / union-find).
+- Real-time decoding at < 1 µs per round: FPGA first, then an ASIC. The exact software decoder is the reference.
+- An impact veto: detect a burst of detection events and discard or restart the affected window.
+- Wiring: about 380 coaxial lines at distance 7. High-density flex lines or multiplexed flux control are needed before
+  this chip can be operated.
+
+**Main risks.**
+- Wiring scale (above).
+- High-energy impacts set a floor that distance does not remove. It is far below the distance-7 error, and becomes
+  the limit near distance 14 at the simulated Λ. Gap-engineered junctions shorten each event; they should be in the
+  process by Delta, together with an impact veto.
+- Calibration time for 168 couplers.
 
 ## Phase Delta — modular scale-out (planned)
 
@@ -154,7 +197,8 @@ Details are in `designs/beta1/BETA-1.md`.
   - Beta: adds trimming.
 - **Cryogenics.** Dilution refrigerator.
   - Alpha: ≥ 70 lines.
-  - Beta: ≥ 180 lines.
+  - Beta: ≥ 190 lines.
+  - Gamma: ≥ 380 lines, or multiplexed control.
   - Both: TWPA plus HEMT readout chains.
-- **Control electronics.** One flux line per qubit and per coupler. Microwave drive and readout multiplexing (~6–8 qubits per feedline).
+- **Control electronics.** One flux line per qubit and per coupler. Microwave drive and readout multiplexing (up to 9 qubits per feedline).
 - **Software.** qpuforge model updates after every characterisation run (the model-vs-measurement gate).

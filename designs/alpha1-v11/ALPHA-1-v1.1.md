@@ -7,7 +7,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 | **Status** | Simulation gate **passed on means**. After the v0.3 recalibration (Lc = 4), one pair (Q8–Q11) leaks 2.3e-4 per CZ, above the 2e-4 limit (§6). Layout first cut (GDSII): placement and spacing checks clean, mask width/space DRC **not clean** (§5). Ready for an external EM cross-check; the mask needs a DRC clean-up before fabrication. |
 | **Supersedes** | Alpha-1 v1.0 (`designs/alpha1/ALPHA-1.md`, qpuforge v0.2) |
 | **Purpose** | First error-correction-ready chip: 17-qubit distance-3 rotated surface code (memory experiment) |
-| **Tooling** | qpuforge v0.3: `alpha1_v11_review` (1,305 s), `qpuforge gds`, `qpuforge cz` |
+| **Tooling** | qpuforge v0.4: `alpha1_v11_review` (744 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
 
 All performance numbers are **simulation results** under the assumptions in §8.
 
@@ -66,14 +66,19 @@ The simulation covers:
 
 The per-pair table is `alpha1_v11_review.json → cz_calibration.per_pair`. The calibration cache is `results/cz_cache.json`.
 
-## 4. Error-correction performance (distance-3 memory-Z, 5–25 rounds, Pauli-frame Monte Carlo + exact MWPM)
+## 4. Error-correction performance (distance-3 memory, 5–25 rounds, Pauli-frame Monte Carlo + exact MWPM)
 
 | | Logical error per round | Round |
 |---|---|---|
-| v1.0 model | 0.440 % ± 0.005 % | 847 ns |
-| **v1.1 model (pulse CZ + leakage + leakage-removing reset)** | **0.368 % ± 0.003 %** | 928 ns |
-| Logical lifetime | **252 µs** = 3.3 × best physical T1 (75.6 µs) | |
-| Distance-5 projection (same physics, 49 qubits) | 0.123 % → **Λ = 3.12** | |
+| v1.0 model | 0.445 % ± 0.006 % | 847 ns |
+| **v1.1 model (pulse CZ + leakage + leakage-removing reset), memory-Z** | **0.375 % ± 0.004 %** | 928 ns |
+| v1.1 model, memory-X (\|+⟩ logical state, phase flips) | 0.360 % ± 0.005 % | 928 ns |
+| Logical lifetime | **247 µs** = 3.3 × best physical T1 (75.6 µs) | |
+| Distance-5 projection (same physics, 49 qubits) | 0.133 % ± 0.007 % → **Λ = 2.93 ± 0.17** | |
+
+The v1.0, lifetime and distance-5 rows are memory-Z. The two bases differ by 0.015 %, which is 2.5 standard errors.
+The ± values are 1σ Monte Carlo errors of the fits. The distance-5 projection compares distance 3 and distance 5 over
+5–15 rounds, a shorter fit than the headline rows.
 
 v1.1 is better than v1.0 despite the slower CZ. The physically modelled control error (≈ 1.06e-3) is about half the
 2e-3 that v1.0 assumed.
@@ -82,29 +87,29 @@ v1.1 is better than v1.0 despite the slower CZ. The physically modelled control 
 
 | | eps / round | P_L (50 rounds) | leaked data / measure |
 |---|---|---|---|
-| Leakage not modelled | 0.374 % | 0.152 | — |
-| No leakage removal | 0.406 % | 0.171 | 1.2e-3 / 1.6e-3 |
-| **Leakage-removing reset (chosen)** | **0.387 %** | **0.159** | 8.1e-5 / 1.2e-4 |
-| + DQLR each round (30 ns, 5e-4 error) | 0.414 % | 0.170 | 7.6e-6 / 1.1e-4 |
-| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.194 / 0.203 | 6.2e-4 / 6.4e-5 |
+| Leakage not modelled | 0.372 % | 0.151 | — |
+| No leakage removal | 0.405 % | 0.170 | 1.2e-3 / 1.6e-3 |
+| **Leakage-removing reset (chosen)** | **0.368 %** | **0.156** | 7.8e-5 / 1.2e-4 |
+| + DQLR each round (30 ns, 5e-4 error) | 0.406 % | 0.171 | 7.3e-6 / 1.1e-4 |
+| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.195 / 0.205 | 6.2e-4 / 6.6e-5 |
 
 **Decision:** the leakage-removing reset is enough for Alpha-1. DQLR removes data-qubit leakage but costs more than it
 saves at distance 3, even at 10× leakage. It is carried to Beta as an option to re-test at distance 5.
 
-**Error budget** (eps change when one source is removed): T1 −78 %, CZ/1q control −39 %, Tφ −27 %, readout −19 %,
-reset −9 %, leakage −1 %; thermal and ZZ +2 % (within Monte Carlo noise).
+**Error budget** (eps change when one source is removed): T1 −78 %, CZ/1q control −40 %, Tφ −30 %, readout −17 %,
+reset −11 %, leakage −4 %, thermal 0 %, ZZ +1 %. Changes of a few per cent are within the Monte Carlo noise.
 
 **Sensitivity** (single change):
 
 | Change | eps change |
 |---|---|
-| Dielectric Q ×2 | −33 % |
-| T_eff 35 mK | −25 % |
-| Readout 300 ns | −22 % |
-| CZ residual 5e-4 | −17 % |
-| Readout separation 0.25 % | −7 % |
-| Flux noise ×3 | +11 % |
-| CZ residual 2e-3 | +44 % |
+| Dielectric Q ×2 | −38 % |
+| T_eff 35 mK | −26 % |
+| Readout 300 ns | −25 % |
+| CZ residual 5e-4 | −20 % |
+| Readout separation 0.25 % | −8 % |
+| Flux noise ×3 | +9 % |
+| CZ residual 2e-3 | +41 % |
 
 These ranks set the Beta-1 upgrade list.
 
@@ -165,7 +170,7 @@ rebuilt from the extracted circuit:
 
 | Criterion | Threshold | Result |
 |---|---|---|
-| d=3 logical error per round | ≤ 0.6 % | 0.368 % ✔ |
+| d=3 logical error per round | ≤ 0.6 % | 0.375 % (memory-Z), 0.360 % (memory-X) ✔ |
 | Logical lifetime vs best T1 | > 2× | 3.3× ✔ |
 | CZ coherent error / leakage | ≤ 5e-4 / ≤ 2e-4 | 8.1e-5 / 5.7e-5 mean ✔; **worst-pair leakage 2.3e-4 exceeds 2e-4** (Lc = 4 recalibration, was 1.3e-4) |
 | Idle ZZ at park | ≤ 10 kHz | 3.9 kHz mean (5.0 kHz re-nulled post-layout) ✔ |
@@ -179,7 +184,7 @@ rebuilt from the extracted circuit:
 3. Airbridges across the coupler and flux-line trenches; dicing lanes, alignment marks, test structures (junction test arrays, resonator Q).
 4. Junction process: target Rn per qubit from the design JSON, with ≤ 2 % spread (or trimming).
 5. Calibration plan: idle frequencies; coupler exchange-null park per pair; the 3-knob CZ; leakage-removing reset tune-up.
-6. Characterisation plan to measure the parameters behind the hardware gate in ROADMAP.md. The most important single number is the CZ residual control error.
+6. Characterisation: follow `CHARACTERISATION-PLAN.md`. It sets the order of measurements and the data file, and `qpuforge hwgate` turns that file into the hardware-gate verdict of ROADMAP.md, including model versus measurement. The most important single number is the CZ residual control error.
 
 ## 8. Assumptions and limitations
 
@@ -199,4 +204,6 @@ rebuilt from the extracted circuit:
 | `layout_cells.json` | Synthesised cell geometry, achieved vs target circuit, synthesis log |
 | `AF17_v11.gds` | GDSII layout |
 | `AF17_v11_layout.png`, `AF17_v11_detail.png` | Previews rendered from the GDSII by an independent reader |
+| `CHARACTERISATION-PLAN.md` | What to measure on the fabricated chip, the data-file format, and how the hardware gate is evaluated |
+| `example_characterisation_synthetic.json`, `example_gate_report_synthetic.json` | A virtual chip's data file and its gate report (synthetic; for rehearsing the tool chain) |
 | `../../results/cz_cache.json` | Pulse-level CZ calibrations (coherent part) |

@@ -50,6 +50,7 @@ Testing/
 /examples/alpha1_review
 /examples/alpha1_v11_review
 /examples/beta1_review
+/examples/gamma1_review
 
 # Compiler / linter / editor caches
 .cache/
@@ -65,3 +66,4 @@ Testing/
 *.user
 .DS_Store
 Thumbs.db
+!tests/compare_thread_digests.cmake

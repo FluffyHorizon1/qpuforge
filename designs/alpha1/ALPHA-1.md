@@ -3,6 +3,16 @@
 **Status:** alpha design, frozen 24 Nov 2026. Verified in the qpuforge emulator only: not yet electromagnetically simulated
 or fabricated. **Owner:** Secured Cyber Solutions Ltd.
 
+> **Two model states in this file (since PR #2, merged 27 Nov 2026).** The summary table and section 2 describe the
+> design as `alpha1()` builds it on `main`: 1 MHz direct coupling (0.035 fF), a coupler transmon parked at the exchange
+> null (idle ZZ −4 to −14 kHz, computed) and the CZ flux-noise term. **Sections 3 to 7 (improvement ladder, error
+> budget, sensitivity, scaling, yield) are the Alpha-1 v1.0 review of 24 November 2026**, run before PR #2: 4 MHz
+> direct coupling (0.14 fF), a typed 5 kHz idle ZZ and no CZ flux-noise term. They come from
+> `designs/alpha1/alpha1_review.{txt,json}` (= `results/alpha1_review.*`), which are historical outputs and were not
+> regenerated. They reproduce byte for byte only with the binary committed in `3fe4d23`, run with
+> `OMP_NUM_THREADS=2` (recipe in `results/PROVENANCE.md`). Running `examples/alpha1_review` built from `main` gives
+> different Alpha-1 rows. See `designs/alpha1/README.md`.
+
 Alpha-1 is the first error-correction-ready processor in the stack: a 17-qubit, distance-3 rotated surface code built from
 flux-tunable transmons with tunable couplers. It is designed to demonstrate repeated stabiliser measurement and a protected
 logical qubit, using a physics package that, extended to distance 5, is predicted to sit below the surface-code threshold.
@@ -72,7 +82,7 @@ and 10 rounds). The table gives the logical error per round.
 | Design step | Logical error / round | Round time |
 |---|---|---|
 | Gen-0: fixed capacitive coupling g = 3 MHz (best of the 3×3 sweep), 800 ns readout, measurement-based reset | 1.23 % | 1907 ns |
-| + tunable couplers (CZ 187 → 23 ns, idle ZZ 29 → 5 kHz) | 0.54 % | 1253 ns |
+| + tunable couplers (CZ 187 → 23 ns, idle ZZ 29 → 5 kHz typed residual, v1.0) | 0.54 % | 1253 ns |
 | + fast readout with Purcell filtering (500 ns, κ = 4 MHz) | 0.54 % | 953 ns |
 | + active reset (200 ns, 0.3 % error) = **Alpha-1** | **0.45 %** | **853 ns** |
 
@@ -118,8 +128,8 @@ One change at a time from Alpha-1 (logical error per round, d = 3):
 | Residual coupler ZZ 5 → 1 kHz | 0.46 % | 0 % |
 
 The next revision should spend its effort on CZ calibration and leakage control, materials and surface treatment for T1,
-and faster readout combined with better attenuation and filtering of the readout lines. Shaving residual ZZ below 5 kHz buys
-nothing.
+and faster readout combined with better attenuation and filtering of the readout lines. In the v1.0 model, shaving residual ZZ
+below 5 kHz buys nothing. (The PR #2 coupler model gives −4 to −14 kHz instead; that budget has not been re-run.)
 
 ## 6. Scaling: is the physics below threshold?
 
@@ -144,7 +154,8 @@ frequency trimming) is enough for Alpha-1's frequency plan.
 * **Layout electromagnetics:** capacitances come from the lumped model and the inverse design, not from an EM solve of a real
   layout. Box modes, slotline modes and spurious couplings are absent.
 * **Pauli-frame approximation:** validated against exact statevector trajectories (amplitude damping, readout, reset, control
-  noise all agree within statistics). Strong coherent ZZ is under-counted, which is negligible at Alpha-1's 5 kHz residual.
+  noise all agree within statistics). Strong coherent ZZ is under-counted, which is negligible at the v1.0 typed 5 kHz residual;
+  it has not been re-checked at the computed −4 to −14 kHz.
 * The decoder is minimum-weight matching on the circuit's own detector error model. It is exact for d = 3 and 5 here, and was
   verified to correct every single fault (d = 3) and every pair of faults sampled (d = 5).
 
@@ -173,5 +184,10 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ./build/qpuforge analyze alpha1.json                      # device report
 ./build/qpuforge qec alpha1.json --statevector 300        # logical error per round (+ exact cross-check)
 ./build/qpuforge layout alpha1.json alpha1_layout.svg
-./build/alpha1_review                                     # everything in this document (≈ 7 min on 2 cores)
+./build/alpha1_review                                     # a NEW review from the current code (≈ 7 min on 2 cores)
 ```
+
+On `main` the first four commands reproduce the summary table and section 2. They do not reproduce sections 3 to 7: those
+are the v1.0 review, and only the `3fe4d23` binary recipe in `results/PROVENANCE.md` regenerates them. `alpha1_review`
+writes `examples/alpha1.json` and `results/alpha1_review.json` relative to the working directory, so run it from a scratch
+directory unless you intend to replace the historical v1.0 files.

@@ -1,0 +1,117 @@
+{
+  "phase": "alpha",
+  "pass": true,
+  "evaluated": 10,
+  "passed": 10,
+  "missing": 0,
+  "checks": [
+    {
+      "name": "Median T1 (us)",
+      "criterion": ">= 50",
+      "value": 67.1554606676,
+      "threshold": 50,
+      "worst": 22.2685537684,
+      "evaluated": true,
+      "pass": true,
+      "note": ""
+    },
+    {
+      "name": "Median T2 echo (us)",
+      "criterion": ">= 40",
+      "value": 60.2958225916,
+      "threshold": 40,
+      "worst": 27.3288960967,
+      "evaluated": true,
+      "pass": true,
+      "note": ""
+    },
+    {
+      "name": "Median single-qubit gate error",
+      "criterion": "<= 1e-3",
+      "value": 0.000287521130676,
+      "threshold": 0.001,
+      "worst": 0.000576984764584,
+      "evaluated": true,
+      "pass": true,
+      "note": ""
+    },
+    {
+      "name": "Median CZ error",
+      "criterion": "<= 5e-3",
+      "value": 0.00191503545373,
+      "threshold": 0.005,
+      "worst": 0.00328215564771,
+      "evaluated": true,
+      "pass": true,
+      "note": ""
+    },
+    {
+      "name": "Median CZ leakage per gate",
+      "criterion": "<= 1e-3",
+      "value": 4.10629133925e-05,
+      "threshold": 0.001,
+      "worst": 0.000322171038615,
+      "evaluated": true,
+      "pass": true,
+      "note": ""
+    },
+    {
+      "name": "Median readout assignment error",
+      "criterion": "<= 2%",
+      "value": 0.00745434364892,
+      "threshold": 0.02,
+      "worst": 0.013504420845,
+      "evaluated": true,
+      "pass": true,
+      "note": ""
+    },
+    {
+      "name": "Median idle |ZZ| (kHz)",
+      "criterion": "<= 20",
+      "value": 3.94404522663,
+      "threshold": 20,
+      "worst": 9.08460956132,
+      "evaluated": true,
+      "pass": true,
+      "note": ""
+    },
+    {
+      "name": "Distance-3 logical error per round",
+      "criterion": "<= 1.5%",
+      "value": 0.00494963104854,
+      "threshold": 0.015,
+      "worst": null,
+      "evaluated": true,
+      "pass": true,
+      "note": ""
+    },
+    {
+      "name": "Detection-rate drift over 25 rounds",
+      "criterion": "< 10%",
+      "value": 0.00611095197174,
+      "threshold": 0.1,
+      "worst": null,
+      "evaluated": true,
+      "pass": true,
+      "note": "25 rounds, first vs last 5"
+    },
+    {
+      "name": "Model vs measurement (larger of measured/model and its inverse)",
+      "criterion": "<= 2",
+      "value": 1.06261618259,
+      "threshold": 2,
+      "worst": null,
+      "evaluated": true,
+      "pass": true,
+      "note": ""
+    }
+  ],
+  "model_vs_measurement": [
+    {"d": 3, "basis": "X", "eps_measured": 0.00498132421352, "eps_model": 0.00499426950382, "ratio": 0.997407971217, "round_counts": 3},
+    {"d": 3, "basis": "Z", "eps_measured": 0.00491793788357, "eps_model": 0.00522588038004, "ratio": 0.941073565776, "round_counts": 3}
+  ],
+  "qubits_measured": 17,
+  "pairs_measured": 24,
+  "pairs_designed": 24,
+  "notes": []
+}

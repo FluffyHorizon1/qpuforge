@@ -1,19 +1,24 @@
 // qpuforge — quantum error correction on an emulated chip
 //
-//   memory_z_experiment : rotated surface-code memory (prepare |0>_L, R rounds of stabiliser measurement with
-//                         mid-circuit measurement + reset of the measure qubits, final data readout)
+//   memory_experiment   : rotated surface-code memory in the Z or the X basis (prepare |0>_L or |+>_L, R rounds of
+//                         stabiliser measurement with mid-circuit measurement + reset of the measure qubits, final
+//                         data readout in the same basis)
 //   FrameProgram        : Pauli-frame model of the compiled (Clifford) schedule with physics-derived Pauli noise
 //                         (Pauli-twirled T1/T_phi, control errors, ZZ crosstalk, readout flips, reset errors)
 //   enumerate_faults    : every single fault location -> which detectors / the logical it flips
 //   build_dem           : detector error model (graph with fault-probability weights) from those signatures
-//   MatchingDecoder     : exact minimum-weight perfect matching (bitmask DP over defects, all-pairs paths)
+//   MatchingDecoder     : exact minimum-weight perfect matching for any number of defects (bitmask DP for a few
+//                         defects, Edmonds' blossom algorithm beyond; all-pairs shortest paths in the detector graph)
 //   run_memory_frame    : fast Monte Carlo of logical error rate (Pauli frames)
 //   run_memory_statevector : the same experiment with the exact non-Pauli noise (amplitude damping, coherent ZZ),
 //                         one statevector trajectory per shot — used to validate the Pauli-frame approximation
 #pragma once
 #include "emulator.hpp"
+#include "matching.hpp"
 #include "surface.hpp"
+#include <chrono>
 #include <cstdio>
+#include <limits>
 #include <unordered_map>
 
 namespace qpuforge {
@@ -21,20 +26,26 @@ namespace qpuforge {
 // ================================================================== memory experiment
 struct MemoryExperiment {
     Circuit circuit;
-    std::vector<std::vector<int>> detectors;   // decoded (Z-type) detectors: XOR of these classical bits
-    std::vector<int> observable;               // logical Z = XOR of these classical bits
+    std::vector<std::vector<int>> detectors;   // decoded detectors (stabilisers of the memory basis): XOR of these bits
+    std::vector<int> observable;               // the logical operator of the memory basis = XOR of these classical bits
     std::vector<std::string> detector_label;
+    std::vector<int> detector_round;           // syndrome round of each detector (rounds = the final data readout)
     std::vector<int> reference;                // noiseless value of each classical bit: 0/1 if deterministic, -1 if random
     int rounds{0}, d{0};
+    char basis{'Z'};
 };
 
-inline MemoryExperiment memory_z_experiment(const SurfaceCode& S, int rounds) {
+// basis 'Z': |0>_L, Z-type detectors, logical Z (sensitive to bit flips).
+// basis 'X': |+>_L, X-type detectors, logical X (sensitive to phase flips).
+inline MemoryExperiment memory_experiment(const SurfaceCode& S, int rounds, char basis = 'Z') {
     if (rounds < 1) throw std::runtime_error("memory experiment needs >= 1 round");
-    MemoryExperiment E; E.rounds = rounds; E.d = S.d;
+    if (basis != 'Z' && basis != 'X') throw std::runtime_error("memory basis must be 'Z' or 'X'");
+    MemoryExperiment E; E.rounds = rounds; E.d = S.d; E.basis = basis;
     Circuit& C = E.circuit;
     C.n = S.n_qubits();
-    C.name = "memory-Z d=" + std::to_string(S.d) + " R=" + std::to_string(rounds);
+    C.name = std::string("memory-") + basis + " d=" + std::to_string(S.d) + " R=" + std::to_string(rounds);
     for (int q = 0; q < C.n; ++q) C.reset(q);
+    if (basis == 'X') for (const auto& dq : S.data) C.h(dq.qubit);
     std::vector<std::vector<int>> mb(S.stabs.size());
     int cb = 0;
     for (int r = 0; r < rounds; ++r) {
@@ -49,22 +60,27 @@ inline MemoryExperiment memory_z_experiment(const SurfaceCode& S, int rounds) {
         if (r + 1 < rounds) for (const auto& st : S.stabs) C.reset(st.qubit);
     }
     std::vector<int> db(S.data.size());
+    if (basis == 'X') for (const auto& dq : S.data) C.h(dq.qubit);
     for (std::size_t k = 0; k < S.data.size(); ++k) { C.measure(S.data[k].qubit, cb); db[k] = cb++; }
-    // Z-stabiliser outcomes are deterministic (+1 -> bit 0) for |0>_L; X-stabiliser and data outcomes are random
+    // stabilisers of the memory basis are deterministic (+1 -> bit 0); the other type and the data outcomes are random
     E.reference.assign(std::size_t(cb), -1);
-    for (std::size_t s = 0; s < S.stabs.size(); ++s) if (S.stabs[s].type == 'Z') for (int c : mb[s]) E.reference[std::size_t(c)] = 0;
+    for (std::size_t s = 0; s < S.stabs.size(); ++s) if (S.stabs[s].type == basis) for (int c : mb[s]) E.reference[std::size_t(c)] = 0;
     for (std::size_t s = 0; s < S.stabs.size(); ++s) {
-        if (S.stabs[s].type != 'Z') continue;
-        const std::string nm = "Z@(" + std::to_string(S.stabs[s].x) + "," + std::to_string(S.stabs[s].y) + ")";
-        E.detectors.push_back({mb[s][0]}); E.detector_label.push_back(nm + " r0");
-        for (int r = 1; r < rounds; ++r) { E.detectors.push_back({mb[s][std::size_t(r)], mb[s][std::size_t(r - 1)]}); E.detector_label.push_back(nm + " r" + std::to_string(r)); }
+        if (S.stabs[s].type != basis) continue;
+        const std::string nm = std::string(1, basis) + "@(" + std::to_string(S.stabs[s].x) + "," + std::to_string(S.stabs[s].y) + ")";
+        E.detectors.push_back({mb[s][0]}); E.detector_label.push_back(nm + " r0"); E.detector_round.push_back(0);
+        for (int r = 1; r < rounds; ++r) {
+            E.detectors.push_back({mb[s][std::size_t(r)], mb[s][std::size_t(r - 1)]});
+            E.detector_label.push_back(nm + " r" + std::to_string(r)); E.detector_round.push_back(r);
+        }
         std::vector<int> fin{mb[s][std::size_t(rounds - 1)]};
         for (int k : S.stabs[s].support) fin.push_back(db[std::size_t(k)]);
-        E.detectors.push_back(fin); E.detector_label.push_back(nm + " final");
+        E.detectors.push_back(fin); E.detector_label.push_back(nm + " final"); E.detector_round.push_back(rounds);
     }
-    for (int k : S.logical_z) E.observable.push_back(db[std::size_t(k)]);
+    for (int k : (basis == 'Z' ? S.logical_z : S.logical_x)) E.observable.push_back(db[std::size_t(k)]);
     return E;
 }
+inline MemoryExperiment memory_z_experiment(const SurfaceCode& S, int rounds) { return memory_experiment(S, rounds, 'Z'); }
 
 // ================================================================== fast RNG for frame sampling
 struct Xoshiro256 {
@@ -80,6 +96,20 @@ struct Xoshiro256 {
     }
     double uniform() { return double(next() >> 11) * 0x1.0p-53; }
 };
+
+// Counter-based seeding for the frame Monte Carlo (thread-count independent).
+//   splitmix64_mix: the SplitMix64 finaliser, a bijection on 64-bit words.
+//   frame_shot_seed(seed, shot): the Xoshiro256 seed for one shot. A frame's stream is keyed by mix(seed), so adjacent
+//   frame seeds (the review programs use seed + rounds) get unrelated keys; shot k then takes SplitMix64 outputs
+//   4k+1 .. 4k+4 of that key's sequence (Xoshiro256's constructor consumes four, one golden-ratio step each). Shots of
+//   one frame therefore never share state, and every shot's draws depend only on (seed, shot), not on which thread
+//   ran it or in what order. See docs/design/deterministic-mc.md.
+inline std::uint64_t splitmix64_mix(std::uint64_t z) {
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL; z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL; return z ^ (z >> 31);
+}
+inline std::uint64_t frame_shot_seed(std::uint64_t seed, std::uint64_t shot) {
+    return splitmix64_mix(seed ^ 0x6A09E667F3BCC909ULL) + shot * (4 * 0x9E3779B97F4A7C15ULL);
+}
 
 // ================================================================== Pauli-frame program
 struct FrameProgram {
@@ -264,7 +294,9 @@ struct FaultSignature {
     std::string what;
 };
 
-inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const MemoryExperiment& E) {
+// Straightforward version: every fault is propagated through every later operation of the whole chip. Kept as the
+// reference that the fast enumeration below is tested against.
+inline std::vector<FaultSignature> enumerate_faults_reference(const FrameProgram& F, const MemoryExperiment& E) {
     std::vector<FaultSignature> out;
     std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1)));
     auto evaluate = [&](FaultSignature& s) {
@@ -323,6 +355,141 @@ inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const
     return out;
 }
 
+// Fast version, same output in the same order. A single fault touches a handful of qubits, so only the operations on
+// the qubits that currently carry a Pauli are applied, and only the detectors of the classical bits it flipped are
+// evaluated. Moments without an operation on those qubits are skipped altogether: a chip with per-pair CZ durations
+// is cut into several times more time slices than it has gate layers, and most of them only carry idle noise.
+// Signatures are computed in parallel.
+inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const MemoryExperiment& E) {
+    struct Desc { int moment; int kind; int cbit; int np; int P[2]; int q[2]; double p; std::string what; };   // kind 0: Paulis, 1: readout flip
+    std::vector<Desc> list;
+    auto pauli = [&](std::size_t m, std::initializer_list<std::pair<int, int>> ps, double p, std::string what) {
+        if (p <= 0) return;
+        Desc d{int(m), 0, -1, 0, {0, 0}, {0, 0}, p, std::move(what)};
+        for (auto [P, q] : ps) { d.P[d.np] = P; d.q[d.np] = q; ++d.np; }
+        list.push_back(std::move(d));
+    };
+    for (std::size_t m = 0; m < F.moments.size(); ++m) {
+        const auto& fm = F.moments[m];
+        for (const auto& o : fm.ops) {
+            if (o.op == Op::MEASURE && o.p > 0) list.push_back({int(m), 1, o.cbit, 0, {0, 0}, {0, 0}, o.p, "readout flip q" + std::to_string(o.a)});
+            if (o.op == Op::RESET) pauli(m, {{1, o.a}}, o.p, "reset error q" + std::to_string(o.a));
+        }
+        for (int q : fm.ctrl1) for (int P = 1; P <= 3; ++P) pauli(m, {{P, q}}, F.p1 / 3, "1q control q" + std::to_string(q));
+        for (const auto& c2 : fm.ctrl2)
+            for (int k = 1; k < 16; ++k) {
+                const std::string what = "CZ control q" + std::to_string(c2.a) + ",q" + std::to_string(c2.b);
+                if (k % 4 && k / 4) pauli(m, {{k % 4, c2.a}, {k / 4, c2.b}}, c2.p / 15, what);
+                else if (k % 4) pauli(m, {{k % 4, c2.a}}, c2.p / 15, what);
+                else pauli(m, {{k / 4, c2.b}}, c2.p / 15, what);
+            }
+        if (F.dqlr_err > 0) for (int q : fm.dqlr) for (int P = 1; P <= 3; ++P) pauli(m, {{P, q}}, F.dqlr_err / 3, "DQLR q" + std::to_string(q));
+        for (const auto& t : fm.zz) {
+            pauli(m, {{3, t.a}}, t.pa, "ZZ");
+            pauli(m, {{3, t.b}}, t.pb, "ZZ");
+            pauli(m, {{3, t.a}, {3, t.b}}, t.pab, "ZZ");
+        }
+        for (const auto& dq : fm.deco) {
+            pauli(m, {{1, dq.q}}, dq.px, "decoherence q" + std::to_string(dq.q));
+            pauli(m, {{2, dq.q}}, dq.py, "decoherence q" + std::to_string(dq.q));
+            pauli(m, {{3, dq.q}}, dq.pz, "decoherence q" + std::to_string(dq.q));
+        }
+    }
+    // operations of each moment by qubit (in program order), detectors of each classical bit, observable membership
+    const std::size_t nq = std::size_t(F.n), nm = F.moments.size(), ncl = std::size_t(std::max(F.nclbits, 1));
+    std::vector<std::vector<std::vector<int>>> ops_of(nm, std::vector<std::vector<int>>(nq));
+    for (std::size_t m = 0; m < nm; ++m)
+        for (std::size_t k = 0; k < F.moments[m].ops.size(); ++k) {
+            const auto& o = F.moments[m].ops[k];
+            ops_of[m][std::size_t(o.a)].push_back(int(k));
+            if (o.op == Op::CZ) ops_of[m][std::size_t(o.b)].push_back(int(k));
+        }
+    std::vector<std::vector<int>> dets_of(ncl);
+    for (std::size_t d = 0; d < E.detectors.size(); ++d) for (int c : E.detectors[d]) dets_of[std::size_t(c)].push_back(int(d));
+    std::vector<char> in_obs(ncl, 0);
+    for (int c : E.observable) in_obs[std::size_t(c)] ^= 1;
+    // the moments in which each qubit has an operation, ascending
+    std::vector<std::vector<int>> active(nq);
+    for (std::size_t m = 0; m < nm; ++m) for (std::size_t q = 0; q < nq; ++q) if (!ops_of[m][q].empty()) active[q].push_back(int(m));
+    const int none = std::numeric_limits<int>::max();
+
+    std::vector<FaultSignature> out(list.size());
+#pragma omp parallel
+    {
+        std::vector<std::uint8_t> x(nq, 0), z(nq, 0), flips(ncl, 0), dpar(E.detectors.size(), 0);
+        std::vector<char> in_sup(nq, 0);
+        std::vector<std::size_t> next_of(nq, 0);                        // per qubit: index into active[q] of its next moment
+        std::vector<int> sup, cb_touched, det_touched, pending, extra;
+#pragma omp for schedule(dynamic, 256)
+        for (long i = 0; i < long(list.size()); ++i) {
+            const Desc& d = list[std::size_t(i)];
+            int cur = d.moment;                                         // the moment being processed (the fault's own at first)
+            auto add = [&](int q) {
+                if (in_sup[std::size_t(q)]) return;
+                in_sup[std::size_t(q)] = 1; sup.push_back(q);
+                const auto& a = active[std::size_t(q)];
+                next_of[std::size_t(q)] = std::size_t(std::upper_bound(a.begin(), a.end(), cur) - a.begin());
+            };
+            if (d.kind == 1) { flips[std::size_t(d.cbit)] = 1; cb_touched.push_back(d.cbit); }
+            else {
+                for (int k = 0; k < d.np; ++k) { frame_detail::apply_pauli(d.P[k], d.q[k], x.data(), z.data()); add(d.q[k]); }
+                for (;;) {
+                    // the next moment with an operation on a qubit that carries a Pauli
+                    int nxt = none;
+                    for (int q : sup) {
+                        if (!(x[std::size_t(q)] | z[std::size_t(q)])) continue;
+                        const auto& a = active[std::size_t(q)];
+                        std::size_t& p = next_of[std::size_t(q)];
+                        while (p < a.size() && a[p] <= cur) ++p;
+                        if (p < a.size()) nxt = std::min(nxt, a[p]);
+                    }
+                    if (nxt == none) break;
+                    cur = nxt;
+                    const std::size_t m = std::size_t(cur);
+                    // operations of this moment on the qubits that carry a Pauli, in program order; a CZ can bring its
+                    // partner in, whose later operations in the same moment then join the list
+                    pending.clear();
+                    for (int q : sup) if (x[std::size_t(q)] | z[std::size_t(q)]) for (int k : ops_of[m][std::size_t(q)]) pending.push_back(k);
+                    std::sort(pending.begin(), pending.end());
+                    pending.erase(std::unique(pending.begin(), pending.end()), pending.end());
+                    for (std::size_t n = 0; n < pending.size(); ++n) {
+                        const int k = pending[n];
+                        const auto& o = F.moments[m].ops[std::size_t(k)];
+                        if (o.op == Op::CZ) {
+                            for (int q : {o.a, o.b}) {
+                                add(q);
+                                extra.clear();
+                                for (int k2 : ops_of[m][std::size_t(q)])
+                                    if (k2 > k && !std::binary_search(pending.begin() + std::ptrdiff_t(n) + 1, pending.end(), k2)) extra.push_back(k2);
+                                if (!extra.empty()) {
+                                    pending.insert(pending.end(), extra.begin(), extra.end());
+                                    std::sort(pending.begin() + std::ptrdiff_t(n) + 1, pending.end());
+                                }
+                            }
+                        } else if (o.op == Op::MEASURE) cb_touched.push_back(o.cbit);
+                        frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                    }
+                }
+            }
+            FaultSignature s; s.p = d.p; s.moment = d.moment; s.what = d.what;
+            std::uint8_t ob = 0;
+            for (int c : cb_touched) if (flips[std::size_t(c)]) {
+                flips[std::size_t(c)] = 0;                               // also clears duplicates in cb_touched
+                ob ^= std::uint8_t(in_obs[std::size_t(c)]);
+                for (int dt : dets_of[std::size_t(c)]) { if (!dpar[std::size_t(dt)]) det_touched.push_back(dt); dpar[std::size_t(dt)] ^= 1; }
+            }
+            std::sort(det_touched.begin(), det_touched.end());
+            det_touched.erase(std::unique(det_touched.begin(), det_touched.end()), det_touched.end());
+            for (int dt : det_touched) { if (dpar[std::size_t(dt)]) s.dets.push_back(dt); dpar[std::size_t(dt)] = 0; }
+            s.obs = ob;
+            out[std::size_t(i)] = std::move(s);
+            for (int q : sup) { x[std::size_t(q)] = 0; z[std::size_t(q)] = 0; in_sup[std::size_t(q)] = 0; }
+            sup.clear(); cb_touched.clear(); det_touched.clear();
+        }
+    }
+    return out;
+}
+
 struct DEMEdge { int a, b; bool obs; double p; };   // b = -1: boundary
 struct DetectorErrorModel {
     int n_det{0};
@@ -348,6 +515,24 @@ inline DetectorErrorModel build_dem(const std::vector<FaultSignature>& faults, i
 }
 
 // ================================================================== minimum-weight perfect matching decoder
+// Defects are matched to each other or to the boundary along all-pairs shortest paths of the detector graph (the
+// boundary is a node of that graph, so "both to the boundary" is one of the paths between two defects).
+//   DP       exact bitmask dynamic programme, O(2^k k): fastest for a few defects
+//   Blossom  exact for any number of defects (matching.hpp), O(k^3)
+//   Auto     DP up to dp_max defects, blossom beyond
+//   Greedy   closest-pair heuristic (not exact)
+//   Legacy   the v0.3 behaviour, DP up to 22 defects and greedy beyond; kept for regression comparisons
+enum class DecodeMethod { Auto, DP, Blossom, Greedy, Legacy };
+
+struct DecodeScratch {
+    std::vector<double> cost;
+    std::vector<int> choice, nodes;
+    BlossomMatcher bm;
+    std::vector<BlossomMatcher::W> w;
+    double weight{0};                          // total weight of the last matching
+    DecodeMethod used{DecodeMethod::Auto};     // what the last call ran
+};
+
 class MatchingDecoder {
 public:
     explicit MatchingDecoder(const DetectorErrorModel& M) : N_(M.n_det), V_(M.n_det + 1) {
@@ -369,12 +554,39 @@ public:
                 if (c < dist_[idx(i, j)]) { dist_[idx(i, j)] = c; par_[idx(i, j)] = par_[idx(i, k)] ^ par_[idx(k, j)]; }
             }
         }
+        double mx = 1;
+        for (double v : dist_) if (v < INF) mx = std::max(mx, v);
+        cap_ = 4 * mx + 16;                    // stands in for "unreachable" in the integer matching
     }
-    // returns the predicted logical flip for a set of fired detectors
-    int decode(const std::vector<int>& def, std::vector<double>& cost, std::vector<int>& choice) const {
+    int n_detectors() const { return N_; }
+    double dist(int a, int b) const { return dist_[idx(a, b < 0 ? N_ : b)]; }   // b = -1: the boundary
+    void set_dp_max(int k) { dp_max_ = std::clamp(k, 0, 24); }
+    int dp_max() const { return dp_max_; }
+
+    // predicted logical flip for a set of fired detectors
+    int decode(const std::vector<int>& def, DecodeScratch& ws, DecodeMethod method = DecodeMethod::Auto) const {
         const int k = int(def.size());
+        ws.weight = 0; ws.used = method;
         if (k == 0) return 0;
-        if (k > 22) return greedy(def);
+        if (method == DecodeMethod::Legacy) method = k > 22 ? DecodeMethod::Greedy : DecodeMethod::DP;
+        if (method == DecodeMethod::Auto) method = k <= dp_max_ ? DecodeMethod::DP : DecodeMethod::Blossom;
+        if (method == DecodeMethod::DP && k > 24) method = DecodeMethod::Blossom;   // the DP table would not fit
+        ws.used = method;
+        if (method == DecodeMethod::Greedy) return greedy(def, ws.weight);
+        if (method == DecodeMethod::Blossom) return blossom(def, ws);
+        return dp(def, ws);
+    }
+
+private:
+    int N_, V_, dp_max_{8};        // measured crossover: the DP wins only up to about 8 defects
+    double cap_{0};
+    std::vector<double> dist_;
+    std::vector<std::uint8_t> par_;
+    std::size_t idx(int i, int j) const { return std::size_t(i) * std::size_t(V_) + std::size_t(j); }
+
+    int dp(const std::vector<int>& def, DecodeScratch& ws) const {
+        const int k = int(def.size());
+        auto& cost = ws.cost; auto& choice = ws.choice;
         const std::size_t full = (std::size_t(1) << k) - 1;
         cost.assign(full + 1, 0.0);
         choice.assign(full + 1, -1);
@@ -390,6 +602,7 @@ public:
             }
             cost[mask] = best; choice[mask] = ch;
         }
+        ws.weight = cost[full];
         int parity = 0;
         std::size_t mask = full;
         while (mask) {
@@ -400,20 +613,44 @@ public:
         }
         return parity;
     }
-
-private:
-    int N_, V_;
-    std::vector<double> dist_;
-    std::vector<std::uint8_t> par_;
-    std::size_t idx(int i, int j) const { return std::size_t(i) * std::size_t(V_) + std::size_t(j); }
-    int greedy(std::vector<int> def) const {
+    // Perfect matching of the defects (plus the boundary node when their number is odd) on the complete graph of
+    // shortest-path distances. Distances are scaled to integers; subtracting them from a constant larger than any
+    // matching's total turns "minimum-weight perfect" into "maximum-weight".
+    int blossom(const std::vector<int>& def, DecodeScratch& ws) const {
+        using W = BlossomMatcher::W;
+        ws.nodes = def;
+        if (def.size() % 2) ws.nodes.push_back(N_);
+        const int n = int(ws.nodes.size());
+        const std::size_t sn = std::size_t(n);
+        const double scale = 1048576.0;
+        ws.w.assign(sn * sn, 0);
+        W wmax = 0;
+        for (std::size_t i = 0; i < sn; ++i) for (std::size_t j = i + 1; j < sn; ++j) {
+            const W wi = static_cast<W>(std::llround(std::min(dist_[idx(ws.nodes[i], ws.nodes[j])], cap_) * scale));
+            ws.w[i * sn + j] = ws.w[j * sn + i] = wi;
+            wmax = std::max(wmax, wi);
+        }
+        const W big = (static_cast<W>(n) / 2 + 1) * wmax + 1;
+        for (std::size_t i = 0; i < sn; ++i) for (std::size_t j = 0; j < sn; ++j) if (i != j) ws.w[i * sn + j] = big - ws.w[i * sn + j];
+        const auto& mate = ws.bm.solve(n, ws.w);
         int parity = 0;
+        for (std::size_t i = 0; i < sn; ++i) {
+            const int j = mate[i];
+            if (j < 0) { ws.used = DecodeMethod::Greedy; return greedy(def, ws.weight); }   // cannot happen on a complete graph
+            if (int(i) < j) { parity ^= par_[idx(ws.nodes[i], ws.nodes[std::size_t(j)])]; ws.weight += dist_[idx(ws.nodes[i], ws.nodes[std::size_t(j)])]; }
+        }
+        return parity;
+    }
+    int greedy(std::vector<int> def, double& weight) const {
+        int parity = 0;
+        weight = 0;
         while (!def.empty()) {
             double best = 1e300; int bi = 0, bj = -1;
             for (std::size_t i = 0; i < def.size(); ++i) {
                 if (dist_[idx(def[i], N_)] < best) { best = dist_[idx(def[i], N_)]; bi = int(i); bj = -1; }
                 for (std::size_t j = i + 1; j < def.size(); ++j) if (dist_[idx(def[i], def[j])] < best) { best = dist_[idx(def[i], def[j])]; bi = int(i); bj = int(j); }
             }
+            weight += best;
             if (bj < 0) { parity ^= par_[idx(def[std::size_t(bi)], N_)]; def.erase(def.begin() + bi); }
             else { parity ^= par_[idx(def[std::size_t(bi)], def[std::size_t(bj)])]; def.erase(def.begin() + bj); def.erase(def.begin() + bi); }
         }
@@ -433,6 +670,16 @@ struct MemoryResult {
     double hyperedge_p{0};
     double leak_frac_data{0}, leak_frac_meas{0};   // time-averaged fraction of leaked qubits (frame model with leakage)
     double leak_events_per_shot{0};                // leakage injections per shot
+    std::vector<double> detection_by_round;        // detection fraction per syndrome round (last entry: final data readout)
+    double mean_defects{0};                        // fired detectors per shot
+    int max_defects{0};
+    double frac_over_22{0};                        // shots with more than 22 defects (decoded greedily before v0.4)
+    double decode_us_per_shot{0};                  // software decoding time per shot on one core
+};
+
+struct FrameRunOptions {
+    const MatchingDecoder* decoder{nullptr};         // decode with this instead of the setup's own (model-mismatch studies)
+    DecodeMethod method{DecodeMethod::Auto};
 };
 
 inline double eps_from_PL(double PL, int R) { return PL < 0.5 ? 0.5 * (1 - std::pow(1 - 2 * PL, 1.0 / R)) : 0.5; }
@@ -447,11 +694,13 @@ struct MemorySetup {
     std::vector<char> is_data;                 // by sim index
 };
 
-inline MemorySetup prepare_memory(const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, int rounds) {
+// build_decoder = false skips the fault enumeration, the detector error model and the decoder (the expensive part):
+// for runs that are decoded with another setup's decoder.
+inline MemorySetup prepare_memory(const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, int rounds, char basis = 'Z', bool build_decoder = true) {
     if (D.surface_d <= 0) throw std::runtime_error("chip is not a surface-code layout (generate it with topology 'surface')");
     MemorySetup M;
     M.code = rotated_surface_code(D.surface_d);
-    M.exp = memory_z_experiment(M.code, rounds);
+    M.exp = memory_experiment(M.code, rounds, basis);
     CompileOptions co; co.layout = "trivial";
     M.prog = compile(M.exp.circuit, chip_graph(D, R), co);
     if (M.prog.n_swaps) throw std::runtime_error("surface-code circuit needed SWAPs: couplers do not match the code layout");
@@ -473,8 +722,10 @@ inline MemorySetup prepare_memory(const ChipDesign& D, const ChipReport& R, cons
         M.is_data.assign(std::size_t(M.frame.n), 0);
         for (const auto& dq : M.code.data) { const int s = sim[std::size_t(D.index_of(dq.qubit))]; if (s >= 0) M.is_data[std::size_t(s)] = 1; }
     }
-    M.dem = build_dem(enumerate_faults(M.frame, M.exp), int(M.exp.detectors.size()));
-    M.decoder = std::make_unique<MatchingDecoder>(M.dem);
+    if (build_decoder) {
+        M.dem = build_dem(enumerate_faults(M.frame, M.exp), int(M.exp.detectors.size()));
+        M.decoder = std::make_unique<MatchingDecoder>(M.dem);
+    }
     return M;
 }
 
@@ -510,109 +761,149 @@ inline MemoryResult summarize(const MemorySetup& M, long shots, long errors, dou
 //    (random Z on the partner) and, with probability `transport`, moves the leakage to the partner;
 //  * a leaked qubit reads out as |1>; RESET removes leakage only if the reset is leakage-removing;
 //  * seepage |2> -> |1> at ~2/T1 returns the qubit in a random computational state; DQLR does so on demand.
-inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint64_t seed) {
+//
+// Determinism: the result is a function of (M, shots, seed, opt) only, bit for bit, whatever OMP_NUM_THREADS or the
+// schedule (the decode time decode_us_per_shot is a wall-clock measurement and is the one exception).
+//  * every shot reseeds its generator from (seed, shot index) -- frame_shot_seed above;
+//  * shots are grouped in fixed blocks of kFrameBlock; each block sums its own tallies in shot order, and the block
+//    partials are added in block order after the parallel loop. The integer tallies (errors, detections per round,
+//    defect counts) are exact in any order; the leaked-time sums (leak_d, leak_m) are not, so this fixed order is what
+//    makes them reproducible.
+inline constexpr long kFrameBlock = 1024;
+inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint64_t seed, const FrameRunOptions& opt = {}) {
     const auto& F = M.frame;
-    long errors = 0; double fired_sum = 0, leak_d = 0, leak_m = 0, leak_ev = 0;
+    if (!opt.decoder && !M.decoder) throw std::runtime_error("run_memory_frame: the setup has no decoder and none was given");
+    const MatchingDecoder& decoder = opt.decoder ? *opt.decoder : *M.decoder;
+    const DecodeMethod method = opt.method;
     int n_data = 0; for (char c : M.is_data) n_data += c;
     const int n_meas = F.n - n_data;
-#pragma omp parallel reduction(+ : errors, fired_sum, leak_d, leak_m, leak_ev)
+    const std::size_t n_layers = std::size_t(M.exp.rounds) + 1;
+    std::vector<double> per_layer(n_layers, 0.0);
+    for (int r : M.exp.detector_round) per_layer[std::size_t(r)] += 1;
+    struct Tally { long errors{0}, fired{0}, leak_ev{0}, over22{0}; int max_def{0}; double leak_d{0}, leak_m{0}, decode_s{0}; };
+    const long nblocks = shots > 0 ? (shots + kFrameBlock - 1) / kFrameBlock : 0;
+    std::vector<Tally> part(static_cast<std::size_t>(nblocks));
+    std::vector<long> by_round(n_layers, 0);
+#pragma omp parallel
     {
-        int tid = 0, nth = 1;
-#ifdef _OPENMP
-        tid = omp_get_thread_num(); nth = omp_get_num_threads();
-#endif
-        Xoshiro256 rng(seed * 0x9E3779B97F4A7C15ULL + std::uint64_t(tid) * 7919ULL + 1);
+        Xoshiro256 rng(0);
         std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
-        std::vector<int> fired; std::vector<double> cost; std::vector<int> choice;
+        std::vector<int> fired; DecodeScratch ws;
+        std::vector<long> my_round(n_layers, 0);
         auto randomize = [&](int q) { x[std::size_t(q)] = rng.uniform() < 0.5; z[std::size_t(q)] = rng.uniform() < 0.5; };
-        for (long s = tid; s < shots; s += nth) {
-            std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0);
-            std::fill(L.begin(), L.end(), 0);
-            int nleaked = 0;
-            for (const auto& fm : F.moments) {
-                for (const auto& o : fm.ops) {
-                    if (nleaked == 0 || !F.leakage) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                    else {
-                        const bool la = L[std::size_t(o.a)] != 0;
-                        if (o.op == Op::CZ) {
-                            const bool lb = L[std::size_t(o.b)] != 0;
-                            if (!la && !lb) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                            else if (la != lb) {
-                                const int leaked = la ? o.a : o.b, other = la ? o.b : o.a;
-                                if (rng.uniform() < 0.5) z[std::size_t(other)] ^= 1;
-                                if (F.transport > 0 && rng.uniform() < F.transport) { L[std::size_t(leaked)] = 0; randomize(leaked); L[std::size_t(other)] = 1; }
+#pragma omp for schedule(dynamic, 1)
+        for (long b = 0; b < nblocks; ++b) {
+            Tally& T_ = part[std::size_t(b)];
+            const long s_end = std::min(shots, (b + 1) * kFrameBlock);
+            for (long s = b * kFrameBlock; s < s_end; ++s) {
+                rng = Xoshiro256(frame_shot_seed(seed, std::uint64_t(s)));
+                std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0);
+                std::fill(L.begin(), L.end(), 0);
+                int nleaked = 0;
+                for (const auto& fm : F.moments) {
+                    for (const auto& o : fm.ops) {
+                        if (nleaked == 0 || !F.leakage) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                        else {
+                            const bool la = L[std::size_t(o.a)] != 0;
+                            if (o.op == Op::CZ) {
+                                const bool lb = L[std::size_t(o.b)] != 0;
+                                if (!la && !lb) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                                else if (la != lb) {
+                                    const int leaked = la ? o.a : o.b, other = la ? o.b : o.a;
+                                    if (rng.uniform() < 0.5) z[std::size_t(other)] ^= 1;
+                                    if (F.transport > 0 && rng.uniform() < F.transport) { L[std::size_t(leaked)] = 0; randomize(leaked); L[std::size_t(other)] = 1; }
+                                }
+                            } else if (o.op == Op::MEASURE) {
+                                if (la) flips[std::size_t(o.cbit)] = o.ref >= 0 ? std::uint8_t(1 ^ o.ref) : std::uint8_t(rng.uniform() < 0.5);
+                                else frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                            } else if (o.op == Op::RESET) {
+                                if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                                else if (F.reset_removes_leakage) { L[std::size_t(o.a)] = 0; --nleaked; frame_detail::apply_op(o, x.data(), z.data(), flips.data()); }
+                            } else if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                        }
+                        if (o.p > 0 && rng.uniform() < o.p) {
+                            if (o.op == Op::MEASURE) flips[std::size_t(o.cbit)] ^= 1;
+                            else if (o.op == Op::RESET) x[std::size_t(o.a)] ^= 1;
+                        }
+                        if (F.leakage) {
+                            if (o.op == Op::CZ && o.pleak > 0 && !L[std::size_t(o.mover)] && rng.uniform() < o.pleak) {
+                                const int other = o.mover == o.a ? o.b : o.a;
+                                L[std::size_t(o.mover)] = 1; ++nleaked; T_.leak_ev += 1;
+                                if (!L[std::size_t(other)]) randomize(other);
+                            } else if ((o.op == Op::SX || o.op == Op::X) && F.leak_1q > 0 && !L[std::size_t(o.a)] && rng.uniform() < F.leak_1q) {
+                                L[std::size_t(o.a)] = 1; ++nleaked; T_.leak_ev += 1;
                             }
-                        } else if (o.op == Op::MEASURE) {
-                            if (la) flips[std::size_t(o.cbit)] = o.ref >= 0 ? std::uint8_t(1 ^ o.ref) : std::uint8_t(rng.uniform() < 0.5);
-                            else frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                        } else if (o.op == Op::RESET) {
-                            if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                            else if (F.reset_removes_leakage) { L[std::size_t(o.a)] = 0; --nleaked; frame_detail::apply_op(o, x.data(), z.data(), flips.data()); }
-                        } else if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
+                        }
                     }
-                    if (o.p > 0 && rng.uniform() < o.p) {
-                        if (o.op == Op::MEASURE) flips[std::size_t(o.cbit)] ^= 1;
-                        else if (o.op == Op::RESET) x[std::size_t(o.a)] ^= 1;
+                    if (F.p1 > 0) for (int q : fm.ctrl1) if (rng.uniform() < F.p1) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
+                    for (const auto& c2 : fm.ctrl2) if (c2.p > 0 && rng.uniform() < c2.p) {
+                        const int k = 1 + int(rng.uniform() * 15);
+                        if (k % 4) frame_detail::apply_pauli(k % 4, c2.a, x.data(), z.data());
+                        if (k / 4) frame_detail::apply_pauli(k / 4, c2.b, x.data(), z.data());
+                    }
+                    for (const auto& t : fm.zz) {
+                        const double r = rng.uniform();
+                        if (r < t.pa) z[std::size_t(t.a)] ^= 1;
+                        else if (r < t.pa + t.pb) z[std::size_t(t.b)] ^= 1;
+                        else if (r < t.pa + t.pb + t.pab) { z[std::size_t(t.a)] ^= 1; z[std::size_t(t.b)] ^= 1; }
+                    }
+                    for (const auto& dq : fm.deco) {
+                        const double r = rng.uniform();
+                        if (r < dq.px) x[std::size_t(dq.q)] ^= 1;
+                        else if (r < dq.px + dq.py) { x[std::size_t(dq.q)] ^= 1; z[std::size_t(dq.q)] ^= 1; }
+                        else if (r < dq.px + dq.py + dq.pz) z[std::size_t(dq.q)] ^= 1;
                     }
                     if (F.leakage) {
-                        if (o.op == Op::CZ && o.pleak > 0 && !L[std::size_t(o.mover)] && rng.uniform() < o.pleak) {
-                            const int other = o.mover == o.a ? o.b : o.a;
-                            L[std::size_t(o.mover)] = 1; ++nleaked; leak_ev += 1;
-                            if (!L[std::size_t(other)]) randomize(other);
-                        } else if ((o.op == Op::SX || o.op == Op::X) && F.leak_1q > 0 && !L[std::size_t(o.a)] && rng.uniform() < F.leak_1q) {
-                            L[std::size_t(o.a)] = 1; ++nleaked; leak_ev += 1;
+                        for (int q : fm.dqlr) {
+                            if (L[std::size_t(q)] && rng.uniform() < F.dqlr_eff) { L[std::size_t(q)] = 0; --nleaked; randomize(q); }
+                            if (F.dqlr_err > 0 && rng.uniform() < F.dqlr_err) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
+                        }
+                        if (nleaked > 0) {
+                            int nd = 0, nmq = 0;
+                            for (int q = 0; q < F.n; ++q) if (L[std::size_t(q)]) { if (M.is_data[std::size_t(q)]) ++nd; else ++nmq; }
+                            T_.leak_d += fm.duration_ns * nd; T_.leak_m += fm.duration_ns * nmq;
+                            for (int q = 0; q < F.n; ++q)
+                                if (L[std::size_t(q)] && rng.uniform() < 1 - std::exp(-fm.duration_ns * F.seep_rate[std::size_t(q)])) {
+                                    L[std::size_t(q)] = 0; --nleaked; randomize(q);
+                                }
                         }
                     }
                 }
-                if (F.p1 > 0) for (int q : fm.ctrl1) if (rng.uniform() < F.p1) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
-                for (const auto& c2 : fm.ctrl2) if (c2.p > 0 && rng.uniform() < c2.p) {
-                    const int k = 1 + int(rng.uniform() * 15);
-                    if (k % 4) frame_detail::apply_pauli(k % 4, c2.a, x.data(), z.data());
-                    if (k / 4) frame_detail::apply_pauli(k / 4, c2.b, x.data(), z.data());
+                fired.clear();
+                for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) {
+                    std::uint8_t v = 0; for (int c : M.exp.detectors[d]) v ^= flips[std::size_t(c)];
+                    if (v) { fired.push_back(int(d)); my_round[std::size_t(M.exp.detector_round[d])] += 1; }
                 }
-                for (const auto& t : fm.zz) {
-                    const double r = rng.uniform();
-                    if (r < t.pa) z[std::size_t(t.a)] ^= 1;
-                    else if (r < t.pa + t.pb) z[std::size_t(t.b)] ^= 1;
-                    else if (r < t.pa + t.pb + t.pab) { z[std::size_t(t.a)] ^= 1; z[std::size_t(t.b)] ^= 1; }
-                }
-                for (const auto& dq : fm.deco) {
-                    const double r = rng.uniform();
-                    if (r < dq.px) x[std::size_t(dq.q)] ^= 1;
-                    else if (r < dq.px + dq.py) { x[std::size_t(dq.q)] ^= 1; z[std::size_t(dq.q)] ^= 1; }
-                    else if (r < dq.px + dq.py + dq.pz) z[std::size_t(dq.q)] ^= 1;
-                }
-                if (F.leakage) {
-                    for (int q : fm.dqlr) {
-                        if (L[std::size_t(q)] && rng.uniform() < F.dqlr_eff) { L[std::size_t(q)] = 0; --nleaked; randomize(q); }
-                        if (F.dqlr_err > 0 && rng.uniform() < F.dqlr_err) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
-                    }
-                    if (nleaked > 0) {
-                        int nd = 0, nmq = 0;
-                        for (int q = 0; q < F.n; ++q) if (L[std::size_t(q)]) { if (M.is_data[std::size_t(q)]) ++nd; else ++nmq; }
-                        leak_d += fm.duration_ns * nd; leak_m += fm.duration_ns * nmq;
-                        for (int q = 0; q < F.n; ++q)
-                            if (L[std::size_t(q)] && rng.uniform() < 1 - std::exp(-fm.duration_ns * F.seep_rate[std::size_t(q)])) {
-                                L[std::size_t(q)] = 0; --nleaked; randomize(q);
-                            }
-                    }
-                }
+                std::uint8_t obs = 0; for (int c : M.exp.observable) obs ^= flips[std::size_t(c)];
+                T_.fired += long(fired.size());
+                T_.max_def = std::max(T_.max_def, int(fired.size()));
+                if (fired.size() > 22) ++T_.over22;
+                const auto t0 = std::chrono::steady_clock::now();
+                const int predicted = decoder.decode(fired, ws, method);
+                T_.decode_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+                if (predicted != obs) ++T_.errors;
             }
-            fired.clear();
-            for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) {
-                std::uint8_t v = 0; for (int c : M.exp.detectors[d]) v ^= flips[std::size_t(c)];
-                if (v) fired.push_back(int(d));
-            }
-            std::uint8_t obs = 0; for (int c : M.exp.observable) obs ^= flips[std::size_t(c)];
-            fired_sum += double(fired.size());
-            if (M.decoder->decode(fired, cost, choice) != obs) ++errors;
         }
+#pragma omp critical(qpuforge_frame_rounds)
+        for (std::size_t r = 0; r < n_layers; ++r) by_round[r] += my_round[r];   // integer counts: exact in any order
     }
-    auto r = summarize(M, shots, errors, fired_sum);
+    long errors = 0, fired_tot = 0, leak_ev = 0, over22 = 0; int max_def = 0; double leak_d = 0, leak_m = 0, decode_s = 0;
+    for (const Tally& t : part) {
+        errors += t.errors; fired_tot += t.fired; leak_ev += t.leak_ev; over22 += t.over22; max_def = std::max(max_def, t.max_def);
+        leak_d += t.leak_d; leak_m += t.leak_m; decode_s += t.decode_s;
+    }
+    auto r = summarize(M, shots, errors, double(fired_tot));
+    r.detection_by_round.resize(n_layers);
+    for (std::size_t k = 0; k < n_layers; ++k)
+        r.detection_by_round[k] = per_layer[k] > 0 ? double(by_round[k]) / (per_layer[k] * double(shots)) : 0.0;
+    r.mean_defects = double(fired_tot) / double(shots);
+    r.max_defects = max_def;
+    r.frac_over_22 = double(over22) / double(shots);
+    r.decode_us_per_shot = 1e6 * decode_s / double(shots);
     const double T = std::max(M.frame.duration_ns, 1e-12) * double(shots);
     r.leak_frac_data = n_data ? leak_d / T / n_data : 0.0;
     r.leak_frac_meas = n_meas ? leak_m / T / n_meas : 0.0;
-    r.leak_events_per_shot = leak_ev / double(shots);
+    r.leak_events_per_shot = double(leak_ev) / double(shots);
     return r;
 }
 
@@ -620,7 +911,7 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
 inline MemoryResult run_memory_statevector(const MemorySetup& M, const NoiseModel& nm, long shots, unsigned seed, bool noisy = true) {
     const auto recs = run_records(M.prog, nm, int(shots), seed, noisy);
     long errors = 0; double fired_sum = 0;
-    std::vector<int> fired; std::vector<double> cost; std::vector<int> choice;
+    std::vector<int> fired; DecodeScratch ws;
     for (const auto& rc : recs) {
         fired.clear();
         for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) {
@@ -629,7 +920,7 @@ inline MemoryResult run_memory_statevector(const MemorySetup& M, const NoiseMode
         }
         std::uint8_t obs = 0; for (int c : M.exp.observable) obs ^= rc[std::size_t(c)];
         fired_sum += double(fired.size());
-        if (M.decoder->decode(fired, cost, choice) != obs) ++errors;
+        if (M.decoder->decode(fired, ws) != obs) ++errors;
     }
     return summarize(M, shots, errors, fired_sum);
 }
@@ -645,6 +936,117 @@ inline double fit_eps_per_round(const std::vector<MemoryResult>& rs) {
     if (n < 2) return rs.empty() ? 0.0 : rs.back().eps_per_round;
     const double slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
     return 0.5 * (1 - std::exp(slope));
+}
+
+// One-sigma Monte Carlo error of fit_eps_per_round: the binomial errors of the points, propagated through the same
+// least-squares fit. (The slope of a free-intercept fit is less certain than the last point alone would suggest: by
+// about 20% for five round counts and by 40% for four.) With fewer than two usable points it is the error of the
+// single-run estimate eps_from_PL.
+inline double fit_eps_per_round_err(const std::vector<MemoryResult>& rs) {
+    std::vector<double> x, y, var;
+    for (const auto& r : rs) {
+        if (r.p_logical >= 0.5 || r.p_logical <= 0) continue;
+        const double sy = 2 * r.p_logical_sem / (1 - 2 * r.p_logical);
+        x.push_back(r.rounds); y.push_back(std::log(1 - 2 * r.p_logical)); var.push_back(sy * sy);
+    }
+    if (x.size() < 2) {
+        if (rs.empty()) return 0.0;
+        const auto& r = rs.back();
+        return r.p_logical_sem / r.rounds / std::max(1e-9, std::pow(std::max(1e-9, 1 - 2 * r.p_logical), double(r.rounds - 1) / r.rounds));
+    }
+    double xm = 0; for (double v : x) xm += v;
+    xm /= double(x.size());
+    double sxx = 0, sxy = 0, num = 0;
+    for (std::size_t i = 0; i < x.size(); ++i) { const double d = x[i] - xm; sxx += d * d; sxy += d * y[i]; num += d * d * var[i]; }
+    return 0.5 * std::exp(sxy / sxx) * std::sqrt(num) / sxx;
+}
+
+// ================================================================== correlated error bursts (high-energy impacts)
+// A cosmic-ray or gamma impact fills the chip with quasiparticles: every qubit gains an excess decay (and/or
+// dephasing) rate that then relaxes exponentially. The burst lasts for thousands of QEC rounds, so it is treated as a
+// slowly varying severity s(t) = exp(-t / tau) on top of the normal noise:
+//     1/T1(t) = 1/T1 + s(t) / t1_peak,      1/T_phi(t) = 1/T_phi + s(t) / tphi_peak.
+// The decoder is not told: it keeps the priors of the quiet chip. The logical error per round is sampled at a ladder
+// of severities and integrated over the burst.
+struct BurstSpec {
+    double rate_hz{0.1};        // impacts per second on the chip
+    double tau_ms{25};          // recovery time constant of the excess error rates
+    double t1_peak_us{1.0};     // excess energy-decay time at the peak of the burst (<= 0: T1 unaffected)
+    double tphi_peak_us{0.0};   // excess pure-dephasing time at the peak (<= 0: dephasing unaffected)
+};
+
+inline NoiseModel burst_noise(const NoiseModel& nm, const BurstSpec& B, double s) {
+    NoiseModel N = nm;
+    if (B.t1_peak_us > 0)
+        for (auto& t : N.T1_ns) { const double base = std::isfinite(t) ? 1.0 / t : 0.0; t = 1.0 / (base + s / (B.t1_peak_us * 1e3)); }
+    if (B.tphi_peak_us > 0)
+        for (auto& t : N.Tphi_ns) { const double base = std::isfinite(t) ? 1.0 / t : 0.0; t = 1.0 / (base + s / (B.tphi_peak_us * 1e3)); }
+    return N;
+}
+
+struct BurstPoint { double s{0}, eps{0}, eps_sem{0}, mean_defects{0}; bool saturated{false}; };   // saturated: P_L near 1/2, eps set to 1/2
+struct BurstResult {
+    std::vector<BurstPoint> curve;     // logical error per round against severity
+    double eps0{0}, eps0_sem{0}, round_ns{0}, mean_defects0{0};
+    double rounds_lost{0};             // integral of the excess logical error over one burst (expected logical flips)
+    double p_fail{0};                  // probability that one impact flips the logical qubit
+    double floor_per_round{0};         // long-run logical error per round from impacts alone
+    double dead_time_ms{0};            // time after an impact for which the excess logical error exceeds the quiet value
+    double detectable_ms{0};           // time for which the detection-event count is more than 1.5x the quiet value
+};
+
+inline BurstResult burst_floor(const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, const BurstSpec& B,
+                               int rounds, long shots, std::uint64_t seed, char basis = 'Z') {
+    BurstResult out;
+    const MemorySetup M0 = prepare_memory(D, R, nm, rounds, basis);
+    const MemoryResult r0 = run_memory_frame(M0, shots, seed);
+    out.eps0 = r0.eps_per_round; out.round_ns = r0.round_ns; out.mean_defects0 = r0.mean_defects;
+    // standard error of eps; a saturated run (P_L near 1/2) only says "eps is large", which is all the integral needs
+    auto sem_of = [](const MemoryResult& r) {
+        if (r.p_logical > 0.45) return 0.05;
+        return r.p_logical_sem / r.rounds / std::pow(1 - 2 * r.p_logical, double(r.rounds - 1) / r.rounds);
+    };
+    out.eps0_sem = sem_of(r0);
+    FrameRunOptions opt; opt.decoder = M0.decoder.get();
+    double s = 1.0, last_eps = 0.5;
+    for (int k = 0; k < 16; ++k, s /= std::sqrt(10.0)) {
+        // near the peak nearly every detector fires: decoding is slow and the answer ("eps is large") needs few shots
+        const long n = last_eps > 0.02 ? std::max<long>(1000, shots / 5) : shots;
+        const MemorySetup Ms = prepare_memory(D, R, burst_noise(nm, B, s), rounds, basis, false);
+        const MemoryResult rs = run_memory_frame(Ms, n, seed + 17 * std::uint64_t(k + 1), opt);
+        // A run whose failure probability is close to 1/2 cannot resolve eps: it only says the logical qubit is
+        // randomised within the run. Such a point is recorded as eps = 1/2 and never ends the ladder.
+        const bool saturated = rs.p_logical > 0.45;
+        const double eps = saturated ? 0.5 : rs.eps_per_round;
+        out.curve.push_back({s, eps, sem_of(rs), rs.mean_defects, saturated});
+        last_eps = eps;
+        if (!saturated && eps - out.eps0 < 2 * std::hypot(sem_of(rs), out.eps0_sem)) break;   // lost in the noise from here on
+    }
+    // excess(s) = eps(s) - eps0 is integrated over the burst: dt = -tau ds / s
+    auto excess = [&](std::size_t i) { return std::max(0.0, out.curve[i].eps - out.eps0); };
+    double integral = excess(out.curve.size() - 1);          // tail below the last point: excess ~ linear in s
+    for (std::size_t i = 0; i + 1 < out.curve.size(); ++i)
+        integral += 0.5 * (excess(i) + excess(i + 1)) * std::log(out.curve[i].s / out.curve[i + 1].s);
+    const double tau_ns = B.tau_ms * 1e6;
+    out.rounds_lost = integral * tau_ns / out.round_ns;
+    out.p_fail = 0.5 * (1 - std::exp(-2 * out.rounds_lost));
+    out.floor_per_round = B.rate_hz * out.round_ns * 1e-9 * out.p_fail;
+    // crossing times: log-log interpolation between ladder points (extrapolated linearly in s below the ladder)
+    auto crossing = [&](const std::vector<double>& y, double level) {
+        if (y.empty() || y[0] <= level) return 0.0;
+        for (std::size_t i = 0; i + 1 < y.size(); ++i)
+            if (y[i + 1] <= level) {
+                const double a = std::log(std::max(y[i], 1e-300)), b = std::log(std::max(y[i + 1], 1e-300)), l = std::log(level);
+                const double f = (a - l) / std::max(a - b, 1e-12);
+                return std::log(1.0 / out.curve[i].s) + f * std::log(out.curve[i].s / out.curve[i + 1].s);
+            }
+        return std::log(1.0 / out.curve.back().s) + std::log(std::max(y.back(), 1e-300) / level);
+    };
+    std::vector<double> ex, dx;
+    for (std::size_t i = 0; i < out.curve.size(); ++i) { ex.push_back(excess(i)); dx.push_back(std::max(0.0, out.curve[i].mean_defects - out.mean_defects0)); }
+    out.dead_time_ms = B.tau_ms * crossing(ex, std::max(out.eps0, 1e-12));
+    out.detectable_ms = B.tau_ms * crossing(dx, 0.5 * std::max(out.mean_defects0, 1e-9));
+    return out;
 }
 
 } // namespace qpuforge

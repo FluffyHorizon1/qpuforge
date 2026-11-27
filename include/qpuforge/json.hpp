@@ -60,9 +60,10 @@ public:
     std::string get(const std::string& k, const char* def) const { const Json& v = (*this)[k]; return v.t_ == Type::Str ? v.s_ : std::string(def); }
 
     // ---------------------------------------------------------------- parse
+    static constexpr int kMaxNest = 256;
     static Json parse(const std::string& text) {
         std::size_t i = 0;
-        Json v = parse_value(text, i);
+        Json v = parse_value(text, i, 0);
         skip_ws(text, i);
         if (i != text.size()) throw std::runtime_error("json: trailing characters at " + std::to_string(i));
         return v;
@@ -144,7 +145,8 @@ private:
             break;
         }
     }
-    static Json parse_value(const std::string& t, std::size_t& i) {
+    static Json parse_value(const std::string& t, std::size_t& i, int depth) {
+        if (depth > kMaxNest) throw std::runtime_error("json: nesting too deep");
         skip_ws(t, i);
         if (i >= t.size()) throw std::runtime_error("json: unexpected end");
         const char c = t[i];
@@ -158,7 +160,7 @@ private:
                 skip_ws(t, i);
                 if (t[i] != ':') throw std::runtime_error("json: expected ':' at " + std::to_string(i));
                 ++i;
-                o.set(k, parse_value(t, i));
+                o.set(k, parse_value(t, i, depth + 1));
                 skip_ws(t, i);
                 if (t[i] == ',') { ++i; continue; }
                 if (t[i] == '}') { ++i; return o; }
@@ -169,7 +171,7 @@ private:
             Json a = array(); ++i; skip_ws(t, i);
             if (t[i] == ']') { ++i; return a; }
             while (true) {
-                a.push(parse_value(t, i));
+                a.push(parse_value(t, i, depth + 1));
                 skip_ws(t, i);
                 if (t[i] == ',') { ++i; continue; }
                 if (t[i] == ']') { ++i; return a; }

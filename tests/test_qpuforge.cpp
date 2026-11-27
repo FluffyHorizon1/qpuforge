@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iterator>
 #include <numeric>
+#include <set>
 #include <sstream>
 
 using namespace qpuforge;
@@ -1485,6 +1486,180 @@ static void test_designs_v04() {
     CHECK(shift_min > 0.5 && shift_max < 6.0, "tuned-anharmonicity correction outside the expected few MHz");
 }
 
+
+// ---------------------------------------------------------------- lattice surgery (surgery.hpp)
+// Every single fault is corrected by each observable's decoder (circuit distance >= 3), with uniform edge weights (a
+// pure distance check). Mechanisms below 1e-7 are left out of it: the coherent-ZZ twirl places the phase accumulated
+// over a long idle window at the window's end, and a few such 1e-8-level mechanisms (beside seam faces idling before
+// the merge) end up parallel to a time-boundary edge; with uniform weights they would tie with it.
+static int surgery_uncorrected_single_faults(SurgerySetup& M, int* tiny = nullptr) {
+    const auto fk = surgery_fault_signatures(M);
+    int wrong = 0, small = 0; DecodeScratch ws;
+    for (std::size_t o = 0; o < fk.size(); ++o) {
+        std::vector<FaultSignature> big;
+        for (const auto& f : fk[o]) { if (f.p >= 1e-7) big.push_back(f); else ++small; }
+        DetectorErrorModel U = build_dem(big, M.dem[o].n_det);
+        for (auto& e : U.edges) e.p = 0.01;
+        MatchingDecoder dec(U);
+        for (const auto& f : big) if (f.dets.size() <= 2) wrong += dec.decode(f.dets, ws) != int(f.obs);
+    }
+    if (tiny) *tiny = small;
+    return wrong;
+}
+
+static void test_surgery() {
+    std::puts("[surgery] multi-patch geometry, ZZ / XX parity measurement: tableau check, memory equivalence, DEM, noise");
+    // geometry: two d x d patches and their merged region
+    for (int d : {3, 5}) {
+        const auto E = surgery_parity(d, 'Z', '0', '0');
+        const auto& L = E.sched.lat;
+        int nd = 0; for (const auto& st : L.sites) nd += st.data;
+        const auto merged = region_faces(E.sched.phases[1].regions[0], L.at);
+        int seam_z = 0;
+        std::set<int> sep; for (const auto& f : E.phase_faces[0]) sep.insert(f.qubit);
+        for (const auto& f : merged) if (!sep.count(f.qubit)) { seam_z += f.type == 'Z'; CHECK(f.type == 'Z', "a new face of a ZZ merge is X type"); }
+        CHECK(nd == d * (2 * d + 1), "ZZ lattice d=%d: %d data qubits", d, nd);
+        CHECK(int(merged.size()) == d * (2 * d + 1) - 1, "merged d x (2d+1) region has %zu faces", merged.size());
+        CHECK(int(E.phase_faces[0].size()) == 2 * (d * d - 1), "two separate patches: %zu faces", E.phase_faces[0].size());
+        CHECK(seam_z == d + 1, "ZZ seam has %d new Z faces (expected d+1)", seam_z);
+        const auto X = surgery_parity(d, 'X', '+', '+');
+        std::set<int> sepx; for (const auto& f : X.phase_faces[0]) sepx.insert(f.qubit);
+        int seam_x = 0;
+        for (const auto& f : X.phase_faces[1]) if (!sepx.count(f.qubit)) { seam_x += f.type == 'X'; CHECK(f.type == 'X', "a new face of an XX merge is Z type"); }
+        CHECK(seam_x == d + 1, "XX seam has %d new X faces (expected d+1)", seam_x);
+    }
+    // noiseless tableau check: logical inputs, both parities, d = 3 and 5
+    int runs = 0, bad = 0;
+    for (int d : {3, 5})
+        for (char ty : {'Z', 'X'})
+            for (const char* in : {"00", "01", "10", "11", "++", "+-", "-+", "--"}) {
+                const auto E = surgery_parity(d, ty, in[0], in[1]);
+                const auto c = check_surgery_noiseless(E, d == 3 ? 4 : 2, 3);
+                ++runs;
+                if (c.fired || c.wrong_observables || c.wrong_reference || c.random_reference) {
+                    ++bad; std::printf("    %s: fired %d, wrong observables %d, reference %d/%d\n", E.sched.name.c_str(), c.fired, c.wrong_observables, c.wrong_reference, c.random_reference);
+                }
+            }
+    std::printf("  noiseless tableau check: %d parity experiments (|00> |01> |10> |11> |++> |+-> |-+> |--> x ZZ, XX x d=3,5), %d failed\n", runs, bad);
+    CHECK(bad == 0, "noiseless surgery: %d experiments with a fired detector or a wrong observable", bad);
+    {
+        const auto E = surgery_parity(3, 'Z', '0', '1');
+        const auto c = check_surgery_noiseless(E, 2, 5);
+        CHECK(c.observable_values.size() == 3 && c.observable_values[0] == 1 && c.observable_values[1] == 0 && c.observable_values[2] == 1, "ZZ on |01>: outcome m_ZZ = 1");
+        const auto Xm = surgery_parity(3, 'X', '+', '-');
+        const auto cx = check_surgery_noiseless(Xm, 2, 5);
+        CHECK(!cx.observable_values.empty() && cx.observable_values[0] == 1, "XX on |+->: outcome m_XX = 1");
+    }
+    // negative controls: the check must catch a wrong observable and an inserted error
+    {
+        auto E = surgery_parity(3, 'Z', '+', '+');            // X_A X_B through a ZZ merge needs the gap qubit at the split
+        E.observables[0].bits.pop_back();
+        int wrong = 0; for (int s = 0; s < 8; ++s) wrong += check_surgery_noiseless(E, 1, std::uint64_t(100 + s)).wrong_observables;
+        CHECK(wrong > 0, "dropping the split byproduct from X_A X_B went unnoticed");
+        auto F = surgery_parity(3, 'Z', '0', '0');
+        auto& gs = F.circuit.gates;
+        std::size_t i = gs.size() / 2;
+        while (gs[i].op != Op::MEASURE) ++i;
+        Gate g; g.op = Op::U; g.q = {F.sched.lat.data_qubit(1, 1)}; g.u = gates::X(); g.name = "x";
+        gs.insert(gs.begin() + std::ptrdiff_t(i), g);
+        CHECK(check_surgery_noiseless(F, 1, 1).fired > 0, "an X error in the merged phase fired no detector");
+    }
+    // single patch through the surgery engine = memory_experiment: same chip as beta1(3), same logical errors shot for shot
+    {
+        const auto E = surgery_memory(3, 3, 'Z');
+        const auto D = surgery_chip(E.sched.lat, "beta1"), B = beta1(3);
+        bool same = D.qubits.size() == B.qubits.size() && D.couplings.size() == B.couplings.size();
+        for (std::size_t k = 0; same && k < D.qubits.size(); ++k)
+            same = D.qubits[k].C_fF == B.qubits[k].C_fF && D.qubits[k].Rn_kOhm == B.qubits[k].Rn_kOhm && D.qubits[k].ro.f_GHz == B.qubits[k].ro.f_GHz &&
+                   D.qubits[k].ro.g_MHz == B.qubits[k].ro.g_MHz && D.qubits[k].x_um == B.qubits[k].x_um && D.qubits[k].y_um == B.qubits[k].y_um &&
+                   D.qubits[k].feedline == B.qubits[k].feedline && D.qubits[k].role == B.qubits[k].role;
+        for (std::size_t k = 0; same && k < D.couplings.size(); ++k) same = D.couplings[k].a == B.couplings[k].a && D.couplings[k].b == B.couplings[k].b && D.couplings[k].C_fF == B.couplings[k].C_fF;
+        CHECK(same, "surgery_chip of one d=3 patch differs from beta1(3)");
+        const auto R = analyze(B); const auto nm = noise_model(B, R);
+        for (char basis : {'Z', 'X'}) {
+            const auto Em = basis == 'Z' ? E : surgery_memory(3, 3, 'X');
+            const auto M = prepare_memory(B, R, nm, 3, basis);
+            const auto S = prepare_surgery(B, R, nm, Em, basis);
+            const auto a = run_memory_frame(M, 6000, 21);
+            const auto b = run_surgery_frame(S, 6000, 21);
+            std::printf("  single patch d=3 memory-%c, 6000 shots: run_memory_frame %ld errors (detection %.5f), run_surgery_frame %ld (%.5f)\n",
+                        basis, a.logical_errors, a.detection_rate, b.errors[0], b.detection_rate);
+            CHECK(a.logical_errors == b.errors[0] && a.detection_rate == b.detection_rate && b.errors[0] > 0, "surgery engine differs from the memory experiment (%c)", basis);
+        }
+    }
+    // d = 3 ZZ measurement on a Beta-1 physics chip: graph-like DEM, every single fault corrected, noiseless runs clean
+    {
+        const auto E = surgery_parity(3, 'Z', '0', '0');
+        const auto D = surgery_chip(E.sched.lat, "beta1"); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        auto quiet = nm; quiet.disable("all");
+        const auto Q = prepare_surgery(D, R, quiet, E, 'Z');
+        const auto q = run_surgery_frame(Q, 300, 1);
+        CHECK(q.any_errors == 0 && q.mean_defects == 0, "noiseless frame run of a ZZ measurement is not clean");
+        for (char ty : {'Z', 'X'}) {
+            const auto Ey = ty == 'Z' ? E : surgery_parity(3, 'Z', '+', '+');
+            auto M = prepare_surgery(D, R, nm, Ey, ty);
+            int tiny = 0;
+            const int wrong = surgery_uncorrected_single_faults(M, &tiny);
+            const auto r = run_surgery_frame(M, 4000, 7);
+            std::printf("  d=3 ZZ measurement (%c-type decoding): %d detectors, %zu faults, hyperedges %d, undetectable %d, uncorrected single faults %d (%d below 1e-7 left out);",
+                        ty, r.n_detectors, M.n_faults, r.hyperedge_faults, r.undetectable_logical, wrong, tiny);
+            for (std::size_t k = 0; k < r.names.size(); ++k) std::printf(" %s %.4f", r.names[k].c_str(), r.p[k]);
+            std::printf("\n");
+            CHECK(r.hyperedge_faults == 0 && r.undetectable_logical == 0, "ZZ measurement DEM (%c) is not graph-like", ty);
+            CHECK(wrong == 0, "ZZ measurement (%c): %d single faults uncorrected", ty, wrong);
+            CHECK(r.p_any > 0 && r.p_any < 0.05, "ZZ measurement (%c): implausible logical error %.4f", ty, r.p_any);
+        }
+    }
+}
+
+static void test_surgery_cnot() {
+    std::puts("[surgery-cnot] three-patch lattice-surgery CNOT: logical stabiliser states (tableau), DEM distance, noise");
+    int runs = 0, bad = 0;
+    const char* zin[] = {"00", "01", "10", "11"};
+    const char* xin[] = {"++", "+-", "-+", "--"};
+    const char* mix[] = {"+0", "+1", "-0", "-1", "0+", "1+", "0-", "1-"};
+    for (int d : {3, 5}) {
+        auto run = [&](char c, char t, char ro) {
+            const auto E = surgery_cnot(d, c, t, ro);
+            const auto k = check_surgery_noiseless(E, d == 3 ? 3 : 1, 9);
+            ++runs;
+            if (k.fired || k.wrong_observables || k.wrong_reference || k.random_reference) {
+                ++bad; std::printf("    %s readout %c: fired %d, wrong observables %d\n", E.sched.name.c_str(), ro ? ro : '-', k.fired, k.wrong_observables);
+            }
+        };
+        for (const char* in : zin) run(in[0], in[1], 0);
+        for (const char* in : xin) run(in[0], in[1], 0);
+        if (d == 3) for (const char* in : mix) { run(in[0], in[1], 'Z'); run(in[0], in[1], 'X'); }
+    }
+    std::printf("  noiseless tableau check: %d CNOT experiments (Z and X basis inputs at d=3,5; Bell-state inputs at d=3), %d failed\n", runs, bad);
+    CHECK(bad == 0, "noiseless CNOT: %d experiments with a fired detector or a wrong observable", bad);
+    {
+        // truth table: |10> -> |11>, |-+> -> X_C = 1, X_T = 0 ...
+        const auto c = check_surgery_noiseless(surgery_cnot(3, '1', '0'), 1, 2);
+        CHECK(c.observable_values.size() == 2 && c.observable_values[0] == 1 && c.observable_values[1] == 1, "CNOT |10> -> |11>");
+        const auto b = check_surgery_noiseless(surgery_cnot(3, '+', '0', 'Z'), 1, 2);
+        CHECK(b.observable_values.size() == 1 && b.observable_values[0] == 0, "CNOT |+0>: Z_C Z_T = +1 (Bell state)");
+    }
+    {
+        const auto E = surgery_cnot(3, '0', '0');
+        const auto D = surgery_chip(E.sched.lat, "beta1"); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        for (char ty : {'Z', 'X'}) {
+            const auto Ey = ty == 'Z' ? E : surgery_cnot(3, '+', '+');
+            auto M = prepare_surgery(D, R, nm, Ey, ty);
+            int tiny = 0;
+            const int wrong = surgery_uncorrected_single_faults(M, &tiny);
+            const auto r = run_surgery_frame(M, 3000, 5);
+            std::printf("  d=3 CNOT (%c basis): %d detectors, %zu faults, hyperedges %d (p %.1e), undetectable %d, uncorrected single faults %d (%d below 1e-7 left out);",
+                        ty, r.n_detectors, M.n_faults, r.hyperedge_faults, r.hyperedge_p, r.undetectable_logical, wrong, tiny);
+            for (std::size_t k = 0; k < r.names.size(); ++k) std::printf(" %s %.4f", r.names[k].c_str(), r.p[k]);
+            std::printf("\n");
+            CHECK(r.undetectable_logical == 0 && r.hyperedge_p < 1e-5, "CNOT DEM (%c): undetectable logicals or hyperedge mass", ty);
+            CHECK(wrong == 0, "CNOT (%c): %d single faults uncorrected", ty, wrong);
+            CHECK(r.p_any > 0 && r.p_any < 0.1, "CNOT (%c): implausible logical error %.4f", ty, r.p_any);
+        }
+    }
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -1517,6 +1692,8 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"bursts", test_bursts},
     {"characterisation", test_characterisation},
     {"designs_v04", test_designs_v04},
+    {"surgery", test_surgery},
+    {"surgery_cnot", test_surgery_cnot},
 };
 
 // test_qpuforge            run every test

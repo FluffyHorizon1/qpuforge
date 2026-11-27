@@ -49,7 +49,7 @@ endforeach()
 set_target_properties(qpuforge_cli PROPERTIES OUTPUT_NAME qpuforge)
 # `qpuforge --version` prints this (the version comes from project(... VERSION ...) above)
 target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERSION}")
-foreach(name alpha1_v11_review beta1_review gamma1_review)
+foreach(name alpha1_v11_review beta1_review gamma1_review surgery_study)
   target_compile_definitions(${name} PRIVATE QPUFORGE_GIT_SHA="${QPUFORGE_GIT_SHA}" QPUFORGE_GIT_DIRTY=${QPUFORGE_GIT_DIRTY})
 endforeach()
 

@@ -1485,6 +1485,54 @@ static void test_designs_v04() {
     CHECK(shift_min > 0.5 && shift_max < 6.0, "tuned-anharmonicity correction outside the expected few MHz");
 }
 
+// ---------------------------------------------------------------- layout_geometry: DRC-aware cell and mask clean-up logic
+static void test_layout_geometry() {
+    std::puts("[layout_geometry] bus knob continuity, shorted staircase end, ground-sliver fill (merges ground only, never island metal)");
+    using namespace layout;
+    auto count = [](const std::vector<DrcMarker>& m, const char* rule) { int n = 0; for (const auto& x : m) n += x.rule.find(rule) != std::string::npos; return n; };
+    {   // bus knob: T-bar length above w_bus, retraction below it, continuous at u = w_bus, round trip, never narrower than the strip
+        CouplerGeom c;
+        for (double u : {40.0, 12.0, 6.0, 3.0, 0.0, -10.0}) {
+            set_bus_knob(c, u);
+            CHECK(std::abs(bus_knob(c) - u) < 1e-12, "bus knob round trip at u=%g: %g", u, bus_knob(c));
+            CHECK(c.bus_tbar() >= c.w_bus - 1e-12, "bus T-bar %g narrower than the strip", c.bus_tbar());
+        }
+        set_bus_knob(c, c.w_bus); CHECK(std::abs(c.bus_gap() - c.g_c) < 1e-12 && std::abs(c.bus_tbar() - c.w_bus) < 1e-12, "branches meet at u = w_bus");
+        set_bus_knob(c, 0.0); CHECK(std::abs(c.bus_gap() - (c.g_c + kBusRetract * c.w_bus)) < 1e-12, "retraction below w_bus");
+        c.l_b = 0.075; c.g_b = -1;                                     // a pre-0.4.1 cell file with a sliver T-bar
+        XmonParams q;
+        const auto E = coupler_and_bus(q, c, 900, 0, 0, 0, true, 200, q.L);
+        double narrow = 1e9; for (const auto& r : E.bus) narrow = std::min({narrow, r.w(), r.h()});
+        CHECK(narrow >= c.w_bus - 1e-9, "bus drawn with a %.3f um feature", narrow);
+    }
+    {   // shorted staircase end: no trench under the last square, the one before trimmed to its edges -> no etch slit
+        std::vector<Rect> m, h;
+        detail::stair(0, 0, 50, 50, m, h, true);
+        const auto etch = detail::etch_of(h, m);
+        const auto mk = detail::width_space_check(etch, 4, 4, "s");
+        std::printf("  shorted staircase: %zu squares, %zu trench squares, %d width + %d space markers\n", m.size(), h.size(), count(mk, "width"), count(mk, "space"));
+        CHECK(h.size() + 1 == m.size() && count(mk, "width") == 0 && count(mk, "space") == 0, "shorted staircase end leaves DRC markers");
+        // the last square's outer edges (x = 55, y = 55) must border ground, i.e. the short really reaches the plane
+        bool etched = false; for (const auto& r : h) etched |= r.contains(55.5, 50) || r.contains(50, 55.5);
+        CHECK(!etched, "the shorted square does not touch the ground plane");
+    }
+    {   // ground sliver between two cut-outs is merged; a metal island in the same gap is left alone; a wide strip is kept
+        std::vector<Rect> holes{{0, 0, 20, 20}, {22, 0, 42, 20},           // 2 um ground strip: filled
+                                {100, 0, 120, 20}, {130, 0, 150, 20}};     // 10 um ground strip: kept
+        const std::vector<Rect> none;
+        const int added = detail::fill_ground_slivers(holes, none, 4.0);
+        const auto mk = detail::width_space_check(detail::etch_of(holes, none), 4, 4, "f");
+        std::printf("  ground-sliver fill: %d rectangle(s) added, %d space markers after\n", added, count(mk, "space"));
+        CHECK(added == 1 && mk.empty(), "sliver fill: %d added, %zu markers", added, mk.size());
+        bool wide_kept = true; for (const auto& r : holes) if (r.intersects({121, 1, 129, 19})) wide_kept = false;
+        CHECK(wide_kept, "a 10 um ground strip was etched");
+        std::vector<Rect> h2{{0, 0, 20, 20}, {22, 0, 42, 20}};
+        const std::vector<Rect> island{{20, 5, 22, 15}};                   // a 2 um island touching the gap: not ground
+        const int added2 = detail::fill_ground_slivers(h2, island, 4.0);
+        CHECK(added2 == 0 && h2.size() == 2, "fill touched a gap containing island metal (%d added)", added2);
+    }
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -1506,6 +1554,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"leakage_frame", test_leakage_frame},
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
+    {"layout_geometry", test_layout_geometry},
     {"json_rfc", test_json_rfc},
     {"json_depth", test_json_depth},
     {"gds_write", test_gds_write},

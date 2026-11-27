@@ -187,12 +187,21 @@ int main(int argc, char** argv) {
             std::printf("   re-null: couplers parked at %.3f GHz (%.0f MHz below sweet spot, df/dPhi %.2f GHz/Phi0) -> residual gap %.3f MHz, ZZ %+.2f kHz\n",
                         P.park_fc_GHz, (V11.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
             std::printf("   chip %.1f x %.1f mm, %zu etch polygons\n   DRC: %s\n", L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), layout::drc_summary(L).c_str());
+            const auto T = layout::targets_from_design(V11, R11);
+            auto rel = [](double a, double t) { return a / t - 1; };
+            const double ec_err = std::max({std::abs(rel(m.EC_m, T.EC_m)), std::abs(rel(m.EC_d, T.EC_d)), std::abs(rel(m.EC_c, T.EC_c))});
+            const double g_err = std::max({std::abs(rel(m.G_mc, T.G_mc)), std::abs(rel(m.G_cd, T.G_cd)), std::abs(rel(m.G_md, T.G_md))});
+            const double cr_err = rel(m.C_qr_fF, T.C_qr_fF);
+            std::printf("   extracted vs target: E_C within %.1f%%, couplings within %.1f%%, qubit-readout capacitance %+.1f%% (%.2f fF, target %.2f)\n",
+                        100 * ec_err, 100 * g_err, 100 * cr_err, m.C_qr_fF, T.C_qr_fF);
             Json lj2 = Json::object();
             lj2.set("alpha_measure_MHz", P.alpha_m * 1e3); lj2.set("alpha_data_MHz", P.alpha_d * 1e3); lj2.set("alpha_coupler_MHz", P.alpha_c * 1e3);
             lj2.set("g_qc_MHz", P.g_qc_MHz); lj2.set("g12_MHz", P.g12_MHz); lj2.set("g12_null_MHz", P.g12_null_MHz);
             lj2.set("residual_gap_MHz", P.residual_gap_MHz); lj2.set("spectator_transfer", P.spectator_LZ); lj2.set("zz_park_kHz", P.zz_park_kHz);
             lj2.set("renull_park_fc_GHz", P.park_fc_GHz); lj2.set("renull_gap_MHz", P.park_gap_MHz); lj2.set("renull_zz_kHz", P.park_zz_kHz);
             lj2.set("readout_g_MHz", P.g_r_MHz); lj2.set("readout_g_design_MHz", P.g_r_target_MHz); lj2.set("drc_clean", L.drc_clean()); lj2.set("drc", layout::drc_json(L));
+            lj2.set("max_EC_err", ec_err); lj2.set("max_coupling_err", g_err); lj2.set("readout_C_err", cr_err);
+            lj2.set("within_tolerance", ec_err <= 0.03 && g_err <= 0.06 && std::abs(cr_err) <= 0.06); lj2.set("renull_ok", std::abs(P.park_gap_MHz) < 0.05);
             out.set("layout", lj2);
         } else std::puts("   (no layout_cells.json yet: run `qpuforge gds ... --cells designs/alpha1-v11/layout_cells.json`)");
     }

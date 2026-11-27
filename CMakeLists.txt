@@ -87,7 +87,7 @@ set(QPUFORGE_TESTS
   "decomposition:unit" "transmon:physics" "coupler_and_flux:physics" "zz_and_inverse_design:physics" "qasm:unit" "compiler:unit" "decoherence:physics"
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
-  "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
+  "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")

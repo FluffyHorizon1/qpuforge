@@ -10,6 +10,10 @@
 
 using namespace qpuforge;
 
+#ifndef QPUFORGE_VERSION
+#define QPUFORGE_VERSION "unknown"
+#endif
+
 static void usage() {
     std::puts(
         "qpuforge — superconducting QPU chip design & whole-processor emulation\n"
@@ -371,6 +375,7 @@ static int cmd_qec(int argc, char** argv) {
 int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 1; }
     const std::string cmd = argv[1];
+    if (cmd == "--version" || cmd == "-V") { std::printf("qpuforge %s\n", QPUFORGE_VERSION); return 0; }
     try {
         if (cmd == "new") return cmd_new(argc, argv);
         if (cmd == "analyze") return cmd_analyze(argc, argv);

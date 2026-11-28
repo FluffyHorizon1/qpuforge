@@ -75,6 +75,8 @@ expect_status(1 surgery --op yy)
 expect_status(1 surgery --d 3,4)
 expect_status(1 surgery --readout X)                 # zz reads each patch in its input basis
 expect_status(1 surgery --post 0)
+expect_status(1 surgery --shots 1e5)                # malformed number
+expect_status(2 surgery --input 0 --shots 0)        # input of the wrong length: refused by the library
 # analyze: the materials options
 expect_status(1 analyze "${MISSING}" --loss-tangent)
 expect_status(1 analyze "${MISSING}" --materials "")

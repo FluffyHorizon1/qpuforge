@@ -26,10 +26,13 @@ the commands below to reproduce them.
 | `results/flux_distortion_study.{txt,json}` | `flux_distortion_study` (`OMP_NUM_THREADS=2 ./build/flux_distortion_study`; pulse simulations only, no Monte Carlo; CZ model v4) | `a1fcda1d95b8428bac9372e0f5a6ff4a9c4de4f7` (clean tree) | g++ 13.3.0 | 2 (informational) | 2026-11-28T10:40:55Z | 976 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
-  The reviews, the GDS files and the characterisation rehearsal were regenerated from the clean tree
-  `0b2ea59` (`main` at 2e19180 merged into `scs-bot/fab-readiness`): each review JSON says `source_tree_dirty: false`.
-  The test log was made later, from `8de7512` (clean tree a0a5686, which `main` has after #21 and #24).
-  `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
+  The three reviews were regenerated from the clean tree `ae46662` (PR #28) with a build directory configured at that
+  commit: each review JSON says `source_commit: ae46662…`, `source_tree_dirty: false`. Its review and layout code is the
+  code of `56ba3e4`, where an earlier run of the same three reviews gave the same output except for the machine-dependent
+  fields. `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
+  `results/test_output.txt` was not regenerated for PR #28: it is `main`'s, made from `8de7512` (clean tree a0a5686, which
+  `main` has after #21 and #24): its 500 checks are `main`'s. With the four checks this PR adds, `test_qpuforge` runs 504
+  (the per-group counts of a full ctest run on g++ 14.2 sum to 504, 0 failed).
 - **Source stamp.** The review and study programs write the commit they were built from into their JSON
   (`provenance.source_commit`), and `provenance.source_tree_dirty`: `true` if tracked files differed from that commit
   when the program was built (untracked files do not count). The stamp is taken by every build that brings a

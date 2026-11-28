@@ -30,13 +30,16 @@ the commands below to reproduce them.
   `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
 - **Source stamp.** The review and study programs write the commit they were built from into their JSON
   (`provenance.source_commit`), and `provenance.source_tree_dirty`: `true` if tracked files differed from that commit
-  when the program was built (untracked files do not count). The stamp is taken on every build
-  (`cmake/git_stamp.cmake`), so it describes the tree the binary was built from, whenever its build directory was
-  configured. For recorded runs, commit, run `cmake --build build` and then run the programs: the build directory does
-  not have to be configured again. Build before the first run and not between runs: a run rewrites tracked files (the
-  committed outputs), and a build made after that records `source_tree_dirty: true`. A binary that is not rebuilt
-  after a commit keeps the stamp of the tree it was built from. The stamp is `"unknown"` / `false` outside a git
-  checkout, without git, and for a program compiled by hand.
+  when the program was built (untracked files do not count). The stamp is taken by every build that brings a
+  program's dependencies up to date (`cmake/git_stamp.cmake`): `cmake --build build`, with or without
+  `--target <program>`, and `make` or `ninja` for the default target or for the program. It therefore describes the
+  tree the binary was built from, whenever its build directory was configured. The Makefile rules `<program>/fast`
+  are the exception: they skip the dependencies, so `make <program>/fast` links the program with the stamp of the last
+  ordinary build, even after compiling it from a newer commit. For recorded runs, commit, run `cmake --build build`
+  and then run the programs: the build directory does not have to be configured again. Build before the first run and
+  not between runs: a run rewrites tracked files (the committed outputs), and a build made after that records
+  `source_tree_dirty: true`. A binary that is not rebuilt after a commit keeps the stamp of the tree it was built
+  from. The stamp is `"unknown"` / `false` outside a git checkout, without git, and for a program compiled by hand.
   The outputs in the table predate this: their stamp was taken when CMake configured the build directory, and a
   directory configured at an earlier commit would have recorded that commit.
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:

@@ -41,6 +41,8 @@ target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERS
 # qpuforge_git_stamp_update is always out of date and runs cmake/git_stamp.cmake, which rewrites git_stamp.cpp only
 # when the stamp changes. That file is the whole of the static library the six programs link, so a new commit costs
 # one small compile and six relinks, and a build with nothing new recompiles and relinks nothing.
+# One way of building does not take the stamp: the Makefile rules <target>/fast skip the dependencies of the target,
+# so a program built that way is linked with the stamp of the last ordinary build.
 find_package(Git QUIET)   # a hint for the script, which looks for git on PATH when this one is missing at build time
 set(QPUFORGE_GIT_STAMP_CPP ${CMAKE_CURRENT_BINARY_DIR}/git_stamp.cpp)
 add_custom_target(qpuforge_git_stamp_update

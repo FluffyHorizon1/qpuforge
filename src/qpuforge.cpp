@@ -48,6 +48,7 @@ static void usage() {
         "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, GDSII\n"
         "  qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input 00|01|++|+-|..] [--readout Z|X] [--chip beta1|alpha1_v11]\n"
         "                [--shots N] [--seed S] [--merge-rounds R] [--pre R] [--post R] [--samples N] [--cache file]\n"
+        "                (--readout: cnot only; --pre 0 merges from the first round; --merge-rounds 0 = d rounds)\n"
         "                lattice surgery: logical ZZ / XX measurement between two patches or the three-patch CNOT;\n"
         "                noiseless tableau check of detectors and observables, then logical error per operation\n"
         "                (Pauli-frame Monte Carlo, exact matching per observable); --shots 0 runs the check only\n"
@@ -574,20 +575,45 @@ static int cmd_hwgate(int argc, char** argv) {
     return G.pass ? 0 : 3;
 }
 
+// strict integer options of `surgery`: the whole value must parse, and it must lie in [lo, hi]
+static long surgery_int(const std::string& opt, const std::string& v, long lo, long hi) {
+    std::size_t used = 0; long x = 0;
+    try { x = std::stol(v, &used); } catch (const std::exception&) { used = 0; }
+    if (v.empty() || used != v.size()) throw std::runtime_error(opt + ": '" + v + "' is not an integer");
+    if (x < lo || x > hi) throw std::runtime_error(opt + ": " + v + " is outside [" + std::to_string(lo) + ", " + std::to_string(hi) + "]");
+    return x;
+}
+
 static int cmd_surgery(int argc, char** argv) {
     const std::string op = arg(argc, argv, "--op", "zz");
+    if (op != "zz" && op != "xx" && op != "cnot") throw std::runtime_error("--op must be zz, xx or cnot");
     const std::string input = arg(argc, argv, "--input", op == "xx" ? "++" : "00");
     const std::string ro = arg(argc, argv, "--readout", "");
+    if (!ro.empty() && ro != "Z" && ro != "X") throw std::runtime_error("--readout must be Z or X");
+    if (!ro.empty() && op != "cnot") throw std::runtime_error("--readout applies to --op cnot only (zz and xx read each patch out in its input basis)");
     const std::string chip = arg(argc, argv, "--chip", "beta1");
-    const long shots = std::stol(arg(argc, argv, "--shots", "20000"));
-    const std::uint64_t seed = std::stoull(arg(argc, argv, "--seed", "2026"));
-    const int samples = std::stoi(arg(argc, argv, "--samples", "4"));
+    if (chip != "beta1" && chip != "alpha1_v11") throw std::runtime_error("--chip must be beta1 or alpha1_v11");
+    const long shots = surgery_int("--shots", arg(argc, argv, "--shots", "20000"), 0, 1000000000L);
+    std::uint64_t seed = 0;
+    {
+        const std::string v = arg(argc, argv, "--seed", "2026");
+        std::size_t used = 0;
+        try { if (!v.empty() && v[0] != '-') seed = std::stoull(v, &used); } catch (const std::exception&) { used = 0; }
+        if (v.empty() || used != v.size()) throw std::runtime_error("--seed: '" + v + "' is not a non-negative integer");
+    }
+    const int samples = int(surgery_int("--samples", arg(argc, argv, "--samples", "4"), 1, 1000));
     SurgeryRounds rr;
-    rr.merge = std::stoi(arg(argc, argv, "--merge-rounds", "0"));
-    rr.pre = std::stoi(arg(argc, argv, "--pre", "1"));
-    rr.post = std::stoi(arg(argc, argv, "--post", "1"));
+    rr.merge = int(surgery_int("--merge-rounds", arg(argc, argv, "--merge-rounds", "0"), 0, 1000));
+    rr.pre = int(surgery_int("--pre", arg(argc, argv, "--pre", "1"), 0, 1000));
+    rr.post = int(surgery_int("--post", arg(argc, argv, "--post", "1"), 1, 1000));
     std::vector<int> ds;
-    { std::stringstream ss(arg(argc, argv, "--d", "3")); std::string t; while (std::getline(ss, t, ',')) ds.push_back(std::stoi(t)); }
+    {
+        const std::string v = arg(argc, argv, "--d", "3");
+        std::stringstream ss(v); std::string t;
+        while (std::getline(ss, t, ',')) ds.push_back(int(surgery_int("--d", t, 3, 15)));
+        if (ds.empty() || v.back() == ',') throw std::runtime_error("--d: '" + v + "' is not a list of distances");
+        for (int d : ds) if (d % 2 == 0) throw std::runtime_error("--d: distances must be odd");
+    }
     int bad = 0;
     for (int d : ds) {
         const auto E = surgery_experiment(op, d, input, ro.empty() ? char(0) : ro[0], rr);
@@ -598,7 +624,7 @@ static int cmd_surgery(int argc, char** argv) {
         std::printf("), %zu detectors (%d Z, %zu X)\n", E.detectors.size(), nz, E.detectors.size() - std::size_t(nz));
         std::printf("  noiseless tableau check, %d random branches: %d detector firings, %d wrong observables, %d wrong reference bits%s\n",
                     c.samples, c.fired, c.wrong_observables, c.wrong_reference + c.random_reference, (c.fired || c.wrong_observables || c.wrong_reference || c.random_reference) ? "  FAILED" : "  (ok)");
-        for (std::size_t k = 0; k < E.observables.size(); ++k)
+        for (std::size_t k = 0; k < E.observables.size() && k < c.observable_values.size(); ++k)
             std::printf("    %-8s = %d (expected %d)\n", E.observables[k].name.c_str(), c.observable_values[k], E.observables[k].expected);
         if (c.fired || c.wrong_observables || c.wrong_reference || c.random_reference) ++bad;
         if (shots <= 0) continue;

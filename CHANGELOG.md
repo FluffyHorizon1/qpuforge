@@ -26,13 +26,43 @@ Phase Gamma logical operations: lattice surgery between surface-code patches (lo
 and a three-patch CNOT). Each operation is checked noiselessly with a stabiliser tableau and simulated with the
 Pauli-frame Monte Carlo. Study: `examples/surgery_study.cpp` -> `results/surgery_study.{txt,json}` (CZ model version 4).
 
+Lattice surgery, next steps: one decoder pass that returns all observables of an operation (exact matching or
+union-find on one graph whose edges carry an observable mask); a two-pass correlated decoder that uses the detectors
+of both Pauli types; operations between patches that are not adjacent, through a routing strip; and a chip account for
+two and three d = 5 patches with their routing region. `surgery_study` sections 4 to 6.
+The next decoding items of Phase Gamma: herald weights derived from the leakage model instead of fixed factors,
+heralding of data-qubit leakage through DQLR (measured, and found to cost more than it recovers), and an
+operation-count model of the streaming union-find decoder with two stated hardware cost models. The hardware part is a
+model: nothing was synthesised or run on an FPGA. Study: `examples/decoder_study2.cpp` ->
+`results/decoder_study2.{txt,json}`.
+
 A strict command line: each command accepts only its own options, and an unknown, misspelt or repeated option, a
 missing value or a malformed number is a usage error (exit 1), reported before any file is read.
 
 The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_CONTRACT.md`): a reader for the
 `forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
 
+A model of the flux lines and of their digital correction (`fluxline.hpp`), and a study of what the CZ gates of
+Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> `results/flux_distortion_study.{txt,json}`,
+`docs/design/flux-line-predistortion.md`). The calibration does not use the model: no cache entry or review number changes.
+
 ### Added
+- `fluxline.hpp`:
+  - `FluxLine` (first-order sections, `FluxSection`, in cascade with the step response 1 + a exp(-t / tau), a
+    single-pole low-pass, a delay), `FluxLineFilter` (its response to a held drive in closed form), `FluxAwg` (sample-and-hold, DAC resolution),
+    `FluxChannel`, `Predistorter` (digital first-order inverses of a fit of the line), `flux_line_output` (the flux a
+    channel delivers for a train of pulses).
+  - `CZDrive`, `simulate_cz_drive` (the propagator and fidelity of `simulate_cz` for any mover and coupler flux),
+    `cz_ideal_drive` (reproduces `simulate_cz`), `CZFrame`, `cz_frame`, `cz_fidelity_in_frame` (the fidelity with virtual Z
+    gates calibrated in another context), `cz_offset_response` (added error per unit of constant flux offset, with free
+    and with fixed virtual Z gates).
+  - `FluxSetup`, `cz_gate_drive`, `cz_train_drive` (a gate on two channels, on its own or inside pulse trains),
+    `cz_matched_command` and `flux_amplitude_scale` (the amplitude calibration on a distorted line), `cz_system_of` (the
+    pair system of a stored calibration), `cz_starts` (CZ start times of a compiled program).
+- `pulse.hpp`: `pair_system` (the system `design_pair_system` builds for a given direct coupling; no change of arithmetic).
+- `examples/flux_distortion_study.cpp` and its smoke test (`smoke_flux_distortion_study`).
+- Tests: group `flux_predistortion` (label `pulse`, 32 checks, about 3 s). 541 validation checks in all; the committed
+  `results/test_output.txt` predates the group and holds 500.
 - `layout.hpp`:
   - `detail::place_ground_straps` (`detail::Strap`, `detail::IslandIndex`, `detail::island_index`,
     `detail::foot_comp`, `detail::UnionFindLite`; `kStrapW`, `kStrapMaxSpan`, `kStrapLinePenalty`,
@@ -119,7 +149,36 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `--op cnot` only. Exit status 3 when a noiseless check fails.
 - `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
 - Tests: `surgery` and `surgery_cnot` groups (82 checks); the determinism guard also covers
-  `run_surgery_frame`; a smoke entry for the study.
+  `run_surgery_frame` (the ZZ measurement and the three-patch CNOT); a smoke entry for the study; `cli_*surgery*` guards
+  for the command line (outside the validation checks).
+- `surgery.hpp`, joint decoding: `SurgeryFault` and `surgery_faults` (each fault mechanism with its decoded detectors,
+  a mask of the observables it flips and, on request, its detectors of the other Pauli type); `JointEdge`, `JointDEM`
+  and `build_joint_dem` (one edge per detector pair: the probability of all its mechanisms, the mask of the most
+  likely class, and counts of the edges and of the probability that one mask cannot represent); `SurgerySetup::jdem`
+  and `SurgerySetup::joint`, a `MatchingDecoder` whose `decode()` returns the mask of all observables from one
+  matching, or from one union-find pass with `DecodeMethod::UnionFind`.
+- `surgery.hpp`, correlated decoding: `prepare_surgery(..., correlated = true)` builds a union-find decoder on the
+  detectors of the other Pauli type and, for each of its edges, the joint-graph edges that share mechanisms with it.
+  `SurgeryDecoder::Correlated` decodes the other type first, lowers the weights of the correlated edges to their
+  conditional probability and runs exact matching on the joint graph.
+- `surgery.hpp`: `SurgeryDecoder` (`Separate`, `Joint`, `SeparateUF`, `JointUF`, `Correlated`),
+  `surgery_decoder_name`, and `run_surgery_decoders`, which decodes the same shots with several decoders and returns
+  for each the error per observable, the shots with any observable wrong, the shots that differ from, are fixed or are
+  broken relative to the first decoder, and the decode time per shot. `SurgeryResult` gains `decoder`, `decode_ns`,
+  `differ`, `any_fixed` and `any_broken`.
+- `surgery.hpp`, routing: `surgery_parity`, `surgery_cnot`, `surgery_experiment` and `surgery_cnot_reference` take a
+  `gap` (odd, default 1). With `gap` > 1 the patches are joined through a routing strip, d wide and `gap` long, which
+  is merged with both patches for the measurement and read out at the split. Strips are straight.
+- CLI: `qpuforge surgery --gap G` (odd, 1 to 15) and `--decoder separate|joint|uf|joint-uf|correlated|all`; `all`
+  decodes the same shots with every decoder and prints decode times. Both are in the option table, the usage and the
+  `cli_*` guards (`cli_surgery_even_gap`, `cli_surgery_bad_decoder`, `cli_ok_surgery_routing`, `cli_exit_status`).
+- `examples/surgery_study.cpp`: section 4 (the shots of section 2 decoded with every decoder), section 5 (noiseless
+  check and logical error against the strip length, Beta-1 physics, strips of 1, 3, 5 and 7 at d = 3 and 5) and
+  section 6 (chip account for d = 5 patches and their routing region: qubits, couplers, feedlines, lines, design
+  frequencies, collisions, fabrication Monte Carlo). `results/surgery_study.{txt,json}` regenerated; sections 1 to 3
+  are unchanged.
+- Tests: `surgery_joint` (57 checks) and `surgery_routing` (51 checks) groups. The determinism guard also covers
+  `run_surgery_decoders` with every decoder and a routed XX measurement.
 - Tests: `cli_*` guards (label `unit`) for unknown options, missing values, malformed numbers and choices, repeated and
   extra arguments, one accepted invocation per command with every option given (two for `new`, a topology and
   `--preset`; three for `qec`: the burst options, then the decoding options and the streaming decoder at non-default
@@ -138,17 +197,69 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - CLI: `analyze --materials <sidecar.json> [--loss-tangent]` applies a sidecar, prints one line per quantity, then
   prints the device report. The chip JSON file is not changed. `--loss-tangent` without `--materials`, and an empty
   `--materials` value, are usage errors (exit 1), reported before any file is read.
+- CLI: `--materials <sidecar.json> [--loss-tangent]` is also accepted by `run`, `budget`, `fab`, `qec`, `cz`, `synth-chip`
+  and `hwgate`, through one shared loader, so a sidecar value reaches the emulators and the logical-error runs and is no
+  longer silently dropped by a sub-command that did not know the flag. `layout` and `gds` declare it only to refuse it
+  (a usage error, exit 1; they draw the chip from the chip JSON). When a sidecar changes `junction_gap_ueV`, the report line says that each qubit keeps its
+  `Rn_kOhm`, so `E_J` and `f01` scale with the gap.
 - Tests: the `materials` group (label `unit`, 25 checks), with sidecar fixtures in `tests/data/`, among them
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_loss_tangent_opt_in`,
-  `cli_materials_refused` and `cli_usage_materials` CLI guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the
-  path of `tests/data`.
+  `cli_materials_refused` and `cli_usage_materials` CLI guards, plus `cli_materials_fab`, `cli_materials_run`,
+  `cli_materials_budget`, `cli_materials_run_refused`, `cli_materials_layout_refused`, `cli_materials_gds_refused`,
+  `cli_materials_qec`, `cli_materials_cz_missing_chip`, `cli_materials_hwgate_missing_chip` and `cli_loss_tangent_alone`
+  for the other sub-commands. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
+- `qec.hpp`, herald weights derived from the leakage model (docs/design/derived-herald-weights.md):
+  - `HeraldSpec::derived`; `HeraldModel` (`MemorySetup::herald_model`), `build_herald_model`, `prepare_herald_model`.
+    Per heralded readout: the probability that the qubit was leaked, and the probability of a fault on each
+    decoder-graph edge given that it was. Weights are log-likelihood ratios; an edge more likely than not is applied.
+  - `frame_detail::leak_chain` (`LeakChain`): one leakage excitation followed through the circuit with the sampler's
+    transitions (forward pass, backward smoothing per readout, forward continuation).
+  - `fault_signatures(F, E, list, steps)`: the linear-time enumeration for any list of mechanisms.
+  - `qpuforge qec --herald --herald-weights fixed|derived` (`--herald-factor` and `--herald-rule` apply to `fixed`).
+- Data-qubit leakage heralding (docs/design/data-leakage-herald.md): `LeakageSpec::dqlr_transfer` (`dqlr_transfer` in
+  the chip JSON, written only when set), `NoiseModel::dqlr_transfer`, `FrameProgram::dqlr_transfer`,
+  `FrameProgram::FMoment::dqlr_to`. The DQLR pulse leaves the leakage on the measure qubit, and that qubit's next
+  3-state readout heralds it. `qpuforge qec --leakage-removal lrr+dqlr --herald --dqlr-herald`.
+- `unionfind.hpp`, for the hardware model (docs/design/streaming-union-find-fpga.md):
+  - `UFOpCounts` and `UnionFindDecoder::decode_counted`: loads, growth steps, edge visits and updates, finds, pointer
+    hops, unions, peeling steps, corrections. The plain `decode()` is the same template with an empty counter.
+  - `StreamOptions` for `StreamingUnionFind::decode`: `scaled` (heralds through the streaming decoder), `predecode`
+    (an isolated-pair pre-decoder), `count` (per-window counts in `StreamScratch::counts` and `cleared`).
+    `StreamingUnionFind::global()`, `window_vertices`, `window_edges`, `committed_rounds`.
+  - `UFCostModel`, with `serial_bram()` and `parallel_growth()`: cycles per window from the counts.
+- `qec.hpp`: `run_stream_profile` and `StreamProfile`: histograms per window of every counter, of the cycles per
+  committed round and of the queueing latency, for a list of cost models.
+- `examples/decoder_study2.cpp` and `results/decoder_study2.{txt,json}`; `docs/design/derived-herald-weights.md`,
+  `data-leakage-herald.md`, `streaming-union-find-fpga.md`.
+- Tests: groups `herald_weights` (7 checks), `dqlr_herald` (6) and `stream_ops` (5), label `qec`: 18 checks on top of
+  the 500 below (`results/test_output.txt` predates them). The thread-count determinism digest also covers the herald
+  model, derived weights through the batch and the streaming decoder, DQLR with heralding, and the operation profile.
+  CLI guards for the two new options, and `cli_herald_stream` (below).
 - 500 validation checks in all (`results/test_output.txt`): 346 on `main` before the decoding work (the 321 of 0.4.0
   plus 25 in `materials`), plus 21 from the decoding work (#20), 48 from fabrication readiness (#19), 3 from the
   streaming decoder (#27) and 82 from lattice surgery (#21). The 0.4 groups now give 328: fabrication readiness added
   four `pulse_cz` checks and one `layout` check, the decoding work two `fault_enumeration` checks. The strict CLI (#24)
   adds CTest guards, not validation checks.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
+- `materials.hpp`: `provenance` is an enumerated field on `forge.materials.v0` (decision D4, Finnian Bond,
+  2026-11-28): `placeholder`, `assumed`, `literature`, `measured`, `dft-loss-tangent`, `participation-weighted`. A
+  number must carry one, and `literature` / `measured` must name their source in `reference` (new member
+  `MaterialsQuantity::reference`, printed on the report line). Values must lie in a physical range (`Q_dielectric`
+  1e3–1e10, `loss_tangent` 1e-10–1e-3, `junction_gap_ueV` 10–3000 µeV). `produced_by.tool` is required, every
+  `placeholders` entry must name a quantity in the file, and `contains_placeholders` must agree with the quantities.
+  atomforge's writer already meets every rule. The `materials` group has 29 checks (4 new), 504 validation checks in
+  all; `results/test_output.txt` still records the 500-check run of `main` named in `results/PROVENANCE.md`.
+- CLI: `qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]` (decision D2) writes
+  a copy of the chip with the sidecar's accepted values and a `materials_source` block: the sidecar's file name and
+  SHA-256, its `produced_by` and `system`, the loss-tangent opt-in, the gap policy and one entry per quantity (applied,
+  before, after, provenance, reference). Each qubit keeps its `Rn_kOhm` (D1), so a new gap moves `f01`, as it does in
+  memory. A chip that already has a `materials_source` keeps it as `previous`. `design_from_json` ignores the block, so
+  the copy loads anywhere; `--out` naming an input file, a missing `--out` or another action than `apply` is refused,
+  and nothing is written when a check fails. `materials.hpp` gains `materials_apply_file`, `materials_source_json`,
+  `MaterialsApplyResult` and `materials_detail::sha256_hex` / `read_file`. The `materials` group has 34 checks (5 new),
+  509 in all; CLI guards `cli_materials_apply*` and new `cli_exit_status` / `cli_help_command` lines.
+- The `layout` / `gds` refusal of `--materials` now points at `qpuforge materials apply`.
 
 ### Fixed
 - CLI: each command accepts only the options it reads. An unknown or misspelt option (`--shot 1000`, `-grid`, or another
@@ -165,6 +276,31 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - CLI: `hwgate --out`, `cz --out`, the `synth-chip` data file and the `gds --cells` write-back fail with "cannot write"
   (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
   `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
+- Review and study programs (`alpha1_v11_review`, `beta1_review`, `gamma1_review`, `decoder_study`, `decoder_sweeps`,
+  `surgery_study`): `provenance.source_commit` and `provenance.source_tree_dirty` now describe the tree the program was
+  built from. They were compile definitions (`QPUFORGE_GIT_SHA`, `QPUFORGE_GIT_DIRTY`; no longer read) computed when
+  CMake configured the build directory, so a directory configured at one commit and rebuilt after later commits kept
+  writing the old commit into its outputs. The stamp is now taken on every build: the target `qpuforge_git_stamp_update`
+  runs `cmake/git_stamp.cmake`, which rewrites the one source file of a small static library (`qpuforge_git_stamp`) only
+  when the commit or the dirty flag changes. A new commit costs one small compile and six relinks, and a build directory
+  does not have to be configured again before a recorded run. The Makefile rules `<program>/fast` skip a program's
+  dependencies and therefore do not take the stamp. The dirty flag means what it did (tracked files modified, untracked
+  files not counted) but is now read at every build: a build made after a recorded run has rewritten its tracked output
+  files records `true`. Outside a git checkout or without git the stamp is `"unknown"` / `false`, as it is for a program
+  compiled by hand (`examples/git_stamp.hpp`), and the build still works; a source tree unpacked inside another
+  repository no longer takes that repository's commit. Two new CTest guards (label `unit`, reported as skipped where git
+  is not installed): `git_stamp` runs the script on a scratch repository, and `git_stamp_wiring` configures a copy of
+  `CMakeLists.txt` once, with a few lines in place of each program source, and builds it again after each commit. Every
+  program that includes `git_stamp.hpp` must then print the new commit, and nothing but the stamp may be compiled.
+  `fp_contract_flags` now requires the `QPUFORGE_COMPILE_OPTIONS` line for every `add_executable` and `add_library` in
+  `CMakeLists.txt` (the target helper, `test_determinism` and the new library).
+
+- `qpuforge qec --decoder uf-stream --herald` decoded with the batch union-find decoder in two places. The
+  "decoded without heralds" comparison copied the options before the streaming decoder was attached. And
+  `run_memory_frame` sent every shot that had a herald to `decode_scaled`, whatever `FrameRunOptions::stream` said, so
+  the run itself was a mixture of the two decoders. Heralds now go through the streaming decoder
+  (`StreamOptions::scaled`), and the comparison copies the run's own options. `cli_herald_stream` pins it: with heralds
+  that never fire, the run and its comparison must agree, and must differ from `--decoder uf`.
 
 ### Changed
 - **Qubit SQUID.** `xmon` cuts a 10 µm ground lead out of the qubit's (−x, −y) inner corner, 10 µm from the SQUID stub;
@@ -217,8 +353,48 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - CLI: the usage text lists every option of every command (`budget --seed`, `qec --seed --cache --leakage-removal`,
   `synth-chip --cache`, `hwgate --seed --cache` and most `new` options were missing), and a usage error prints the
   usage of its command only. Options may come before the positional arguments.
+- `build_surgery`: a face that ends at a split and whose whole support is read out there in its basis closes with a
+  detector (the faces inside a routing strip), and a face that ends is forgotten, so that a face returning in a later
+  phase is not compared with a measurement from before its data were read out. Neither case occurs in the schedules of
+  PR #21 (adjacent patches): their circuits, detectors and results are unchanged.
+
+### Breaking CLI changes
+
+The strict option table (#24) and the follow-up for `--help` change what scripts can rely on. The list is limited to what
+the entries under Fixed do not already state; unknown, misspelt, repeated and misplaced options, `budget --shots` and the
+`qec` option dependencies are described there.
+
+- `new --plan` accepts only 2, 4 or 8 (`--plan expects 2, 4 or 8, got '16'`, exit 1), as the usage line always said and
+  `device.hpp` handles. Other values used to be accepted.
+- `--help`, `-h` and `help` print the usage to stdout and exit 0, and `<command> --help` or `-h` (also `help <command>`)
+  prints that command's usage only, exit 0. Before the strict table (#24), `--help` was an unknown command: the usage went to
+  stdout with exit status 1. Since #24 it was an unknown option: a message and the usage on stderr, exit 1. Scripts that
+  treated exit 1 as "help shown" must now expect 0. `--help` as the value of an option that takes one (`run --off --help`)
+  is still that option's bad value, a usage error.
+- The `cli_help`, `cli_help_short`, `cli_help_word` and `cli_help_command` guards (label `unit`) run `tests/check_cli_help.cmake`,
+  which asserts exit status 0, an empty stderr and the usage text on stdout; a pass regex alone cannot see the exit status.
 
 ### API changes
+- `surgery.hpp`: `prepare_surgery` has a sixth parameter `correlated` (default `false`), `run_surgery_frame` a fourth
+  parameter `decoder` (default `SurgeryDecoder::Separate`), and `surgery_parity`, `surgery_cnot`, `surgery_experiment`
+  and `surgery_cnot_reference` a last parameter `gap` (default 1). Calls written for the earlier signatures compile
+  and give the same results. `SurgerySetup` and `SurgeryResult` have new members; `SurgerySetup` holds a
+  `std::unique_ptr` more and stays move-only. New names in `qpuforge`: `SurgeryFault`, `JointEdge`, `JointDEM`,
+  `SurgeryDecoder`, `build_joint_dem`, `surgery_faults`, `surgery_fault_signatures_of`, `surgery_decoder_name`,
+  `run_surgery_decoders`; `surgery_fault_signatures` has an overload taking a fault list.
+- `qec.hpp`: `MatchingDecoder` has a second constructor, `MatchingDecoder(n_det, edges)`, from any list of edges with
+  members `a`, `b`, `obs` and `p`. `obs` may be a mask of up to 8 observables; `decode()` and `decode_scaled()` then
+  return the XOR of the masks along the matching instead of 0 or 1. The constructor from a `DetectorErrorModel` is
+  unchanged.
+- `UnionFindDecoder::decode` is now a wrapper around a private template; its signature and results are unchanged.
+  `StreamingUnionFind::decode(defects, ws)` is unchanged; `decode(defects, ws, StreamOptions)` is new. `StreamScratch`
+  gained members. A `StreamingUnionFind` now also keeps the whole detector graph (`global()`).
+- `FrameRunOptions::stream` together with heralds used in the decoder: the shots with a herald are decoded by the
+  streaming decoder (they were decoded by the batch one). The streaming decoder must then be built from the setup's
+  own detector error model; `run_memory_frame` throws otherwise.
+- `unionfind.hpp` adds `UFOpCounts`, `UFCostModel`, `StreamOptions` and the `uf_detail` namespace to `qpuforge`;
+  `qec.hpp` adds `HeraldModel`, `StreamProfile`, `fault_signatures`, `build_herald_model`, `prepare_herald_model`,
+  `run_stream_profile`, and `frame_detail::LeakChain` / `leak_chain`.
 - `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
 - `frame_detail::FaultDesc` (internal) gained `owner`.
 - `enumerate_faults(F, E, long* steps = nullptr)` and `optimize_cz(S, fluxc_on, t_rise, dt, max_eval, leak_weight = 0,
@@ -241,6 +417,9 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   written; they used to return as if it had been written.
 - The materials reader changes nothing else: chip JSON files and the output of `qpuforge analyze` without
   `--materials` are as before.
+- Stricter sidecar validation (D4): a hand-written sidecar whose numbers have no `provenance`, an unknown one, or a
+  `literature` / `measured` value without `reference` is now rejected (`std::runtime_error`), as is a value outside the
+  ranges above, a sidecar without `produced_by.tool`, or inconsistent `placeholders` / `contains_placeholders`.
 
 ### Known issues
 - **Not ready to merge: open review findings** (details in docs/design/mask-connectivity.md):

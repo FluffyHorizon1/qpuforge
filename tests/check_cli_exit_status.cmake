@@ -46,6 +46,14 @@ foreach(o --herald-fidelity --herald-false --herald-factor)
   expect_status(1 qec "${MISSING}" ${o} 0.5)        # needs --herald
 endforeach()
 expect_status(1 qec "${MISSING}" --herald-rule detector)
+expect_status(1 qec "${MISSING}" --herald-weights derived)             # needs --herald
+expect_status(1 qec "${MISSING}" --dqlr-herald)                        # needs --herald
+expect_status(1 qec "${MISSING}" --herald --dqlr-herald)               # needs --leakage-removal lrr+dqlr
+expect_status(1 qec "${MISSING}" --herald --dqlr-herald --leakage-removal dqlr)
+expect_status(1 qec "${MISSING}" --herald --herald-weights model)      # unknown choice
+expect_status(1 qec "${MISSING}" --herald --herald-weights derived --herald-factor 0.3)   # the factor belongs to the fixed rule
+expect_status(1 qec "${MISSING}" --herald --herald-weights derived --herald-rule detector)
+expect_status(2 qec "${MISSING}" --herald --herald-weights derived --leakage-removal lrr+dqlr --dqlr-herald)   # accepted: stops at the missing chip
 # qec: value ranges (probabilities and the herald factor in [0, 1], the veto window >= 1, radii and rates >= 0)
 foreach(o --herald-fidelity --herald-false --herald-factor)
   expect_status(1 qec "${MISSING}" --herald ${o} 1.5)
@@ -75,6 +83,20 @@ expect_status(1 surgery --op yy)
 expect_status(1 surgery --d 3,4)
 expect_status(1 surgery --readout X)                 # zz reads each patch in its input basis
 expect_status(1 surgery --post 0)
+expect_status(1 surgery --shots 1e5)                # malformed number
+expect_status(2 surgery --input 0 --shots 0)        # input of the wrong length: refused by the library
+expect_status(0 surgery --op zz --d 3 --gap 3 --decoder joint --shots 0 --samples 1)   # routing strip
+expect_status(1 surgery --gap 2)                     # the strip length is odd
+expect_status(1 surgery --gap 0)
+expect_status(1 surgery --gap 17)
+expect_status(1 surgery --decoder exact)             # qec's decoder names are not surgery's
 # analyze: the materials options
 expect_status(1 analyze "${MISSING}" --loss-tangent)
 expect_status(1 analyze "${MISSING}" --materials "")
+# materials apply: a missing --out or another action is a usage error before any file is read; overwriting the chip or
+# a chip file that does not exist is an error while running
+expect_status(1 materials apply "${MISSING}" "${MISSING}")
+expect_status(1 materials apply "${MISSING}" "${MISSING}" --out "")
+expect_status(1 materials merge "${MISSING}" "${MISSING}" --out "${OUT}.chip.json")
+expect_status(2 materials apply "${MISSING}" "${MISSING}" --out "${OUT}.chip.json")
+expect_status(2 materials apply "${CHIP}" "${CHIP}" --out "${CHIP}")

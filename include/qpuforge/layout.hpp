@@ -1228,7 +1228,7 @@ struct DrcRules { double etch_min_width_um{4.0}, etch_min_space_um{4.0}; };
 inline constexpr double kRemoveFragmentUm2 = 2500;   // unreachable ground fragments below this area are etched away
 
 // Connectivity of the fabricated metal (LVS-lite), from detail::metal_map on the final etch layer.
-// Nets (metal components joined by the ground straps):
+// Nets (metal components joined by the ground straps, and by ground bumps through the top chip):
 //   - every island (qubit, coupler, bus, line) is its own conductor: no two islands share a metal component, and only
 //     the lines meant to end in a short (resonators R*, qubit flux lines FQ*, coupler flux lines FC*) touch the ground;
 //   - each shorted line reaches the ground net, so it has a DC return; no ground metal is cut off from it;
@@ -1371,6 +1371,8 @@ inline void analyze_connectivity(ChipLayout& L) {
         }
     }
     const int plane0 = M.at(L.outline.x0 + 0.5, L.outline.y0 + 0.5);
+    // a ground bump ties its metal to the ground net through the top chip (no edge: it is not a strap)
+    for (const auto& gb : L.ground_bumps) { const int c = M.at(gb.cx(), gb.cy()); if (c >= 0 && plane0 >= 0) uf.unite(c, plane0); }
     auto net = [&](int c) { return c < 0 ? -1 : uf.find(c); };
     const int plane = net(plane0);
     const std::vector<int> icomp = island_components(L, M);
@@ -1749,10 +1751,10 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         };
         for (int pass = 0; pass < 2; ++pass) {
             const std::string& x = pass ? b : a; const std::string& y = pass ? a : b;
+            if (x.rfind("XY", 0) == 0 && y == "A" + x.substr(2)) return true;      // the break between an XY feed and its antenna
             const int q = qid(x);
             if (q < 0) continue;
             if (y == "R" + std::to_string(q)) return true;
-            if (x == "XY" + std::to_string(q) && y == "A" + std::to_string(q)) return true;
             const auto [e0, e1] = ends(y);
             if (e0 == q || e1 == q) return true;
         }

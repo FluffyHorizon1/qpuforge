@@ -2206,18 +2206,22 @@ static void test_layout_checks() {
                   "pocket on one strap: nets %d, on one strap %d, cut straps %d, ground ok %d", int(L.conn.nets_clean()), L.conn.fragments_on_one_strap, L.conn.cut_straps, int(L.conn.ground_ok()));
             CHECK(L.grounds.size() == 2 && L.grounds[1].name == "SC2-3" && !L.grounds[1].on_plane && L.grounds[1].straps == 1 && std::abs(L.grounds[1].span_um - 30) < 1e-9 &&
                   L.grounds[0].on_plane && L.grounds[0].straps == 0 && L.strap_returns == std::vector<int>{1}, "ground reference of the coupler SQUID: %d strap(s), %.0f um", g1.straps, g1.span_um);
-            // two independent straps: a coupler SQUID may sit there
+            // two independent straps: no cut strap any more, but a SQUID ground must be plane metal itself, a coupler's too
             L.straps = {s1, s2}; finish(L);
-            CHECK(L.conn.fragments_on_one_strap == 0 && L.conn.cut_straps == 0 && L.conn.ground_ok() && L.conn.clean() && L.conn.coupler_squids_on_plane == 0,
+            CHECK(L.conn.fragments_on_one_strap == 0 && L.conn.cut_straps == 0 && L.conn.nets_clean() && L.conn.coupler_squids_on_plane == 0 && !L.conn.ground_ok(),
                   "pocket on two straps: on one strap %d, ground ok %d", L.conn.fragments_on_one_strap, int(L.conn.ground_ok()));
-            // ... but a qubit SQUID may not: its ground must be plane metal itself
+            // ... and so for a qubit SQUID
             L.islands[1].first = "Q2"; finish(L);
             CHECK(L.conn.nets_clean() && L.conn.qubit_squids_on_plane == 1 && L.conn.qubit_squids == 2 && !L.conn.ground_ok(),
                   "qubit SQUID behind straps: on plane metal %d/%d, ground ok %d", L.conn.qubit_squids_on_plane, L.conn.qubit_squids, int(L.conn.ground_ok()));
-            // a ground bump makes the pocket plane metal
-            L.ground_bumps = {rect_c(260, 100, 10, 10)}; finish(L);
-            CHECK(L.conn.plane_components == 2 && L.conn.qubit_squids_on_plane == 2 && L.conn.strapped_fragments == 0 && L.conn.ground_ok(),
-                  "ground bump on the pocket: plane components %d, on plane metal %d/2", L.conn.plane_components, L.conn.qubit_squids_on_plane);
+            // a ground bump makes the pocket plane metal, but one bump is not enough for a plaquette (kMinPlaquetteBumps)
+            L.straps.clear(); L.ground_bumps = {rect_c(262, 100, kBumpSize, kBumpSize)}; finish(L);
+            CHECK(L.conn.plane_components == 2 && L.conn.qubit_squids_on_plane == 2 && L.conn.qubit_squids_on_border == 1 && L.conn.qubit_squids_on_bumps == 1 &&
+                  L.conn.strapped_fragments == 0 && L.conn.bump_rule_violations == 0 && L.conn.bump_plaquettes == 1 && L.conn.min_plaquette_bumps == 1 &&
+                  !L.conn.bumps_ok() && !L.conn.ground_ok(), "ground bump on the pocket: plane components %d, on plane metal %d/2, bumps on it %d, violations %d",
+                  L.conn.plane_components, L.conn.qubit_squids_on_plane, L.conn.min_plaquette_bumps, L.conn.bump_rule_violations);
+            L.ground_bumps = {rect_c(262, 100, 10, 10)}; finish(L);                    // a bump of the wrong size
+            CHECK(L.conn.bump_rule_violations == 1, "bump size rule: %d violation(s)", L.conn.bump_rule_violations);
         }
         {   // a chain: pocket A -> pocket B -> plane, two straps each (no cut strap) but depth 2; a third ring makes depth 3
             ChipLayout L; L.outline = {0, 0, 700, 200};
@@ -2407,7 +2411,7 @@ static void test_layout_checks() {
             CellSet sx = cs; sx.separate_xy = true;
             const auto X = assemble_chip(D, sx);
             const auto rt = cells_from_json(cells_json(sx, LayoutMetrics{}, LayoutTargets{}));
-            CHECK(X.island("XY" + std::to_string(cp.a)) >= 0 && X.island("A" + std::to_string(cp.a)) >= 0 && X.bumps.size() == L.bumps.size() + 2 && rt.separate_xy &&
+            CHECK(X.island("XY" + std::to_string(cp.a)) >= 0 && X.island("A" + std::to_string(cp.a)) >= 0 && X.bumps.size() == L.bumps.size() + 2 && X.drc_clean() && X.conn.clean() && rt.separate_xy &&
                   !cells_from_json(cells_json(cs, LayoutMetrics{}, LayoutTargets{})).separate_xy, "separate XY mode: lines %d, %zu signal bumps", X.island("XY" + std::to_string(cp.a)), X.bumps.size());
         }
         const MeshOptions mo{2.5, 50.0, 2.0};

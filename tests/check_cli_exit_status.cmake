@@ -63,6 +63,12 @@ foreach(o --burst-rate --burst-tau-ms)
   expect_status(1 qec "${MISSING}" --bursts ${o} -1)
 endforeach()
 expect_status(1 qec "${MISSING}" --herald --herald-rule detecter)   # unknown choice (was exit 2)
+# qec: the streaming decoder's window options need it, and it commits fewer rounds than it holds
+expect_status(1 qec "${MISSING}" --window 4)
+expect_status(1 qec "${MISSING}" --commit 2)
+expect_status(1 qec "${MISSING}" --decoder uf-stream --window 3 --commit 3)
+expect_status(1 qec "${MISSING}" --decoder uf-stream --window 1)
+expect_status(1 qec "${MISSING}" --decoder uf-stream --commit 0)
 # analyze: the materials options
 expect_status(1 analyze "${MISSING}" --loss-tangent)
 expect_status(1 analyze "${MISSING}" --materials "")

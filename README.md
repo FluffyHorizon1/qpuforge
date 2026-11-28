@@ -31,6 +31,7 @@ chip.json ──► device physics ─────────► noise model �
 | Layer | Module | What it does |
 |---|---|---|
 | Union-find decoder | `unionfind.hpp`, `qec.hpp` | Weighted union-find (Delfosse-Nickerson growth, peeling), `DecodeMethod::UnionFind`, `qpuforge qec --decoder uf`: the real-time candidate; exact matching stays the reference. On Gamma-1 (14 rounds, same syndromes) its logical error per round is 0.98-1.10x the exact decoder's at d = 3, 5 and 7 |
+| Streaming union-find | `unionfind.hpp`, `qec.hpp` | Sliding-window decoding over rounds (`StreamingUnionFind`, `qpuforge qec --decoder uf-stream --window W --commit C`): each window is decoded with the later rounds as a boundary, and its first C rounds are committed. At d = 7 (50 rounds) it gives 1.16x batch union-find's failures for 10/5 windows and 1.05x for 20/10. The window must extend about d rounds past the commit region |
 | Heralded leakage | `qec.hpp` | 3-state readout of the measure qubits (`HeraldSpec`: herald fidelity, false-herald rate); the decoder lowers the weights of the edges of the heralded qubit's round, with exact matching on the per-shot re-weighted graph (`decode_scaled`). `qpuforge qec --herald`. With the leakage-removing reset on Gamma-1 d = 7: -10% logical error at the chip's own leakage, -46% at 10x |
 | Impact veto | `qec.hpp` | Per-shot impact injection at a random time and place (`ImpactSpec`, deterministic per (seed, shot)), a sliding space-time window veto calibrated to a false-veto rate (`VetoSpec`, `calibrate_veto`), and the floor over the burst profile with the veto (`burst_floor_veto`). `qpuforge qec --bursts --veto` |
 | Linear-time setup | `qec.hpp` | Single-fault enumeration is linear in the number of rounds (per-qubit tails from each measurement cut): Gamma-1 d = 7 at 50 rounds in 1.3 s against 41 s for the 0.4 routine, identical output |
@@ -66,7 +67,7 @@ Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decod
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 367 validation checks (~6 min on 4 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 370 validation checks (~6 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
@@ -140,7 +141,7 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 367 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 370 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -294,8 +295,8 @@ See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on t
 
 1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
 2. Multi-qubit pulse simulation of spectator crossings; flux-pulse distortion and predistortion model.
-3. Multi-patch circuits (lattice surgery) for Phase Gamma; a streaming (sliding-window) union-find decoder as the
-   reference for the FPGA.
+3. Multi-patch circuits (lattice surgery) for Phase Gamma; an operation-count model of the streaming union-find
+   decoder for the FPGA.
 4. Data-qubit leakage heralding, and herald weights derived from the leakage model.
 5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.

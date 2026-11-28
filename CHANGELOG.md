@@ -45,6 +45,10 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 
 - `unionfind.hpp`: `UnionFindDecoder`, Delfosse-Nickerson union-find with weighted growth and peeling
   (docs/design/union-find-decoder.md). `DecodeMethod::UnionFind`; `qpuforge qec --decoder uf`.
+- `unionfind.hpp`: `StreamingUnionFind` and `StreamScratch`, sliding-window decoding over rounds with a commit region
+  (docs/design/streaming-union-find.md); `FrameRunOptions::stream`; `MemoryResult::stream_window_us_mean` and
+  `stream_window_us_max`. `qpuforge qec --decoder uf-stream [--window W] [--commit C]`. Test group `streaming_uf`;
+  `decoder_study` section 5 (d = 7, 50 rounds).
 - `qec.hpp`:
   - Heralded leakage (docs/design/heralded-leakage.md): `HeraldSpec` in `FrameRunOptions` (3-state readout of the
     measure qubits with a herald fidelity and a false-herald rate), `MatchingDecoder::decode_scaled` (exact matching on
@@ -74,7 +78,7 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
   guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
-- 367 validation checks in all (346 on `main` before the decoding work, plus 21 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
+- 370 validation checks in all (346 on `main` before the decoding work, plus 24 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
   `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
 
@@ -88,7 +92,8 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   fixed-coupling chip; `--off contrl` and `--leakage-removal lrrr` did nothing). `new --preset` rejects the generator
   options it ignored, `new` takes one topology, `qec` rejects `--burst-*` and `--veto` without `--bursts`, the veto
   options without `--veto` and the herald options without `--herald`, and `budget` no longer accepts `--shots`, which it
-  never used. The `qec` decoding options are range-checked: `--herald-fidelity`, `--herald-false`, `--veto-false`,
+  never used. `--window` and `--commit` need `--decoder uf-stream`, and `--commit` must be smaller than `--window`
+  (the streaming decoder threw at run time). The `qec` decoding options are range-checked: `--herald-fidelity`, `--herald-false`, `--veto-false`,
   `--impact-p` and `--herald-factor` in [0, 1] (the decoder ignored a herald factor above 1), `--veto-window` >= 1, and
   `--veto-radius`, `--burst-radius`, `--burst-rate` and `--burst-tau-ms` >= 0.
 - CLI: a misspelt option that is a unique prefix of one option is completed to it, not to a closer-looking shorter name

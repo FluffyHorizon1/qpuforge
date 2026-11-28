@@ -8,7 +8,7 @@
 //
 // Workloads: run_memory_frame on a distance-3 memory with leakage on (exercises the leaked-time double sums) and a shot
 // count that is not a multiple of the block size, in both memory bases and with two decode methods, including the setup
-// (parallel fault enumeration -> DEM) and the 0.4 syndrome statistics; the same memory decoded with union-find, with
+// (parallel fault enumeration -> DEM) and the 0.4 syndrome statistics; the same memory decoded with union-find (batch and streaming), with
 // heralded leakage, and with per-shot impact injection and a calibrated veto; and the trajectory emulator's sampled XEB
 // (a double reduction).
 #include "qpuforge/qpuforge.hpp"
@@ -55,6 +55,9 @@ static std::string frame_digest() {
             if (basis != 'Z') continue;
             FrameRunOptions uf; uf.method = DecodeMethod::UnionFind;                          // union-find decoder
             out += "uf=" + std::to_string(run_memory_frame(M, 3000, 23 + unsigned(rounds), uf).logical_errors) + " ";
+            const StreamingUnionFind S(int(M.exp.detectors.size()), M.dem.edges, M.exp.detector_round, 2, 1);   // streaming
+            FrameRunOptions so; so.stream = &S;
+            out += "suf=" + std::to_string(run_memory_frame(M, 3000, 23 + unsigned(rounds), so).logical_errors) + " ";
             FrameRunOptions h; h.herald.on = true;                                             // heralded leakage
             const auto rh = run_memory_frame(M, 3000, 29 + unsigned(rounds), h);
             out += "her=" + std::to_string(rh.logical_errors) + "/" + hex(rh.heralds_per_shot) + "/" + hex(rh.herald_true_frac) + " ";

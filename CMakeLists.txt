@@ -110,10 +110,14 @@ qpuforge_cli_test(burst_options_need_bursts "qpuforge qec: --burst-rate needs --
 qpuforge_cli_test(veto_needs_bursts "qpuforge qec: --veto needs --bursts" qec ${CLI_CHIP} --veto)
 qpuforge_cli_test(veto_options_need_veto "qpuforge qec: --impact-p needs --veto" qec ${CLI_CHIP} --bursts --impact-p 0.1)
 qpuforge_cli_test(herald_options_need_herald "qpuforge qec: --herald-rule needs --herald" qec ${CLI_CHIP} --herald-rule detector)
+qpuforge_cli_test(window_needs_stream "qpuforge qec: --window needs --decoder uf-stream" qec ${CLI_CHIP} --window 4)
+qpuforge_cli_test(commit_below_window "qpuforge qec: --commit \\(4\\) must be smaller than --window \\(4\\)"
+  qec ${CLI_CHIP} --decoder uf-stream --window 4 --commit 4)
 qpuforge_cli_test(bad_probability "qpuforge qec: --herald-fidelity expects a number from 0 to 1, got '1.5'" qec ${CLI_CHIP} --herald --herald-fidelity 1.5)
 qpuforge_cli_test(loss_tangent_needs_materials "qpuforge analyze: --loss-tangent needs --materials <sidecar.json>"   # before the chip is read
   analyze ${CLI_NO_CHIP} --loss-tangent)
-# accepted: one run per command with every option given, two for qec (the burst options; the decoding options);
+# accepted: one run per command with every option given, three for qec (the burst options; the decoding options;
+# the streaming decoder);
 # cz and gds stop at the missing chip file
 qpuforge_cli_test(ok_new "wrote .*cli_line2.json \\(2 qubits, 1 couplers\\)"
   new ${CLI_OUT}_line2.json --line 2 --f-hi 5.4 --f-lo 4.8 --alpha -0.22 --g-MHz 4 --arch tunable --Q 3e6 --plan 8
@@ -136,6 +140,8 @@ qpuforge_cli_test(ok_qec_decoding
   qec ${CLI_CHIP} --rounds 2 --shots 50 --seed 3 --decoder uf --herald --herald-fidelity 0.9 --herald-false 0.002
   --herald-factor 0.5 --herald-rule detector --bursts --veto --veto-window 4 --veto-radius 1.5 --veto-false 0.02
   --impact-p 0.1 --burst-radius 2)
+qpuforge_cli_test(ok_qec_stream "decoder: streaming union-find.*window 4 rounds, committing 2 per step.*logical error per round"
+  qec ${CLI_CHIP} --rounds 4 --shots 50 --seed 3 --decoder uf-stream --window 4 --commit 2)
 qpuforge_cli_test(ok_synth_chip "wrote .*cli_synth.json: 17 qubits"
   synth-chip ${CLI_CHIP} ${CLI_OUT}_synth.json --seed 1 --shots 50 --rounds 2 --z-only --hidden-dephasing-us 0 --cache ${CLI_OUT}_unused_cache.json)
 qpuforge_cli_test(ok_hwgate "wrote .*cli_gate.json"   # exit 3 (gate not passed) is ignored by the pass regex
@@ -206,7 +212,7 @@ set(QPUFORGE_TESTS
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
-  "union_find:qec" "heralds:qec" "impact_veto:qec")
+  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 # forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data

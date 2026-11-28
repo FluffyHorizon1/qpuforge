@@ -11,7 +11,8 @@
 // (parallel fault enumeration -> DEM) and the 0.4 syndrome statistics; the same memory decoded with union-find (batch and
 // streaming), with heralded leakage (fixed factors, weights derived from the leakage model, DQLR with heralding), with
 // the streaming decoder's operation profile, and with per-shot impact injection and a calibrated veto; run_surgery_frame on a
-// d = 3 lattice-surgery ZZ measurement and a d = 3 three-patch CNOT with leakage on (each observable has its own decoder);
+// d = 3 lattice-surgery ZZ measurement and a d = 3 three-patch CNOT with leakage on (each observable has its own decoder),
+// with their setups (parallel fault enumeration, just-in-time schedule, joint model) rebuilt at every thread count;
 // the ZZ shots again through run_surgery_decoders with every surgery decoder (joint matching, union-find, two-pass
 // correlated), and an XX measurement through a routing strip decoded jointly; and the trajectory emulator's sampled XEB
 // (a double reduction).
@@ -114,18 +115,30 @@ static std::string xeb_digest() {
            " shots=" + std::to_string(r.shots);
 }
 
-// the noise model of the surgery digests: Alpha-1 v1.1 physics with leakage on
-static std::shared_ptr<SurgerySetup> surgery_setup(const SurgeryExperiment& E, bool correlated = false) {
-    const auto D = surgery_chip(E.sched.lat, "alpha1_v11");
-    const auto R = analyze(D);
-    auto nm = noise_model(D, R);
+// the chip and noise model of the surgery digests: Alpha-1 v1.1 physics with leakage on (built once per process: no
+// parallel code); prepare_surgery, whose fault enumeration runs in parallel, is called again in every digest
+struct SurgeryChip { SurgeryExperiment E; ChipDesign D; ChipReport R; NoiseModel nm; };
+static std::shared_ptr<SurgeryChip> surgery_chip_for(const SurgeryExperiment& E) {
+    auto C = std::make_shared<SurgeryChip>();
+    C->E = E; C->D = surgery_chip(E.sched.lat, "alpha1_v11"); C->R = analyze(C->D);
+    auto& nm = C->nm;
+    nm = noise_model(C->D, C->R);
     nm.leakage = true; nm.leak_1q = 1e-3; nm.leak_transport = 0.2;
-    for (const auto& p : R.pairs) if (p.designed) {
-        const int a = D.index_of(p.a), b = D.index_of(p.b);
-        const int mover = D.qubits[std::size_t(a)].role == "data" ? b : a;
+    for (const auto& p : C->R.pairs) if (p.designed) {
+        const int a = C->D.index_of(p.a), b = C->D.index_of(p.b);
+        const int mover = C->D.qubits[std::size_t(a)].role == "data" ? b : a;
         nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, 2e-3};
     }
-    return std::make_shared<SurgerySetup>(prepare_surgery(D, R, nm, E, surgery_decode_basis(E), correlated));
+    return C;
+}
+static SurgerySetup surgery_setup(const SurgeryChip& C, bool correlated = false) {
+    return prepare_surgery(C.D, C.R, C.nm, C.E, surgery_decode_basis(C.E), correlated);
+}
+// the setup itself: fault count, the just-in-time schedule, the joint model
+static std::string surgery_setup_line(const SurgerySetup& M) {
+    double pj = 0; for (const auto& e : M.jdem.edges) pj += e.p;
+    return "setup=" + std::to_string(M.n_faults) + "/" + std::to_string(M.timing.moved) + "/" + hex(M.timing.ahead_asap_ns) + "/" + hex(M.prog.duration_ns) + "/" +
+           std::to_string(M.jdem.edges.size()) + ":" + hex(pj) + " ";
 }
 
 static std::string surgery_line(const char* name, const SurgerySetup& setup) {
@@ -143,22 +156,26 @@ static std::string surgery_decoders_line(const SurgerySetup& setup) {
     for (const auto& q : run_surgery_decoders(setup, 3000, 29, {SurgeryDecoder::Separate, SurgeryDecoder::Joint, SurgeryDecoder::SeparateUF, SurgeryDecoder::JointUF,
                                                                SurgeryDecoder::Correlated})) {
         for (long e : q.errors) out += std::to_string(e) + ",";
-        out += std::to_string(q.any_errors) + "/" + std::to_string(q.differ) + "/" + std::to_string(q.any_fixed) + "/" + std::to_string(q.any_broken) + ";";
+        out += std::to_string(q.any_errors) + "/" + std::to_string(q.differ) + "/" + std::to_string(q.any_fixed) + "/" + std::to_string(q.any_broken) + "/";
+        for (long v : q.differ_with) out += std::to_string(v) + ",";
+        out += ";";
     }
     return out + " ";
 }
 
 static std::string surgery_digest() {
-    // the chips and the decoders are built once per process; only the Monte Carlo is repeated per thread count.
-    // The ZZ measurement has three observables; the three-patch CNOT has hyperedges in its DEM and a different observable count.
-    // The ZZ setup also carries the correlated decoder's tables, which do not change the separate decoders.
-    static const auto zz = surgery_setup(surgery_parity(3, 'Z', '0', '1'), true);
-    static const auto cnot = surgery_setup(surgery_cnot(3, '0', '0'));
+    // the chips are built once per process; the setups (fault enumeration, just-in-time schedule, decoders) and the
+    // Monte Carlo are repeated per thread count. The ZZ measurement has three observables; the three-patch CNOT has
+    // hyperedges in its DEM and a different observable count. The ZZ setup also carries the correlated decoder's
+    // tables, which do not change the separate decoders.
+    static const auto czz = surgery_chip_for(surgery_parity(3, 'Z', '0', '1'));
+    static const auto ccnot = surgery_chip_for(surgery_cnot(3, '0', '0'));
     // routing strip: XX through a strip of length 3 on Z-basis inputs (the conserved Z_A Z_B crosses the strip), joint decoder
-    static const auto routed = surgery_setup(surgery_parity(3, 'X', '0', '1', {}, 3));
-    const auto rr = run_surgery_frame(*routed, 3000, 31, SurgeryDecoder::Joint);
-    return surgery_line("surgery", *zz) + surgery_decoders_line(*zz) + surgery_line("cnot", *cnot) +
-           "strip=" + std::to_string(rr.errors[0]) + "/" + std::to_string(rr.any_errors) + "/" + hex(rr.mean_defects) + " ";
+    static const auto crouted = surgery_chip_for(surgery_parity(3, 'X', '0', '1', {}, 3));
+    const auto zz = surgery_setup(*czz, true), cnot = surgery_setup(*ccnot), routed = surgery_setup(*crouted);
+    const auto rr = run_surgery_frame(routed, 3000, 31, SurgeryDecoder::Joint);
+    return surgery_setup_line(zz) + surgery_line("surgery", zz) + surgery_decoders_line(zz) + surgery_setup_line(cnot) + surgery_line("cnot", cnot) +
+           surgery_setup_line(routed) + "strip=" + std::to_string(rr.errors[0]) + "/" + std::to_string(rr.any_errors) + "/" + hex(rr.mean_defects) + " ";
 }
 
 static std::string digest() { return frame_digest() + surgery_digest() + xeb_digest(); }

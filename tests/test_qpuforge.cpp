@@ -3131,6 +3131,59 @@ static SingleFaults surgery_single_faults_joint(const std::vector<SurgeryFault>&
     return r;
 }
 
+// Every tally of run_surgery_decoders, recounted shot by shot outside it: the same per-shot sampling
+// (frame_detail::sample_shot seeded from frame_shot_seed), each decoder called directly with its own method.
+struct SurgeryRecount { std::vector<std::vector<long>> err, differ; std::vector<long> any, fixed, broken; };
+static SurgeryRecount surgery_recount(const SurgerySetup& M, long shots, std::uint64_t seed, const std::vector<SurgeryDecoder>& modes) {
+    const auto& F = M.frame;
+    const std::size_t no = M.obs.size(), nm = modes.size();
+    SurgeryRecount c;
+    c.err.assign(nm, std::vector<long>(no, 0)); c.differ.assign(nm, std::vector<long>(nm, 0));
+    c.any.assign(nm, 0); c.fixed.assign(nm, 0); c.broken.assign(nm, 0);
+    std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
+    std::vector<std::vector<DecodeScratch>> ws(nm, std::vector<DecodeScratch>(std::max<std::size_t>(no, 1)));
+    UFScratch ows;
+    auto fired_of = [&](const std::vector<std::vector<int>>& dets) {
+        std::vector<int> f;
+        for (std::size_t d = 0; d < dets.size(); ++d) { std::uint8_t v = 0; for (int b : dets[d]) v ^= flips[std::size_t(b)]; if (v) f.push_back(int(d)); }
+        return f;
+    };
+    for (long s = 0; s < shots; ++s) {
+        Xoshiro256 rng(frame_shot_seed(seed, std::uint64_t(s)));
+        std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0); std::fill(L.begin(), L.end(), 0);
+        long lev = 0; double ld = 0, lm = 0;
+        frame_detail::sample_shot(F, M.is_data, rng, x, z, flips, L, lev, ld, lm);
+        const auto fired = fired_of(M.view.detectors), other = fired_of(M.other_detectors);
+        unsigned truth = 0;
+        for (std::size_t k = 0; k < no; ++k) {
+            std::uint8_t v = 0; for (int b : M.exp.observables[std::size_t(M.obs[k])].bits) v ^= flips[std::size_t(b)];
+            truth |= unsigned(v) << k;
+        }
+        std::vector<unsigned> pred(nm, 0);
+        for (std::size_t m = 0; m < nm; ++m) {
+            switch (modes[m]) {
+            case SurgeryDecoder::Separate: for (std::size_t k = 0; k < no; ++k) pred[m] |= unsigned(M.decoder[k]->decode(fired, ws[m][k])) << k; break;
+            case SurgeryDecoder::SeparateUF: for (std::size_t k = 0; k < no; ++k) pred[m] |= unsigned(M.decoder[k]->decode(fired, ws[m][k], DecodeMethod::UnionFind)) << k; break;
+            case SurgeryDecoder::Joint: pred[m] = unsigned(M.joint->decode(fired, ws[m][0], DecodeMethod::Auto)); break;
+            case SurgeryDecoder::JointUF: pred[m] = unsigned(M.joint->decode(fired, ws[m][0], DecodeMethod::UnionFind)); break;
+            case SurgeryDecoder::Correlated: {
+                std::vector<std::pair<int, double>> scaled;
+                if (!other.empty()) { M.other_uf->decode(other, ows); for (int e : ows.correction) for (const auto& ef : M.correlated[std::size_t(e)]) scaled.push_back(ef); }
+                pred[m] = unsigned(M.joint->decode_scaled(fired, scaled, ws[m][0]));
+                break;
+            }
+            }
+        }
+        for (std::size_t m = 0; m < nm; ++m) {
+            const unsigned wrong = pred[m] ^ truth, wrong0 = pred[0] ^ truth;
+            for (std::size_t k = 0; k < no; ++k) c.err[m][k] += (wrong >> k) & 1;
+            c.any[m] += wrong != 0; c.fixed[m] += wrong0 && !wrong; c.broken[m] += !wrong0 && wrong;
+            for (std::size_t k = 0; k < nm; ++k) c.differ[m][k] += pred[m] != pred[k];
+        }
+    }
+    return c;
+}
+
 static void test_surgery_joint() {
     std::puts("[surgery-joint] one decoder pass for all observables (matching, union-find), two-pass correlated decoding");
     // a matching decoder built from an edge list whose obs is a mask: chain boundary -0- d0 -1- d1 -2- d2 -4- boundary
@@ -3152,6 +3205,39 @@ static void test_surgery_joint() {
         const double p1 = 0.01 * 0.99 + 0.99 * 0.01, tot = p1 * 0.97 + 0.03 * (1 - p1);
         CHECK(J.edges.size() == 1 && J.edges[0].obs == 2 && std::abs(J.edges[0].p - tot) < 1e-15 && J.mixed_edges == 1 && std::abs(J.minority_p - p1) < 1e-15 &&
               J.hyperedge_faults == 1 && J.hyperedge_p == 0.5, "build_joint_dem on a hand-made list");
+        // a graph where weighted union-find and exact matching disagree, so the union-find paths below can be told
+        // apart from matching: defects 0 and 1. Matching pairs them along 0-4-1 (weight 3.888, mask 4 ^ 4 = 0); union-find
+        // grows 0-B and 1-4 first, reaches the boundary through 0-2 and 0-4, and peels 1-2 and 0-2 (mask 2 ^ 6 = 4).
+        const std::vector<JointEdge> tri = {{0, -1, 4, 0.1732}, {0, 2, 6, 0.1193}, {0, 4, 4, 0.0870}, {1, 2, 2, 0.1253}, {1, 4, 4, 0.1769}, {2, 3, 6, 0.1382}, {4, -1, 0, 0.0808}};
+        const MatchingDecoder dt(5, tri);
+        CHECK(dt.decode({0, 1}, ws) == 0 && dt.decode({0, 1}, ws, U) == 4, "union-find against matching on the hand-made graph: %d %d", dt.decode({0, 1}, ws), dt.decode({0, 1}, ws, U));
+    }
+    // build_correlations on a hand-made list: two mechanisms that flip a decoded pair and an other-type pair at once.
+    // Each other-type edge o lists the joint edges e it shares mechanisms with, with the factor log((1-c)/c) / w0(e),
+    // c = p(e and o) / p(o), w0(e) the joint edge's weight
+    {
+        SurgerySetup M;
+        std::vector<SurgeryFault> fs(5);
+        fs[0].dets = {0, 1}; fs[0].other = {0, 1}; fs[0].mask = 1; fs[0].p = 0.01;    // a Y-like mechanism
+        fs[1].dets = {0, 1}; fs[1].mask = 1; fs[1].p = 0.02;                          // the same decoded pair alone
+        fs[2].other = {0, 1}; fs[2].p = 0.03;                                         // the same other pair alone
+        fs[3].dets = {1, 2}; fs[3].other = {1}; fs[3].p = 0.005;                      // other boundary edge, always with (1, 2)
+        fs[4].dets = {2}; fs[4].mask = 2; fs[4].p = 0.01;
+        M.jdem = build_joint_dem(fs, 3);
+        M.joint = std::make_unique<MatchingDecoder>(M.jdem.n_det, M.jdem.edges);
+        M.other_detectors.resize(2);
+        surgery_detail::build_correlations(M, fs);
+        auto xor_p = [](double a, double b) { return a * (1 - b) + b * (1 - a); };
+        auto w = [](double p) { p = std::clamp(p, 1e-15, 0.5 - 1e-12); return std::log((1 - p) / p); };
+        const auto& J = M.joint->union_find();
+        const int o01 = M.other_uf->edge_index(0, 1), o1b = M.other_uf->edge_index(1, -1), e01 = J.edge_index(0, 1), e12 = J.edge_index(1, 2);
+        const double f1 = w(0.01 / xor_p(0.01, 0.03)) / w(xor_p(0.01, 0.02)), f2 = w(0.005 / 0.005) / w(0.005);
+        bool ok = o01 >= 0 && o1b >= 0 && e01 >= 0 && e12 >= 0 && M.correlated.size() == M.other_uf->edge.size() && M.correlated_pairs == 2 && std::abs(M.correlated_p - 0.015) < 1e-15;
+        ok = ok && M.correlated[std::size_t(o01)].size() == 1 && M.correlated[std::size_t(o1b)].size() == 1;
+        ok = ok && M.correlated[std::size_t(o01)][0].first == e01 && std::abs(M.correlated[std::size_t(o01)][0].second - f1) < 1e-12;
+        ok = ok && M.correlated[std::size_t(o1b)][0].first == e12 && std::abs(M.correlated[std::size_t(o1b)][0].second - f2) < 1e-12;
+        CHECK(ok, "build_correlations on a hand-made list: factors %.6f / %.3e expected %.6f / %.3e", ok ? M.correlated[std::size_t(o01)][0].second : -1.0,
+              ok ? M.correlated[std::size_t(o1b)][0].second : -1.0, f1, f2);
     }
     for (const char* op : {"zz", "cnot"}) {
         const std::string name = std::string(op) == "zz" ? "ZZ" : "CNOT";
@@ -3178,13 +3264,28 @@ static void test_surgery_joint() {
                 }
             }
             CHECK(same && worst < 1e-12, "%s d=3 (%c): joint model differs from the per-observable models (%.1e)", name.c_str(), ty, worst);
+            // each fault's observable mask, bit by bit, against enumerate_faults with that observable alone as the memory
+            // observable (a separate path through the fault enumeration)
+            {
+                int bad_bits = 0;
+                for (std::size_t k = 0; k < M.obs.size(); ++k) {
+                    MemoryExperiment V = M.view;
+                    V.observable = M.exp.observables[std::size_t(M.obs[k])].bits;
+                    const auto fk = enumerate_faults(M.frame, V);
+                    if (fk.size() != faults.size()) { ++bad_bits; continue; }
+                    for (std::size_t i = 0; i < fk.size(); ++i) bad_bits += fk[i].obs != bool((faults[i].mask >> k) & 1) || fk[i].dets != faults[i].dets;
+                }
+                CHECK(bad_bits == 0, "%s d=3 (%c): %d fault masks disagree with the per-observable enumeration", name.c_str(), ty, bad_bits);
+            }
             const auto sf = surgery_single_faults_joint(faults, M.jdem.n_det);
             // the correlation tables: every entry lowers a weight, and points at edges of the two graphs
             bool tables = M.other_uf && M.correlated.size() == M.other_uf->edge.size() && M.correlated_pairs > 0;
             for (const auto& v : M.correlated) for (const auto& ef : v) tables = tables && ef.first >= 0 && ef.first < int(M.joint->union_find().edge.size()) && ef.second > 0 && ef.second < 1;
             CHECK(tables, "%s d=3 (%c): correlation tables", name.c_str(), ty);
             const long shots = 10000;
-            const auto rs = run_surgery_decoders(M, shots, 11, {SurgeryDecoder::Separate, SurgeryDecoder::Joint, SurgeryDecoder::SeparateUF, SurgeryDecoder::JointUF, SurgeryDecoder::Correlated});
+            const std::vector<SurgeryDecoder> all = {SurgeryDecoder::Separate, SurgeryDecoder::Joint, SurgeryDecoder::SeparateUF, SurgeryDecoder::JointUF, SurgeryDecoder::Correlated};
+            const auto rs = run_surgery_decoders(M, shots, 11, all);
+            const auto rc = surgery_recount(M, shots, 11, all);
             const auto ref = run_surgery_frame(M, shots, 11);
             const auto one = run_surgery_frame(M, shots, 11, SurgeryDecoder::Joint);
             std::printf("  d=3 %s (%c): %d detectors + %zu of the other type, %zu joint edges (%d with mixed masks, minority p %.1e), %d correlated edge pairs; joint uniform-weight "
@@ -3196,15 +3297,33 @@ static void test_surgery_joint() {
             CHECK(sf.undetectable == 0 && sf.uncorrected_other == 0 && sf.uncorrected_p < 1e-6, "%s (%c): joint decoder leaves %d single faults uncorrected (p %.2e)", name.c_str(), ty, sf.uncorrected, sf.uncorrected_p);
             CHECK(rs[0].errors == ref.errors && rs[0].any_errors == ref.any_errors && rs[0].mean_defects == ref.mean_defects, "%s (%c): run_surgery_decoders differs from run_surgery_frame", name.c_str(), ty);
             CHECK(rs[1].errors == one.errors && rs[1].any_errors == one.any_errors && one.decoder == SurgeryDecoder::Joint, "%s (%c): joint decoding alone differs from joint decoding in a comparison", name.c_str(), ty);
-            CHECK(rs[1].differ * 500 <= shots && rs[1].any_errors <= rs[0].any_errors + shots / 1000, "%s (%c): joint matching differs from the separate decoders in %ld shots (any wrong %ld vs %ld)",
-                  name.c_str(), ty, rs[1].differ, rs[1].any_errors, rs[0].any_errors);
+            // every tally against the shot-by-shot recount; then the claims of the study on these shots: joint matching
+            // predicts what the separate decoders predict, so does joint union-find against separate union-find, and
+            // union-find and the correlated decoder do differ from matching (so the recount can tell them apart)
+            {
+                bool match = true;
+                for (std::size_t m = 0; m < all.size(); ++m) {
+                    match = match && rs[m].errors == rc.err[m] && rs[m].any_errors == rc.any[m] && rs[m].any_fixed == rc.fixed[m] && rs[m].any_broken == rc.broken[m];
+                    match = match && rs[m].differ == rc.differ[m][0] && rs[m].differ_with == rc.differ[m];
+                }
+                CHECK(match, "%s (%c): run_surgery_decoders differs from the shot-by-shot recount", name.c_str(), ty);
+                std::printf("    per shot: joint vs separate matching differ in %ld, joint vs separate union-find in %ld, union-find vs matching in %ld, correlated vs joint in %ld\n",
+                            rc.differ[1][0], rc.differ[3][2], rc.differ[2][0], rc.differ[4][1]);
+                CHECK(rc.differ[1][0] == 0 && rc.differ[3][2] == 0, "%s (%c): joint decoding differs from the separate decoders in %ld (matching) / %ld (union-find) shots",
+                      name.c_str(), ty, rc.differ[1][0], rc.differ[3][2]);
+                CHECK(rc.differ[2][0] > 0 && rc.differ[4][1] > 0, "%s (%c): union-find or correlated decoding never differs from matching", name.c_str(), ty);
+            }
             CHECK(rs[3].any_errors <= rs[1].any_errors * 13 / 10 + 5 && rs[2].any_errors <= rs[0].any_errors * 13 / 10 + 5, "%s (%c): union-find any wrong %ld (joint) / %ld (separate) against matching %ld",
                   name.c_str(), ty, rs[3].any_errors, rs[2].any_errors, rs[1].any_errors);
             CHECK(rs[4].any_errors < rs[1].any_errors && rs[4].any_fixed > rs[4].any_broken, "%s (%c): correlated decoding does not help (any wrong %ld vs %ld; %ld fixed, %ld broken)",
                   name.c_str(), ty, rs[4].any_errors, rs[1].any_errors, rs[4].any_fixed, rs[4].any_broken);
-            for (const auto& r : rs) {
+            for (std::size_t m = 0; m < rs.size(); ++m) {
+                const auto& r = rs[m];
                 long sum = 0, mx = 0; for (long e : r.errors) { sum += e; mx = std::max(mx, e); }
-                CHECK(r.any_errors >= mx && r.any_errors <= sum && r.any_fixed - r.any_broken == rs[0].any_errors - r.any_errors, "%s (%c), %s: inconsistent tallies", name.c_str(), ty, surgery_decoder_name(r.decoder));
+                bool sym = r.differ_with.size() == rs.size() && r.differ_with[m] == 0 && r.differ_with[0] == r.differ;
+                for (std::size_t k = 0; sym && k < rs.size(); ++k) sym = r.differ_with[k] == rs[k].differ_with[m];
+                CHECK(r.any_errors >= mx && r.any_errors <= sum && r.any_fixed - r.any_broken == rs[0].any_errors - r.any_errors && r.differ >= r.any_fixed + r.any_broken && sym,
+                      "%s (%c), %s: inconsistent tallies", name.c_str(), ty, surgery_decoder_name(r.decoder));
             }
             if (name == "CNOT" && ty == 'Z') {
                 // without noise every decoder is silent; the correlated decoder needs its tables
@@ -3221,6 +3340,26 @@ static void test_surgery_joint() {
         }
     }
 }
+
+// FNV-1a digest of lattice-surgery circuits: gates (op, qubits, classical bit, name), detectors with their type and
+// round, reference bits, observables (name, type, bits, expected value) and the round count. Labels are left out.
+struct SurgeryDigest {
+    std::uint64_t h{1469598103934665603ULL};
+    void byte(unsigned char c) { h ^= c; h *= 1099511628211ULL; }
+    void i32(long long v) { const auto u = std::uint32_t(std::int32_t(v)); for (int k = 0; k < 4; ++k) byte((u >> (8 * k)) & 0xff); }
+    void str(const std::string& t) { i32((long long)t.size()); for (char c : t) byte((unsigned char)c); }
+    void vec(const std::vector<int>& v) { i32((long long)v.size()); for (int x : v) i32(x); }
+    void add(const SurgeryExperiment& E) {
+        i32(E.circuit.n); i32(E.circuit.nclbits); i32((long long)E.circuit.gates.size());
+        for (const auto& g : E.circuit.gates) { i32(int(g.op)); vec(g.q); i32(g.cbit); str(g.name); }
+        i32((long long)E.detectors.size());
+        for (std::size_t k = 0; k < E.detectors.size(); ++k) { vec(E.detectors[k]); i32(E.detector_type[k]); i32(E.detector_round[k]); }
+        vec(E.reference);
+        i32((long long)E.observables.size());
+        for (const auto& o : E.observables) { str(o.name); i32(o.type); vec(o.bits); i32(o.expected); }
+        i32(E.total_rounds);
+    }
+};
 
 static void test_surgery_routing() {
     std::puts("[surgery-routing] ZZ / XX and the CNOT between patches joined through a routing strip: geometry, tableau check, DEM, noise");
@@ -3244,11 +3383,34 @@ static void test_surgery_routing() {
             CHECK(nx == nd && X.sched.lat.patches[1].i0 == d + gap && X.detectors.size() == E.detectors.size(), "XX lattice d=%d strip %d", d, gap);
         }
     {
-        bool threw = false;
-        try { surgery_parity(3, 'Z', '0', '0', {}, 2); } catch (const std::exception&) { threw = true; }
-        CHECK(threw, "an even strip length was accepted");
-        const auto a = surgery_parity(3, 'Z', '0', '0'), b = surgery_parity(3, 'Z', '0', '0', {}, 1);
-        CHECK(a.detectors == b.detectors && a.circuit.gates.size() == b.circuit.gates.size() && a.observables[0].bits == b.observables[0].bits, "strip length 1 is not the adjacent-patch protocol");
+        int refused = 0;
+        for (int g : {2, 0, -1, 1001, std::numeric_limits<int>::max()}) {
+            try { surgery_parity(3, 'Z', '0', '0', {}, g); } catch (const std::exception&) { ++refused; }
+            try { surgery_cnot(3, '0', '0', 0, {}, true, g); } catch (const std::exception&) { ++refused; }
+        }
+        CHECK(refused == 10, "a strip length that is even, below 1 or above 999 was accepted (%d of 10 refused)", refused);
+        // strip length 1 is the adjacent-patch protocol of PR #21: a frozen digest of 94 circuits (ZZ and XX on the eight
+        // inputs at d = 3 and 5, at d = 3 also merging from the first round; the CNOT on Z- and X-basis inputs at d = 3
+        // and 5, on Bell-pair inputs with both readouts and merging from the first round at d = 3; the reference-qubit
+        // CNOT at d = 3 and 5; one patch of memory in each basis), computed on the tree before PR #30 (1f39fef)
+        SurgeryDigest h; int n = 0;
+        SurgeryRounds p0; p0.pre = 0;
+        for (int d : {3, 5}) {
+            for (char ty : {'Z', 'X'})
+                for (const char* in : {"00", "01", "10", "11", "++", "+-", "-+", "--"}) {
+                    h.add(surgery_parity(d, ty, in[0], in[1], {}, 1)); ++n;
+                    if (d == 3) { h.add(surgery_parity(d, ty, in[0], in[1], p0, 1)); ++n; }
+                }
+            for (const char* in : {"00", "01", "10", "11", "++", "+-", "-+", "--"}) { h.add(surgery_cnot(d, in[0], in[1], 0, {}, true, 1)); ++n; }
+            if (d == 3) {
+                for (const char* in : {"+0", "+1", "-0", "-1", "0+", "1+", "0-", "1-"}) { h.add(surgery_cnot(d, in[0], in[1], 'Z')); h.add(surgery_cnot(d, in[0], in[1], 'X')); n += 2; }
+                for (const char* in : {"00", "11", "+-", "-+"}) { h.add(surgery_cnot(d, in[0], in[1], 0, p0)); ++n; }
+            }
+            for (char prep : {'Z', 'X'}) for (char ro : {'Z', 'X'}) { h.add(surgery_cnot_reference(d, prep, ro, {}, 1)); ++n; }
+        }
+        h.add(surgery_memory(3, 3, 'Z')); h.add(surgery_memory(3, 3, 'X')); n += 2;
+        CHECK(n == 94 && h.h == 0x17b909dc51560531ULL, "the adjacent-patch circuits (strip length 1) differ from PR #21's: digest %016llx over %d experiments",
+              (unsigned long long)h.h, n);
     }
     // noiseless tableau check: every logical input, strips of length 3 and 5 at d = 3 and 3 at d = 5; one seed each
     int runs = 0, bad = 0;
@@ -3299,6 +3461,83 @@ static void test_surgery_routing() {
         gs.insert(gs.begin() + std::ptrdiff_t(i), g);
         CHECK(check_surgery_noiseless(F, 1, 1).fired > 0, "an X error inside the strip fired no detector");
     }
+    // just-in-time preparation of the qubits that join at a merge (SurgerySchedule::just_in_time): the compiled
+    // schedule with and without it, on the two-patch ZZ measurement (one separate round before the merge) and the CNOT
+    {
+        auto E = surgery_parity(3, 'Z', '0', '0');
+        auto C = surgery_cnot(3, '0', '0');
+        SurgeryRounds p0; p0.pre = 0;
+        bool joins = E.joining.size() == 7 && C.joining.size() == 14 && surgery_parity(3, 'Z', '0', '0', p0).joining.empty() && surgery_memory(3, 3, 'Z').joining.empty();
+        for (const auto& j : E.joining) joins = joins && j.phase == 1 && j.region == 0;
+        int c1 = 0, c2 = 0;
+        for (const auto& j : C.joining) { c1 += j.phase == 1 && j.region == 0; c2 += j.phase == 2 && j.region == 1; }
+        CHECK(joins && c1 == 7 && c2 == 7, "joining qubits: %zu (ZZ), %zu (CNOT: %d at the ZZ merge, %d at the XX merge)", E.joining.size(), C.joining.size(), c1, c2);
+        for (auto* X : {&E, &C}) {
+            const auto D = surgery_chip(X->sched.lat, "beta1"); const auto R = analyze(D);
+            const auto G = chip_graph(D, R);
+            std::vector<ScheduledOp> asap, jit, again;
+            SurgeryTiming T;
+            CompileOptions co; co.layout = "trivial";
+            co.retime = [&](std::vector<ScheduledOp>& P) { asap = P; T = surgery_detail::retime_joining(P, *X, true); jit = P; };
+            const auto prog = compile(X->circuit, G, co);
+            // the ASAP re-run without releases reproduces compile()'s schedule bit for bit
+            again = asap;
+            const int moved0 = surgery_detail::asap_with_release(again, std::vector<double>(again.size(), 0.0), std::size_t(X->circuit.n));
+            bool same = moved0 == 0 && again.size() == asap.size();
+            for (std::size_t i = 0; same && i < asap.size(); ++i) same = again[i].start == asap[i].start && again[i].end == asap[i].end;
+            // nothing earlier, durations kept; an op that starts before the first joining reset does keeps its time
+            bool later = jit.size() == asap.size();
+            for (std::size_t i = 0; later && i < asap.size(); ++i)
+                later = jit[i].start >= asap[i].start && std::abs((jit[i].end - jit[i].start) - (asap[i].end - asap[i].start)) < 1e-9;
+            double first_release = std::numeric_limits<double>::infinity();
+            {
+                std::vector<int> nres(std::size_t(X->circuit.n), 0);
+                for (std::size_t i = 0; i < jit.size(); ++i) {
+                    if (jit[i].g.op != Op::RESET) continue;
+                    const int q = jit[i].g.q[0], k = nres[std::size_t(q)]++;
+                    for (const auto& j : X->joining) if (j.qubit == q && j.reset == k) first_release = std::min(first_release, jit[i].start);
+                }
+            }
+            int early_moved = 0;
+            for (std::size_t i = 0; later && i < asap.size(); ++i) early_moved += jit[i].start < first_release - 1e-9 && jit[i].start != asap[i].start;
+            // the hook that only measures leaves compile()'s output as it is
+            CompileOptions plain; plain.layout = "trivial";
+            CompileOptions measure = plain;
+            measure.retime = [&](std::vector<ScheduledOp>& P) { surgery_detail::retime_joining(P, *X, false); };
+            const auto a = compile(X->circuit, G, plain), b = compile(X->circuit, G, measure);
+            bool inert = a.moments.size() == b.moments.size() && a.duration_ns == b.duration_ns;
+            for (std::size_t k = 0; inert && k < a.moments.size(); ++k) inert = a.moments[k].duration_ns == b.moments[k].duration_ns && a.moments[k].ops.size() == b.moments[k].ops.size() && a.moments[k].busy == b.moments[k].busy;
+            std::printf("  %s: %d joining qubits, prepared up to %.0f ns ahead of their region as soon as possible, %.0f just in time; %d ops delayed; duration %.1f -> %.1f ns\n",
+                        X->sched.name.c_str(), T.joining, T.ahead_asap_ns, T.ahead_ns, T.moved, a.duration_ns, prog.duration_ns);
+            CHECK(same && later && inert, "%s: the just-in-time schedule moved an op earlier, changed a duration, or the ASAP re-run differs", X->sched.name.c_str());
+            CHECK(T.ahead_asap_ns > (X == &E ? 500.0 : 2500.0) && T.ahead_ns <= 0 && T.moved > 0 && early_moved == 0 && first_release > 400.0,
+                  "%s: joining qubits ahead by %.0f ns as soon as possible, %.0f just in time; first release %.0f ns, %d ops before it moved", X->sched.name.c_str(),
+                  T.ahead_asap_ns, T.ahead_ns, first_release, early_moved);
+            CHECK(prog.duration_ns >= a.duration_ns && prog.duration_ns <= 1.02 * a.duration_ns, "%s: just in time takes %.1f ns against %.1f", X->sched.name.c_str(), prog.duration_ns, a.duration_ns);
+        }
+    }
+    // the chip account of the study at d = 5 for two adjacent patches (109 qubits): the qubit, coupler, feedline and line
+    // counts of a d x (2d+1) region, and Beta-1's frequency plan on it without a collision
+    {
+        const auto E = surgery_parity(5, 'Z', '0', '0');
+        const auto D = surgery_chip(E.sched.lat, "beta1"); const auto R = analyze(D);
+        const int w = 5, hh = 11, n = int(D.qubits.size());
+        int nd = 0; std::set<int> feeds, freqs; std::set<std::pair<int, int>> combos;
+        for (const auto& q : D.qubits) { nd += q.role == "data"; feeds.insert(q.feedline); }
+        for (const auto& q : R.q) freqs.insert(int(std::lround(q.f01 * 1e3)));
+        for (const auto& pr : R.pairs) if (pr.designed) {
+            int fa = int(std::lround(R.q[std::size_t(D.index_of(pr.a))].f01 * 1e3)), fb = int(std::lround(R.q[std::size_t(D.index_of(pr.b))].f01 * 1e3));
+            if (fa < fb) std::swap(fa, fb);
+            combos.insert({fa, fb});
+        }
+        const int couplers = 4 * (w - 1) * (hh - 1) + 2 * (w + hh - 2), lines = 2 * n + int(D.couplings.size()) + 2 * int(feeds.size());
+        std::printf("  chip account, d=5, two adjacent patches: %d qubits (%d data), %zu couplers, %zu feedlines, %d lines, %zu design frequencies, %zu CZ combinations, %d collisions, max |ZZ| %.2f kHz\n",
+                    n, nd, D.couplings.size(), feeds.size(), lines, freqs.size(), combos.size(), R.n_collisions, R.max_abs_zz_kHz);
+        CHECK(n == 109 && nd == 55 && int(D.couplings.size()) == couplers && couplers == 188 && int(feeds.size()) == (n + 8) / 9 && lines == 432,
+              "d=5 chip account: %d qubits, %d data, %zu couplers, %zu feedlines, %d lines", n, nd, D.couplings.size(), feeds.size(), lines);
+        CHECK(freqs.size() == 8 && combos.size() == 16 && R.n_collisions == 0 && R.max_abs_zz_kHz < 5.5, "d=5 chip account: %zu frequencies, %zu CZ combinations, %d collisions",
+              freqs.size(), combos.size(), R.n_collisions);
+    }
     // d = 3, strips of length 3 on a Beta-1 physics chip: decoded observables, DEM, single-fault distance (separate and
     // joint decoders), and the cost of the strip
     for (const char* op : {"zz", "cnot"}) {
@@ -3335,6 +3574,18 @@ static void test_surgery_routing() {
                 bool threw = false;
                 try { prepare_surgery(D, R, nm, Open, 'X'); } catch (const std::exception&) { threw = true; }
                 CHECK(threw && Open.detectors.size() + 2 == E.detectors.size(), "X_A X_B through a strip was accepted without the strip's closing detectors");
+            }
+            if (name == "CNOT" && ty == 'Z') {
+                // preparing the joining qubits as soon as possible charges their wait to the strip: the observable that
+                // carries the corrections (Z_T) is wrong more often than with just-in-time preparation, same shots
+                auto Easap = E; Easap.sched.just_in_time = false;
+                const auto Ma = prepare_surgery(D, R, nm, Easap, ty);
+                const auto Mj = prepare_surgery(D, R, nm, E, ty);
+                const auto ra = run_surgery_frame(Ma, 100000, 13, SurgeryDecoder::Joint), rj = run_surgery_frame(Mj, 100000, 13, SurgeryDecoder::Joint);
+                std::printf("  d=3 CNOT, strips 3, Z_T wrong: %.4f +- %.4f as soon as possible, %.4f +- %.4f just in time (%d joining qubits ready up to %.2f us early, now 0)\n",
+                            ra.p[1], ra.p_sem[1], rj.p[1], rj.p_sem[1], Ma.timing.joining, Ma.timing.ahead_asap_ns / 1e3);
+                CHECK(rj.p[1] + 3 * std::hypot(ra.p_sem[1], rj.p_sem[1]) < ra.p[1] && Mj.timing.ahead_ns <= 0 && Ma.timing.ahead_ns > 1000,
+                      "just-in-time preparation does not lower Z_T through strips (%.4f vs %.4f)", rj.p[1], ra.p[1]);
             }
             if (name == "ZZ" && ty == 'Z') {
                 // the strip costs logical error: the merge outcome through a strip of 5 against adjacent patches

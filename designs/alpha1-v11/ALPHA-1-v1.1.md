@@ -4,7 +4,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Simulation gate **passed**: every criterion holds for every pair, including CZ leakage, and the layout passes the in-house mask checks: placement and spacing, the 4 µm width/space DRC (0 violations), metal connectivity with modelled ground straps (clean); the control-line T1 budget is met (reported, not gated; §5, §6). **Not yet checked:** a foundry DRC deck (airbridge rules included), the straps' capacitance to the coupler and bus strips they cross, and the flux lines' inductive coupling to the SQUIDs (§7). |
+| **Status** | Simulation gate **passed**: every criterion holds for every pair, including CZ leakage, and the layout is DRC- and connectivity-clean in the model: placement and spacing, the 4 µm width/space DRC (0 violations), 2D metal connectivity (LVS-lite) with modelled airbridges; the control-line T1 budget is met (reported, not gated; §5, §6). **Not verified:** the airbridges themselves, EM (full-wave) extraction, inductance (flux-line coupling to the SQUIDs), a foundry DRC deck (§7). |
 | **Supersedes** | Alpha-1 v1.0 (`designs/alpha1/ALPHA-1.md`, qpuforge v0.2) |
 | **Purpose** | First error-correction-ready chip: 17-qubit distance-3 rotated surface code (memory experiment) |
 | **Tooling** | qpuforge v0.4: `alpha1_v11_review` (399 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |

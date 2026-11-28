@@ -9,7 +9,9 @@ Clears the merged-etch width/space DRC of all three masks, makes their metal con
 brings every CZ pair class within the 2e-4 leakage limit of the Alpha gate. Each qubit SQUID now lands on a ground
 lead, each qubit flux line is shorted to the plane, modelled airbridges ("ground straps") tie the enclosed ground to the
 plane, and the XY line is moved out of the qubit's cut-out after an extraction of the control-line couplings showed a
-sub-microsecond T1 limit (docs/design/mask-connectivity.md). No foundry DRC deck has been run (see Known issues).
+sub-microsecond T1 limit (docs/design/mask-connectivity.md). The masks are DRC- and connectivity-clean in the model (2D
+LVS-lite connectivity with modelled airbridges); airbridges, EM and inductance are not verified, and no foundry DRC
+deck has been run (see Known issues).
 
 The decoding items of Phase Gamma: a union-find decoder, leakage-aware decoding from heralded leakage, per-shot impact
 injection with an impact veto, and linear-time fault enumeration. Study: `examples/decoder_study.cpp` ->

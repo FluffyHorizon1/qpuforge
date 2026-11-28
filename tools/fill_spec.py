@@ -115,8 +115,8 @@ def mask_note(lay, sec):
         lines = ('the control-line couplings are within the T1 budget' if b.get('ok') else
                  f"the control-line T1 budget (reported, not gated) is **not met**: {lines_text(lay)}")
         return (f"**Mask.** The layout {drc}; the metal connectivity check is clean with its ground straps; {lines} (§{sec}). "
-                f"Not yet checked: a foundry DRC deck (airbridge rules included), the capacitance of the straps to the coupler and "
-                f"bus strips they cross (not in the extraction cells), and the inductive coupling of the flux lines to the SQUIDs.")
+                f"Not verified: the airbridges (their capacitance to the coupler and bus strips they cross is not in the extraction "
+                f"cells), EM (full-wave) extraction, inductance (the flux lines' coupling to the SQUIDs), a foundry DRC deck.")
     return (f"**The mask is not fabrication-ready.** The layout {drc} (§{sec}); metal connectivity: {conn_text(lay)}; "
             f"control lines: {lines_text(lay)}.")
 
@@ -136,7 +136,7 @@ def layout_vals(lay):
         'JJ': lay.get('junction_regions', 0), 'BUMPS': lay.get('bumps', 0),
         'DRC': drc_text(lay), 'CONN': conn_text(lay),
         'LINES': lines_text(lay),
-        'MASK_STATUS': (('passes the in-house mask checks (width/space DRC, metal connectivity with ground straps); control-line T1 budget '
+        'MASK_STATUS': (('is DRC- and connectivity-clean in the model (2D LVS-lite connectivity with modelled airbridges; airbridges, EM and inductance not verified); control-line T1 budget '
                          + ('met' if lay.get('control_lines', {}).get('ok') else '**not met** (flux line)') + '; foundry DRC not yet run')
                         if mask_clean(lay) and lay.get('connectivity', {}).get('clean') else 'not fabrication-ready'),
         'DRC_W': f"{d.get('etch_width_violations', 0):,}", 'DRC_S': f"{d.get('etch_space_violations', 0):,}",

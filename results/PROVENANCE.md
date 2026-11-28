@@ -25,13 +25,24 @@ the commands below to reproduce them.
 | `results/flux_distortion_study.{txt,json}` | `flux_distortion_study` (`OMP_NUM_THREADS=2 ./build/flux_distortion_study`; pulse simulations only, no Monte Carlo; CZ model v4) | `a1fcda1d95b8428bac9372e0f5a6ff4a9c4de4f7` (clean tree) | g++ 13.3.0 | 2 (informational) | 2026-11-28T10:40:55Z | 976 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
-  The three reviews were regenerated from the clean tree `ae46662` (PR #28) with a build directory configured at that
-  commit: each review JSON says `source_commit: ae46662…`, `source_tree_dirty: false`. Its review and layout code is the
-  code of `56ba3e4`, where an earlier run of the same three reviews gave the same output except for the machine-dependent
-  fields. `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
-  `results/test_output.txt` was not regenerated for PR #28: it is `main`'s, made from `8de7512` (clean tree a0a5686, which
-  `main` has after #21 and #24): its 500 checks are `main`'s. With the four checks this PR adds, `test_qpuforge` runs 504
-  (the per-group counts of a full ctest run on g++ 14.2 sum to 504, 0 failed).
+  The reviews, the GDS files and the characterisation rehearsal were regenerated from the clean tree
+  `0b2ea59` (`main` at 2e19180 merged into `scs-bot/fab-readiness`): each review JSON says `source_tree_dirty: false`.
+  The test log was made later, from `8de7512` (clean tree a0a5686, which `main` has after #21 and #24).
+  `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
+- **Source stamp.** The review and study programs write the commit they were built from into their JSON
+  (`provenance.source_commit`), and `provenance.source_tree_dirty`: `true` if tracked files differed from that commit
+  when the program was built (untracked files do not count). The stamp is taken by every build that brings a
+  program's dependencies up to date (`cmake/git_stamp.cmake`): `cmake --build build`, with or without
+  `--target <program>`, and `make` or `ninja` for the default target or for the program. It therefore describes the
+  tree the binary was built from, whenever its build directory was configured. The Makefile rules `<program>/fast`
+  are the exception: they skip the dependencies, so `make <program>/fast` links the program with the stamp of the last
+  ordinary build, even after compiling it from a newer commit. For recorded runs, commit, run `cmake --build build`
+  and then run the programs: the build directory does not have to be configured again. Build before the first run and
+  not between runs: a run rewrites tracked files (the committed outputs), and a build made after that records
+  `source_tree_dirty: true`. A binary that is not rebuilt after a commit keeps the stamp of the tree it was built
+  from. The stamp is `"unknown"` / `false` outside a git checkout, without git, and for a program compiled by hand.
+  The outputs in the table predate this: their stamp was taken when CMake configured the build directory, and a
+  directory configured at an earlier commit would have recorded that commit.
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.

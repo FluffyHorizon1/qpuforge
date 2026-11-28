@@ -7,6 +7,7 @@
 //   --cache F  CZ calibration cache (default results/cz_cache.json; with --out, a copy of it inside DIR)
 //   --smoke    quick end-to-end run (200 shots unless given, reduced fixed-size runs); implies --out if not given
 #pragma once
+#include "git_stamp.hpp"
 #include "qpuforge/json.hpp"
 #include "qpuforge/pulse.hpp"
 #include <chrono>
@@ -18,13 +19,6 @@
 #include <vector>
 #ifdef _OPENMP
 #include <omp.h>
-#endif
-
-#ifndef QPUFORGE_GIT_SHA
-#define QPUFORGE_GIT_SHA "unknown"
-#endif
-#ifndef QPUFORGE_GIT_DIRTY
-#define QPUFORGE_GIT_DIRTY 0
 #endif
 
 namespace review {
@@ -89,8 +83,8 @@ inline std::string utc_now() {
 inline qpuforge::Json provenance(const Options& o, const std::string& seeds) {
     using qpuforge::Json;
     Json p = Json::object();
-    p.set("source_commit", QPUFORGE_GIT_SHA);
-    p.set("source_tree_dirty", bool(QPUFORGE_GIT_DIRTY));
+    p.set("source_commit", git_stamp_commit);       // the tree the binary was built from (git_stamp.hpp)
+    p.set("source_tree_dirty", git_stamp_dirty);
     p.set("compiler", compiler());
 #ifdef _OPENMP
     p.set("openmp_threads", omp_get_max_threads());

@@ -265,7 +265,7 @@ set(QPUFORGE_TESTS
   "decomposition:unit" "transmon:physics" "coupler_and_flux:physics" "zz_and_inverse_design:physics" "qasm:unit" "compiler:unit" "decoherence:physics"
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
-  "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
+  "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "control_lines:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
   "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "surgery:qec" "surgery_cnot:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
@@ -279,6 +279,11 @@ foreach(t ${QPUFORGE_TESTS})
   add_test(NAME ${name} COMMAND test_qpuforge ${name})
   set_tests_properties(${name} PROPERTIES LABELS ${label} FAIL_REGULAR_EXPRESSION "FAIL ")
 endforeach()
+# Pending group: the three open electrical problems of the mask design (tests/test_qpuforge.cpp, kPending). It must run
+# to the end and fail exactly its known checks; when the redesign closes them this count changes and the test fails,
+# and the group moves to QPUFORGE_TESTS.
+add_test(NAME layout_electrical COMMAND test_qpuforge layout_electrical)
+set_tests_properties(layout_electrical PROPERTIES LABELS "layout;pending" PASS_REGULAR_EXPRESSION "[0-9]+ checks passed, 5 failed")
 # End-to-end smoke runs of the review programs: 200 shots, outputs in the build tree, committed files untouched.
 # They reuse results/cz_cache.json (copied); with a stale or missing cache they re-calibrate (a few minutes).
 foreach(name alpha1_v11_review beta1_review gamma1_review surgery_study)

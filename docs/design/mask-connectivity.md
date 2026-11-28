@@ -9,6 +9,34 @@ adversarial review found three high-severity electrical problems (below, "Open r
 3. *XY drive is coupler-dominated (high).* The XY bump pad sits ~30 µm from two coupler pads (the sliver fill removes the 2 µm ground between their cut-outs); `line_coupling` draws couplers without pads. A window extraction of the assembled mask gives C(XY, coupler) ≈ 1.4–1.6 fF against C(XY, qubit) ≈ 0.036 fF: neighbour crosstalk 60–160 %. **The 0.03 fF / 23.8× control-line figures do not hold.** Fix: move the bump or keep a ≥ 4 µm ground strip the fill leaves alone; extract from a mask window; add coupler-mediated drive, crosstalk and a coupler T1 budget.
 4. *Connectivity as ideal ground (medium).* The connectivity check treats a spanning tree of single bridges as ideal ground (one 36 µm bridge carries the returns of up to 77 circuits). The junction-landing rule accepts any non-plane net at the island end (a mutant with SQUIDs on the XY pad passes `layout_presets`). The control-line model and the XY move have no tests. `line_budget` uses the 5.5 GHz flux coupling at every f01, overstating the flux T1 limit by (f01/5.5)² (BF-49 9.7× → 8.2×).
 
+**Redesign, batch 1: checks and models (layout unchanged).** Status of the findings above:
+- Closed: the junction rule. `ConnectivityReport::clean()` requires each junction's island end to be a qubit or coupler
+  island and each of those to carry exactly one junction; `layout_presets` checks two mutants on AF-17 (SQUIDs drawn to
+  the XY lines; one qubit's SQUID moved to another qubit) and both fail.
+- Closed: tests for the control-line model and the XY move (`control_lines`), and `line_budget` at each qubit's f01
+  (`LineCoupling::C_flux_at`: the panel charges do not depend on frequency, only the sin(βz) weight does).
+- Measured, gated after batch 2: the RF ground (`rf_ground_ok()`). A strap is a bar from foot centre to foot centre with
+  Grover's partial self-inductance, L = 0.2 l [ln(2l/(w+t)) + 1/2 + 0.2235 (w+t)/l] nH (l in mm; w = 10 µm,
+  t = 0.5 µm assumed): 67.6 pH for 98 µm, the review's figure. Committed masks: junctions grounding on plane metal
+  7/41 (AF-17), 14/129 (BF-49), 21/265 (GF-97); returns on a single strap 34, 115, 244; worst strap chain shared by a
+  junction and a flux return 371, 604, 909 pH.
+- Pending tests that state the batch-2 targets (`layout_electrical`, AF-17; CTest expects exactly these 5 failures):
+  - RF ground ok (every junction on plane metal, no single-strap return);
+  - shared-ground T1 limit ≥ 10× design T1, with Γ = ω⁴ L_s² C_ret² / (Z0 C_Σ), C_ret ≤ C_Σ = e²/(2h E_C) (the review's
+    formula; upper bound on C_ret): now 4.7e-5× (Q15);
+  - I(Φ0/2) ≤ 2 mA in the measure and data cells: now ~1.3 A (M ≈ 0.0008 pH);
+  - XY crosstalk (largest C from the XY line to any other conductor / C to its own qubit, mask window around the XY
+    end) < 5 %: now 40 (C(XY2, C0-2) 1.575 fF against C(XY2, Q2) 0.039 fF).
+
+*Mutual-inductance model (`flux_line_mutual`).* M = Φ/I, with Φ the flux of B_z through the SQUID loop from a current
+along the flux line's centre line (`flux_line_centre`), each straight segment by the closed-form Biot-Savart field of a
+finite filament, integrated on a 40 × 40 grid over the loop. Assumptions: the loop is the drawn junction region
+(layer-2 rect, 10 × 4 µm here); the return current in the ground plane is not included (on a wide plane it spreads; a
+return that runs close to the loop would change M and must then be added as a path); the line is a filament (points
+within 0.05 µm are skipped). This model gives ~0.0008 pH for the current line, lower than the review's 0.004–0.011 pH,
+which also counted the pocket and strap return path; both are about three orders of magnitude short of the ~1 pH that
+2 mA needs.
+
 
 ## Problem
 
@@ -94,6 +122,8 @@ Closing that gap needs the flux line's approach to the qubit reworked (for examp
 ## Not modelled / open
 
 - The capacitance of the ground straps to what they span (above).
-- Inductive coupling of the flux line to the SQUID loop and the resulting flux-noise and T1 channel.
+- The flux-line to SQUID mutual inductance is modelled (above) but not its flux-noise and T1 channel; the return current
+  is not in the model.
+- Strap inductance enters only the RF-ground report and the pending shared-ground T1 check, not `line_budget`.
 - Any foundry DRC deck (airbridge rules included); the in-house checks are the 4 µm / 4 µm merged-etch width/space
   check, the placement checks and the connectivity check.

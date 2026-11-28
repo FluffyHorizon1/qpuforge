@@ -1944,6 +1944,23 @@ static void test_layout_geometry() {
         std::printf("  ground straps: %zu placed; first pocket strapped: %s; any strap over a qubit: %s\n", S.size(), p1 ? "yes" : "no", over_q ? "yes" : "no");
         CHECK(S.size() == 1 && p1 && !over_q, "ground straps: %zu, pocket %d, over qubit %d", S.size(), int(p1), int(over_q));
     }
+    {   // strap inductance (Grover bar formula): a 98 um x 10 um strap is about 68 pH (the review's figure for this bar)
+        const double l98 = detail::grover_bar_pH(98, 10);
+        detail::Strap st; st.foot_a = rect_c(0, 0, 10, 10); st.foot_b = rect_c(98, 0, 10, 10);
+        std::printf("  strap inductance: 98 x 10 um bar %.1f pH; strap with feet 98 um apart %.1f pH\n", l98, detail::strap_inductance_pH(st));
+        CHECK(std::abs(l98 - 68) < 3 && std::abs(detail::strap_inductance_pH(st) - l98) < 1e-9 && detail::grover_bar_pH(200, 10) > 2 * l98,
+              "strap inductance %.2f pH", l98);
+    }
+    {   // flux-line mutual model: B_z of a long straight filament is mu0 I / (2 pi d); the flux of a long filament through a
+        // rect from y0 to y1 of width w is mu0 w ln(y1/y0) / (2 pi)
+        const double mu0 = 4e-7 * PI;
+        const double b = detail::segment_Bz_per_A(-1e6, 0, 1e6, 0, 3, 7);
+        const double phi = detail::filament_flux_per_A({{-1e6, 0}, {1e6, 0}}, Rect{-5, 2, 5, 6}, 20, 400);
+        const double phi_ref = mu0 * 10e-6 * std::log(6.0 / 2.0) / (2 * PI);
+        std::printf("  Biot-Savart: B_z %.6g T/A vs %.6g; flux %.6g Wb/A vs %.6g\n", b, mu0 / (2 * PI * 7e-6), phi, phi_ref);
+        CHECK(std::abs(b / (mu0 / (2 * PI * 7e-6)) - 1) < 1e-6 && std::abs(phi / phi_ref - 1) < 1e-3 &&
+              detail::segment_Bz_per_A(1e6, 0, -1e6, 0, 3, 7) == -b, "filament field %.6g, flux %.6g", b, phi);
+    }
 }
 
 // ---------------------------------------------------------------- layout_presets: the committed chips are mask-clean and on target
@@ -1985,8 +2002,125 @@ static void test_layout_presets() {
         CHECK(L.conn.clean(), "%s: %s", c.name, connectivity_summary(L).c_str());
         CHECK(L.conn.junctions == int(c.D.qubits.size() + c.D.couplings.size()) && L.conn.flux_lines == int(c.D.qubits.size()),
               "%s: %d junctions, %d flux lines", c.name, L.conn.junctions, L.conn.flux_lines);
+        std::printf("    %s\n", rf_ground_summary(L).c_str());
+        if (std::string(c.name) == "AF-17") {
+            // mutants the junction rule must refuse: (1) every qubit SQUID drawn from the plane to its XY line's open end
+            // (an island end that is a line, not the qubit); (2) qubit 0 with two SQUIDs and qubit 1 with none (count kept)
+            ChipLayout M1 = L, M2 = L;
+            const std::size_t nq = c.D.qubits.size();
+            for (std::size_t i = 0; i < nq; ++i) {
+                const double cx = c.D.qubits[i].x_um, cy = c.D.qubits[i].y_um;
+                M1.jj[i] = Rect{cx + kXYEnd - 11, cy - kXYLevel - 2, cx + kXYEnd - 5, cy - kXYLevel + 2};
+            }
+            M2.jj[1] = M2.jj[0];
+            compute_connectivity(M1, detail::metal_map(M1.outline, M1.etch));
+            compute_connectivity(M2, detail::metal_map(M2.outline, M2.etch));
+            std::printf("    mutants: SQUIDs on the XY lines: clean %d (%d of %d junctions on their own device); qubit 0 twice, qubit 1 none: clean %d (%d of %d devices with one junction)\n",
+                        int(M1.conn.clean()), M1.conn.junctions_on_device, M1.conn.junctions, int(M2.conn.clean()), M2.conn.devices_one_junction, M2.conn.devices);
+            CHECK(!M1.conn.clean() && M1.conn.junctions_landed == M1.conn.junctions && M1.conn.junctions_on_device == int(c.D.couplings.size()),
+                  "SQUIDs-on-XY mutant must fail connectivity (landed %d, on device %d)", M1.conn.junctions_landed, M1.conn.junctions_on_device);
+            CHECK(!M2.conn.clean() && M2.conn.devices_one_junction == M2.conn.devices - 2, "duplicate-SQUID mutant must fail connectivity (%d of %d)",
+                  M2.conn.devices_one_junction, M2.conn.devices);
+        }
         CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);
         CHECK(std::abs(P.park_gap_MHz) < 0.05, "%s parked exchange not re-nullable (%.3f MHz)", c.name, P.park_gap_MHz);
+    }
+}
+
+// ---------------------------------------------------------------- control_lines: the control-line model (line_coupling, line_budget) and the XY move
+static layout::CellSet committed_cells(const char* path) {
+    std::ifstream f(std::string(QPUFORGE_SOURCE_DIR) + "/" + path);
+    std::stringstream ss; ss << f.rdbuf();
+    return layout::cells_from_json(Json::parse(ss.str()));
+}
+static void test_control_lines() {
+    std::puts("[control_lines] flux-line weighting at any frequency, line_budget at each qubit's f01, the XY line outside the qubit cut-out and its coupling falling with distance");
+    using namespace layout;
+    const CellSet S = committed_cells("designs/alpha1-v11/layout_cells.json");
+    const ChipDesign D = alpha1_v11(3);
+    const auto R = analyze(D);
+    const MeshOptions mo{3.0, 50.0, 2.0};                            // coarse: every check compares like with like
+    const auto B = line_budget(D, R, S, mo);
+    const LineCoupling& m = B.meas;
+    std::printf("  AF-17 measure cell @%.1f GHz: C_xy %.4f fF, C_flux %.4f fF (open %.3f fF; %.4f fF at 4.5 GHz, %.4f fF at 6.5 GHz), C_sigma %.2f fF, XY-coupler %.4f fF\n",
+                m.f_ref_GHz, m.C_xy_fF, m.C_flux_fF, m.C_flux_open_fF, m.C_flux_at(4.5), m.C_flux_at(6.5), m.C_sigma_fF, m.C_xy_coupler_fF);
+    // the stored effective capacitance is the panel sum at the reference frequency; the weight sin(beta z) < 1 grows with
+    // frequency (beta z < pi/2 over this short line); T1_flux_us is the T1 formula at the reference frequency
+    CHECK(std::abs(m.C_flux_at(m.f_ref_GHz) - m.C_flux_fF) < 1e-12 && m.f_ref_GHz == 5.5 && !m.flux_panels.empty(), "C_flux_at(f_ref) %.6f vs %.6f", m.C_flux_at(m.f_ref_GHz), m.C_flux_fF);
+    CHECK(m.C_flux_at(4.5) < m.C_flux_fF && m.C_flux_fF < m.C_flux_at(6.5) && m.C_flux_at(6.5) < m.C_flux_open_fF && m.C_flux_at(4.5) > 0,
+          "flux weighting not monotone or above the open-line capacitance");
+    CHECK(std::abs(m.T1_flux_us / m.T1_us(m.C_flux_fF, 5.5) - 1) < 1e-12 && std::abs(m.T1_xy_us / m.T1_us(m.C_xy_fF, 5.5) - 1) < 1e-12, "T1 formula");
+    // line_budget: every qubit at its own f01 (the worst ratio recomputed here); with the 5.5 GHz coupling at every f01
+    // the flux limit would be different
+    double worst = 1e300, worst_fixed = 1e300;
+    for (std::size_t i = 0; i < D.qubits.size(); ++i) {
+        const LineCoupling& c = D.qubits[i].role != "data" ? B.meas : B.data;
+        const double f = R.q[i].f01;
+        worst = std::min(worst, c.T1_us(c.C_flux_at(f), f) / R.q[i].T1_us);
+        worst_fixed = std::min(worst_fixed, c.T1_us(c.C_flux_fF, f) / R.q[i].T1_us);
+    }
+    std::printf("  line_budget flux ratio %.2fx at each f01 (%.2fx with the 5.5 GHz coupling at every f01); XY %.2fx\n", B.min_ratio_flux, worst_fixed, B.min_ratio_xy);
+    CHECK(std::abs(B.min_ratio_flux / worst - 1) < 1e-12 && std::abs(worst / worst_fixed - 1) > 1e-3, "line_budget flux ratio %.4f vs %.4f (fixed %.4f)", B.min_ratio_flux, worst, worst_fixed);
+    // the XY move: the XY line (centre conductor and pad) is outside the qubit's cut-out, and its coupling to the qubit
+    // falls as its open end moves away
+    std::vector<Rect> qm, qh, fm, fh, xm, xh;
+    xmon(S.meas, 0, 0, qm, qh);
+    qubit_control_lines(0, 0, fm, fh, xm, xh, true);
+    bool inside = false; for (const auto& x : xm) for (const auto& h : qh) inside |= x.intersects(h);
+    const auto far = line_coupling(S.meas, S.cg, S.pitch, 5.5, mo, 50, kXYEnd + 20);
+    std::printf("  XY line in the qubit cut-out: %s; C_xy %.4f fF at xy_end %.0f um, %.4f fF at %.0f um\n", inside ? "yes" : "no", m.C_xy_fF, kXYEnd, far.C_xy_fF, kXYEnd + 20);
+    CHECK(!inside, "XY line inside the qubit cut-out");
+    CHECK(far.C_xy_fF < m.C_xy_fF && far.C_xy_fF > 0, "C_xy does not fall with distance (%.5f -> %.5f fF)", m.C_xy_fF, far.C_xy_fF);
+}
+
+// ---------------------------------------------------------------- layout_electrical (pending): the three open electrical problems of the mask design
+// Not part of the default run (see kPending): these checks state what the redesign must reach and fail on the committed
+// masks. CTest runs the group and expects exactly its known failures (CMakeLists.txt); when the redesign lands, the
+// group moves to kTests and CTest's normal rule.
+static void test_layout_electrical() {
+    std::puts("[layout_electrical] AF-17: junctions ground on plane metal with no single-strap returns; shared-ground T1 limit; flux line tunes the SQUID with <= 2 mA; XY crosstalk < 5%");
+    using namespace layout;
+    const CellSet S = committed_cells("designs/alpha1-v11/layout_cells.json");
+    const ChipDesign D = alpha1_v11(3);
+    const auto R = analyze(D);
+    const auto L = assemble_chip(D, S);
+    std::printf("  %s\n", rf_ground_summary(L).c_str());
+    // (a) RF ground: no strap in a junction's current path, no line return on a single strap
+    CHECK(L.conn.rf_ground_ok(), "RF ground: %s", rf_ground_summary(L).c_str());
+    // (a) shared-ground T1 limit: an inductance L_s shared by the junction current and a 50 ohm flux line puts
+    // (omega L_s)^2 / Z0 in the junction loop: Gamma = omega^4 L_s^2 C_ret^2 / (Z0 C_sigma), with C_ret <= C_sigma (upper
+    // bound) and C_sigma = e^2 / (2 h E_C); it must leave kLineT1Margin x the design T1
+    double worst = 1e300; int wq = -1;
+    for (std::size_t i = 0; i < D.qubits.size(); ++i) {
+        const double ls = L.conn.junction_shared_pH[i] * 1e-12, w = 2 * PI * R.q[i].f01 * 1e9;
+        const double Cs = 1.602176634e-19 * 1.602176634e-19 / (2 * 6.62607015e-34 * R.q[i].EC * 1e9);
+        const double t1 = ls > 0 ? 50 * Cs / (std::pow(w, 4) * ls * ls * Cs * Cs) * 1e6 : 1e300;
+        if (t1 / R.q[i].T1_us < worst) { worst = t1 / R.q[i].T1_us; wq = D.qubits[i].id; }
+    }
+    std::printf("  shared-ground T1 limit: worst %.3gx the design T1 (Q%d)\n", worst, wq);
+    CHECK(worst >= kLineT1Margin, "shared-ground T1 limit %.3gx the design T1 (Q%d)", worst, wq);
+    // (b) flux line: Phi0/2 with at most 2 mA (model: flux_line_mutual)
+    for (const auto* q : {&S.meas, &S.data}) {
+        const auto F = flux_line_mutual(*q);
+        std::printf("  flux line -> SQUID (%s cell): M %.4f pH, I(Phi0/2) %.3g mA\n", q == &S.meas ? "measure" : "data", F.M_pH, F.I_half_mA);
+        CHECK(F.I_half_mA <= 2.0, "flux line needs %.3g mA for Phi0/2 (M %.4f pH)", F.I_half_mA, F.M_pH);
+    }
+    // (c) XY crosstalk from a mask window around a qubit with a +x and a -y coupler (the XY end's corner)
+    std::map<std::pair<long, long>, int> at;
+    for (const auto& q : D.qubits) at[{std::lround(q.x_um), std::lround(q.y_um)}] = q.id;
+    auto coupled = [&](int a, int b) { for (const auto& c : D.couplings) if ((c.a == a && c.b == b) || (c.a == b && c.b == a)) return true; return false; };
+    const long p = std::lround(S.pitch);
+    int qid = -1;
+    for (const auto& q : D.qubits) {
+        const long x = std::lround(q.x_um), y = std::lround(q.y_um);
+        if (at.count({x + p, y}) && at.count({x, y - p}) && coupled(q.id, at[{x + p, y}]) && coupled(q.id, at[{x, y - p}])) { qid = q.id; break; }
+    }
+    CHECK(qid >= 0, "no qubit with a +x and a -y coupler");
+    if (qid >= 0) {
+        const auto X = xy_window_crosstalk(L, qid);
+        std::printf("  XY%d window (%d panels, %.0f s): C(XY, Q%d) %.4f fF, largest other C(XY, %s) %.4f fF: crosstalk %.3g\n", qid, X.panels, X.seconds, qid,
+                    X.C_own_fF, X.worst.c_str(), X.C_worst_fF, X.ratio);
+        CHECK(X.ratio < 0.05, "XY crosstalk %.3g (C(XY, %s) %.4f fF vs C(XY, Q%d) %.4f fF)", X.ratio, X.worst.c_str(), X.C_worst_fF, qid, X.C_own_fF);
     }
 }
 
@@ -2415,6 +2549,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"layout", test_layout},
     {"layout_geometry", test_layout_geometry},
     {"layout_presets", test_layout_presets},
+    {"control_lines", test_control_lines},
     {"json_rfc", test_json_rfc},
     {"json_depth", test_json_depth},
     {"gds_write", test_gds_write},
@@ -2435,15 +2570,20 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"surgery_cnot", test_surgery_cnot},
 };
 
-// test_qpuforge            run every test
-// test_qpuforge NAME...    run the named tests (CTest runs one test per entry, see CMakeLists.txt)
+// pending groups: run only when named (they state targets the committed design does not meet yet)
+static const std::vector<std::pair<const char*, void (*)()>> kPending = {
+    {"layout_electrical", test_layout_electrical},
+};
+
+// test_qpuforge            run every test (not the pending groups)
+// test_qpuforge NAME...    run the named tests, pending ones included (CTest runs one test per entry, see CMakeLists.txt)
 // test_qpuforge --list     print the test names
 int main(int argc, char** argv) {
     std::vector<std::string> want(argv + 1, argv + argc);
     if (want.size() == 1 && want[0] == "--list") { for (const auto& t : kTests) std::puts(t.first); return 0; }
     int ran = 0;
-    for (const auto& [name, fn] : kTests) {
-        if (!want.empty() && std::find(want.begin(), want.end(), name) == want.end()) continue;
+    for (const auto* list : {&kTests, &kPending}) for (const auto& [name, fn] : *list) {
+        if (std::find(want.begin(), want.end(), name) == want.end() && (!want.empty() || list == &kPending)) continue;
         const auto t0 = std::chrono::steady_clock::now();
         fn(); ++ran;
         std::printf("  (%s: %.1f s)\n", name, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());

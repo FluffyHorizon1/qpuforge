@@ -322,7 +322,7 @@ int main(int argc, char** argv) {
     out("   added error against the gate on its own (mean / max over the CZ gates of a round)\n");
     struct Tol { std::string chip; double tau, a_fixed, a_free; };
     std::vector<Tol> tols;
-    struct Est { std::string chip; double tau, fixed, free; };
+    struct Est { std::string chip; double tau, sim_fixed, est_fixed, sim_free, est_free; };
     std::vector<Est> ests;
     for (const auto& C : chips) {
         const auto resp = &C == &chips.front() ? respA : responses(C);
@@ -350,7 +350,7 @@ int main(int argc, char** argv) {
             o.set("steady_mover_phase_rms_rad", ph);
             o.set("steady_fixed_estimate_mean", ef); o.set("steady_free_estimate_mean", eg);
             j3.push(o);
-            if (tc.a == a_ref) ests.push_back({C.name, tc.tau, f1.mean > 0 ? ef / f1.mean : 0.0, g1.mean > 0 ? eg / g1.mean : 0.0});
+            if (tc.a == a_ref) ests.push_back({C.name, tc.tau, f1.mean, ef, g1.mean, eg});
             if (tc.a == a_ref) {
                 const double target = 0.1 * C.allowance;
                 auto tol = [&](double e) { return e > 0 ? std::abs(a_ref) * std::sqrt(target / e) : 1e9; };
@@ -365,7 +365,7 @@ int main(int argc, char** argv) {
     auto pct = [&](double a) { char b[32]; if (a > tol_cap) std::snprintf(b, sizeof b, "> 1 %%"); else std::snprintf(b, sizeof b, "%.3f %%", 100 * a); return std::string(b); };
     for (const auto& t : tols) {
         const double allow = t.chip == A.name ? A.allowance : chips.back().allowance;
-        out("   %-24s %.0e    %7.0f   %-9s   %-9s\n", t.chip.c_str(), allow, t.tau, pct(t.a_fixed).c_str(), pct(t.a_free).c_str());
+        out("   %-24s %.0e    %7.0f   %-9s   %s\n", t.chip.c_str(), allow, t.tau, pct(t.a_fixed).c_str(), pct(t.a_free).c_str());
         Json o = Json::object();
         o.set("chip", t.chip); o.set("allowance", allow); o.set("target_added_error", 0.1 * allow); o.set("tau_ns", t.tau);
         o.set("a_max_fixed", std::min(t.a_fixed, tol_cap)); o.set("a_max_free", std::min(t.a_free, tol_cap));
@@ -373,9 +373,10 @@ int main(int argc, char** argv) {
         jtol.push(o);
     }
     out("   quasi-static estimate / simulation, steady state (mean added error; the estimate takes the flux offsets averaged over the\n");
-    out("   flat top and each gate's response to constant offsets, without a pulse simulation):\n");
+    out("   flat top and each gate's response to constant offsets, without a pulse simulation; shown where the simulation gives more than 1e-6):\n");
     out("   chip                     tau ns    fixed    free\n");
-    for (const auto& e : ests) out("   %-24s %7.0f    %.2f     %.2f\n", e.chip.c_str(), e.tau, e.fixed, e.free);
+    auto ratio = [](double est, double sim) { char b[16]; if (sim > 1e-6) std::snprintf(b, sizeof b, "%.2f", est / sim); else std::snprintf(b, sizeof b, "-"); return std::string(b); };
+    for (const auto& e : ests) out("   %-24s %7.0f    %-6s   %s\n", e.chip.c_str(), e.tau, ratio(e.est_fixed, e.sim_fixed).c_str(), ratio(e.est_free, e.sim_free).c_str());
     out("\n");
     J.set("tail_in_cycle", j3); J.set("tail_tolerance", jtol);
 
@@ -528,34 +529,36 @@ int main(int argc, char** argv) {
     J.set("timing_skew", j5c);
 
     // ---------------------------------------------------------------- summary
-    out("Summary: what keeps each contribution below a tenth of the residual control-error allowance (all lines but the first two: %s, %.0e)\n", A.name.c_str(), A.allowance);
+    out("Summary: what keeps each contribution below a tenth of the residual control-error allowance\n");
     Json js = Json::object();
     {
-        const double target = 0.1 * A.allowance;
+        out("   residual tail of the corrected step response, at the worst time constant:\n");
         Json jt = Json::array();
         for (const auto& C : chips) {
             double tf = 1, tr = 1;
             for (const auto& t : tols) if (t.chip == C.name) { tf = std::min(tf, t.a_fixed); tr = std::min(tr, t.a_free); }
-            out("   residual tail of the corrected step response, worst time constant, %s (allowance %.0e): %.3f %% (fixed), %.3f %% (free)\n", C.name.c_str(), C.allowance, 100 * tf, 100 * tr);
+            out("      %s (allowance %.0e): %.3f %% (fixed), %.3f %% (free)\n", C.name.c_str(), C.allowance, 100 * tf, 100 * tr);
             Json o = Json::object(); o.set("chip", C.name); o.set("tail_amplitude_fixed", tf); o.set("tail_amplitude_free", tr);
             jt.push(o);
         }
         js.set("tail_tolerance", jt);
+        const double target = 0.1 * A.allowance;
+        out("   %s:\n", A.name.c_str());
         if (amp3_fixed > 0 && amp3_free > 0) {
             const double df = 0.03 * std::sqrt(target / amp3_fixed), dr = 0.03 * std::sqrt(target / amp3_free);
-            out("   example line, fit of the section amplitudes: within %.1f %% (fixed), %.1f %% (free)\n", 100 * df, 100 * dr);
+            out("      example line, fit of the section amplitudes: within %.1f %% (fixed), %.1f %% (free)\n", 100 * df, 100 * dr);
             js.set("example_amplitude_fit_fixed", df); js.set("example_amplitude_fit_free", dr);
         }
         if (tau10_fixed > 0 && tau10_free > 0) {
             const double df = 0.10 * std::sqrt(target / tau10_fixed), dr = 0.10 * std::sqrt(target / tau10_free);
-            out("   example line, fit of the time constants: within %.1f %% (fixed), %.1f %% (free)\n", 100 * df, 100 * dr);
+            out("      example line, fit of the time constants: within %.1f %% (fixed), %.1f %% (free)\n", 100 * df, 100 * dr);
             js.set("example_tau_fit_fixed", df); js.set("example_tau_fit_free", dr);
         }
-        if (!awg_ok.empty()) out("   sample rate with rise time, after re-calibration: %s\n", awg_ok.c_str());
+        if (!awg_ok.empty()) out("      sample rate with rise time, after re-calibration: %s\n", awg_ok.c_str());
         js.set("awg_within_target", awg_ok);
-        if (bits_needed) out("   DAC resolution at 1 Phi0 full scale: %d bits\n", bits_needed);
+        if (bits_needed) out("      DAC resolution at 1 Phi0 full scale: %d bits\n", bits_needed);
         js.set("dac_bits", bits_needed);
-        if (skew_fit > 0) { const double sk = std::sqrt(target / skew_fit); out("   timing skew between mover and coupler line: %.2f ns\n", sk); js.set("skew_ns", sk); }
+        if (skew_fit > 0) { const double sk = std::sqrt(target / skew_fit); out("      timing skew between mover and coupler line: %.2f ns\n", sk); js.set("skew_ns", sk); }
     }
     J.set("summary", js);
 

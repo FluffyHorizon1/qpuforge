@@ -389,6 +389,16 @@ Args Args::parse(const Command& c, int argc, char** argv) {
     return a;
 }
 
+// Write a JSON file; throws if the file cannot be opened or written (as gds::write does).
+static void write_json_file(const std::string& path, const Json& j) {
+    std::ofstream f(path);
+    if (!f) throw std::runtime_error("cannot write " + path);
+    j.dump(f);
+    f << "\n";
+    f.close();
+    if (!f) throw std::runtime_error("cannot write " + path);
+}
+
 // ================================================================== commands
 // <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES. Checked (UsageError) before the chip file is read.
 struct CircuitSpec { std::string kind, file; int n = 0; };
@@ -622,7 +632,7 @@ static int cmd_cz(const Args& a) {
     double mt = 0, me = 0, ml = 0; for (const auto& c : cal) { mt += c.t_cz_ns; me += c.err_total; ml += c.leakage + c.leak_spectators; }
     const double n = std::max<std::size_t>(cal.size(), 1);
     std::printf("  mean: t_cz %.1f ns, CZ error %.2e (incl. decoherence), leakage %.1e per CZ\n", mt / n, me / n, ml / n);
-    if (const auto out = a.text("--out"); !out.empty()) { std::ofstream f(out); cz_calibration_json(cal).dump(f); f << "\n"; std::printf("  wrote %s\n", out.c_str()); }
+    if (const auto out = a.text("--out"); !out.empty()) { write_json_file(out, cz_calibration_json(cal)); std::printf("  wrote %s\n", out.c_str()); }
     return 0;
 }
 
@@ -660,8 +670,7 @@ static int cmd_gds(const Args& a) {
     // A loaded cell file is read-only: it records the targets of the chip it was synthesised for, and this chip's
     // targets may differ (the same cells are reused across chips).
     if (!cells_path.empty() && !have) {
-        const Json j = cells_json(C, m, T, &log);
-        std::ofstream f(cells_path); j.dump(f); f << "\n";
+        write_json_file(cells_path, cells_json(C, m, T, &log));
         std::printf("wrote cell geometry to %s\n", cells_path.c_str());
     }
     const auto L = assemble_chip(D, C);
@@ -778,9 +787,7 @@ static int cmd_synth(const Args& a) {
     o.rounds = a.int_list("--rounds", o.rounds);
     if (a.flag("--z-only")) o.both_bases = false;
     const auto C = synthesize_characterisation(D, R, o);
-    std::ofstream f(a.pos(1));
-    if (!f) throw std::runtime_error("cannot write " + a.pos(1));
-    characterisation_to_json(C).dump(f); f << "\n";
+    write_json_file(a.pos(1), characterisation_to_json(C));
     std::printf("wrote %s: %zu qubits, %zu pairs, %zu memory runs (synthetic data, seed %u)\n", a.pos(1).c_str(), C.qubits.size(), C.pairs.size(), C.memory.size(), o.seed);
     return 0;
 }
@@ -810,7 +817,7 @@ static int cmd_hwgate(const Args& a) {
                     c.d, c.basis, 100 * c.eps_measured, 100 * c.eps_model, c.ratio, c.points);
     for (const auto& n : G.model.notes) std::printf("  note: %s\n", n.c_str());
     std::printf("  %s: %d of %d evaluated criteria met, %d not in the data\n", G.pass ? "GATE PASSED" : "GATE NOT PASSED", G.passed, G.evaluated, G.missing);
-    if (const auto out = a.text("--out"); !out.empty()) { std::ofstream g(out); hardware_gate_json(G).dump(g); g << "\n"; std::printf("  wrote %s\n", out.c_str()); }
+    if (const auto out = a.text("--out"); !out.empty()) { write_json_file(out, hardware_gate_json(G)); std::printf("  wrote %s\n", out.c_str()); }
     return G.pass ? 0 : 3;
 }
 

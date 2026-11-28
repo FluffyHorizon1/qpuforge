@@ -129,6 +129,16 @@ qpuforge_cli_test(ok_cz "error: cannot open .*cli_no_chip.json"
   cz ${CLI_NO_CHIP} --out ${CLI_OUT}_cal.json --cache ${CLI_OUT}_unused_cache.json --g-qc 160 --f-on 6.1 --rise 7)
 qpuforge_cli_test(ok_gds "error: cannot open .*cli_no_chip.json"
   gds ${CLI_NO_CHIP} ${CLI_OUT}.gds --cells ${CLI_OUT}_cells.json --synthesize --from ${CLI_OUT}_cells0.json --cell TOP)
+# output files that cannot be written are errors (exit 2), not "wrote ..."
+qpuforge_cli_test(write_fails_new "error: cannot write .*no-such-dir/chip.json" new ${CLI_OUT}_no-such-dir/chip.json --line 2)
+qpuforge_cli_test(write_fails_layout "error: cannot write .*no-such-dir/chip.svg" layout ${CLI_OUT}_line2.json ${CLI_OUT}_no-such-dir/chip.svg)
+qpuforge_cli_test(write_fails_hwgate_out "error: cannot write .*no-such-dir/gate.json"
+  hwgate ${CLI_CHIP} ${CLI_OUT}_synth.json --shots 50 --out ${CLI_OUT}_no-such-dir/gate.json)
+set_tests_properties(cli_write_fails_layout PROPERTIES FIXTURES_REQUIRED cli_line2)
+set_tests_properties(cli_write_fails_hwgate_out PROPERTIES FIXTURES_REQUIRED cli_synth)
+if(EXISTS /dev/full)   # opens, then every write fails: caught by the check after close()
+  qpuforge_cli_test(write_fails_full "error: cannot write /dev/full" synth-chip ${CLI_CHIP} /dev/full --shots 50 --rounds 2 --z-only)
+endif()
 add_test(NAME cli_exit_status COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpuforge_cli> -DCHIP=${CLI_CHIP} -DMISSING=${CLI_NO_CHIP}
          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_exit_status.cmake)
 set_tests_properties(cli_exit_status PROPERTIES LABELS unit)

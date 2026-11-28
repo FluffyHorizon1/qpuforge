@@ -375,8 +375,11 @@ inline ChipDesign load_design(const std::string& path) {
 }
 inline void save_design(const ChipDesign& D, const std::string& path) {
     std::ofstream f(path);
+    if (!f) throw std::runtime_error("cannot write " + path);
     design_to_json(D).dump(f);
     f << "\n";
+    f.close();
+    if (!f) throw std::runtime_error("cannot write " + path);
 }
 
 // ================================================================== analysis
@@ -777,6 +780,7 @@ inline void write_layout_svg(const ChipDesign& D, const ChipReport& R, const std
         return "#6b7280";
     };
     std::ofstream f(path);
+    if (!f) throw std::runtime_error("cannot write " + path);
     char buf[512];
     std::snprintf(buf, sizeof buf, "<svg xmlns='http://www.w3.org/2000/svg' width='%.0f' height='%.0f' viewBox='0 0 %.0f %.0f' font-family='Helvetica,Arial,sans-serif'>\n", W, H, W, H);
     f << buf << "<rect width='100%' height='100%' fill='#ffffff'/>\n";
@@ -823,6 +827,8 @@ inline void write_layout_svg(const ChipDesign& D, const ChipReport& R, const std
         f << buf;
     }
     f << "</svg>\n";
+    f.close();
+    if (!f) throw std::runtime_error("cannot write " + path);
 }
 
 // ================================================================== fabrication Monte Carlo

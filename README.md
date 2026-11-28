@@ -124,7 +124,6 @@ qpuforge new chip.json --grid 3x3 --arch tunable --g-MHz 4  # grid / line / ring
 qpuforge analyze chip.json                                  # device report + design-rule check
 qpuforge analyze chip.json --materials sidecar.json         # apply an atomforge forge.materials.v0 sidecar first (add --loss-tangent to use Q = 1/tanδ)
 qpuforge qec chip.json --materials sidecar.json             # --materials works on run, budget, fab, qec, cz, synth-chip, hwgate too
-qpuforge materials apply chip.json sidecar.json --out chip2.json   # save the applied values, with a materials_source block
 qpuforge layout chip.json chip.svg                          # floor-plan
 qpuforge run chip.json examples/ghz5.qasm --traj 400        # emulate a circuit (mid-circuit measure/reset supported)
 qpuforge run chip.json xeb:10                               # also ghz:N qft:N bv:N
@@ -141,7 +140,7 @@ Designs are plain JSON, so you can edit any qubit or coupler by hand.
 
 Unknown options are errors: each command accepts only the options its usage lists (`qpuforge` without arguments), and an
 unknown, misspelt or repeated option, a missing value or a malformed number stops it before it reads any file. Exit
-status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC-clean), 3 `hwgate`: gate not passed,
+status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC- and connectivity-clean), 3 `hwgate`: gate not passed,
 `surgery`: a noiseless check failed.
 `qpuforge --help` (or `-h`, `help`) prints the usage and `qpuforge <command> --help` prints one command's usage, on stdout, exit 0.
 
@@ -207,10 +206,10 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
   conformal mapping (−1.3 % on the design mesh, −0.6 % refined). Overlapping conductors are rejected. The AF-17 chip
   passes the placement and island-spacing checks, all 17 resonators sit at their quarter-wave lengths, and the GDSII stream parses back record by record.
   A synthetic layer exercises the merged-etch width/space DRC; the ground-sliver clean-up and its connectivity guard, the
-  metal-connectivity map, the bus knob and the shorted staircase end have their own checks (`layout_geometry`). AF-17,
-  BF-49 and GF-97, assembled from the committed cells, pass the placement checks, meet the extraction targets and re-null
-  the parked exchange; their only DRC markers are the ground necks the guard keeps (4 on AF-17, none on the others), and
-  their connectivity report is printed (`layout_presets`). The masks are not fabrication-ready: see CHANGELOG, Known issues.
+  metal-connectivity map, the ground-strap placer, the bus knob and the shorted staircase end have their own checks
+  (`layout_geometry`). AF-17, BF-49 and GF-97, assembled from the committed cells, pass the placement checks and the
+  mask DRC (0 + 0), are connectivity-clean with their ground straps, meet the extraction targets and re-null the parked
+  exchange (`layout_presets`). No foundry DRC deck has been run: see CHANGELOG, Known issues.
   `tools/gds_preview.py` is an independent Python GDSII reader and renderer.
 * Matching: the blossom matcher agrees with brute force on 600 random graphs (complete and sparse, even and odd). In
   the decoder it agrees with the exact dynamic programme on 2,075 defect sets (weights to 3e-14, same logical
@@ -298,11 +297,15 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
 * Leakage is modelled at the frame level (flags, phase scrambling, transport, seepage, removal), not with 3-level
   dynamics in the QEC circuits. Heralded leakage (3-state readout) covers the measure qubits only, and the decoder
   uses fixed weight factors for heralded edges, not a posterior from the leakage model.
-* **No layout in this repository is fabrication-ready.** All three chips pass the placement and island-spacing checks.
-  On the merged etch layer (4 µm / 4 µm, projection metric) BF-49 and GF-97 have no width/space violations and AF-17
-  has 4 space violations (ground necks the connectivity guard keeps). The metal-connectivity check is not clean on any
-  of them: floating ground, qubit flux lines without a DC return, qubit junctions that do not land on metal (CHANGELOG,
-  Known issues).
+* **No layout in this repository is fabrication-ready.** All three chips are DRC- and connectivity-clean in the model;
+  airbridges, EM and inductance are not verified, and no foundry DRC deck has been run. A review of the connectivity
+  work found open electrical problems (shared ground bridge, flux lines that cannot tune the SQUIDs, coupler-dominated
+  XY drive: `docs/design/mask-connectivity.md`). The in-house checks are:
+  placement and island spacing, the 4 µm / 4 µm width/space check on the merged etch layer, and metal connectivity with
+  modelled ground straps (airbridges). The control-line T1 budget (10× the design T1) is met on AF-17 and missed by the
+  flux line on BF-49 and GF-97 (9.7×). The straps' capacitance to the coupler and bus
+  strips they cross and the flux lines' inductive coupling to the SQUIDs are not modelled
+  (`docs/design/mask-connectivity.md`).
 * **The hardware-gate chain has only seen synthetic data.** The virtual chip is generated by the same simulator that
   evaluates it, so the rehearsal tests the plumbing and the gate logic, not the model's agreement with a real chip.
 * **Impacts are a uniform burst with one recovery time.** `burst_floor` treats them as chip-wide; per-shot injection

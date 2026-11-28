@@ -1,7 +1,10 @@
 // qpuforge — union-find decoder (Delfosse-Nickerson) with weighted growth
 //
-// The real-time candidate for surface-code decoding: almost-linear time in the number of defects, no all-pairs
-// shortest paths, no matching. The exact matching decoder (qec.hpp: MatchingDecoder) stays the reference.
+// The real-time candidate for surface-code decoding: no all-pairs shortest paths, no matching. The exact matching
+// decoder (qec.hpp: MatchingDecoder) stays the reference. Cost: each growth step walks every member of each growing
+// cluster (this implementation keeps no separate boundary list), so a call costs O(sum over steps of the growing
+// clusters' sizes x degree): linear in the defects when clusters stay small, as they do below threshold, and
+// quadratic in the cluster size in the worst case. Union-find with boundary lists reaches almost-linear time.
 //
 //   growth   every cluster with an odd number of defects that does not touch the boundary grows along all edges on
 //            its border. Edges have integer lengths proportional to their weight log((1-p)/p), so a likely edge is
@@ -188,10 +191,7 @@ private:
 
     void prepare(UFScratch& ws) const {
         const std::size_t V = std::size_t(V_), E = edge.size();
-        if (ws.owner != this) {            // set up for another graph: start from scratch
-            ws = UFScratch{};
-            ws.owner = this;
-        }
+        if (ws.owner != this) { ws = UFScratch{}; ws.owner = this; }   // set up for another graph: start from scratch
         if (ws.parent.size() != V) {
             ws.parent.assign(V, 0); ws.size.assign(V, 1); ws.parity.assign(V, 0); ws.members_head.assign(V, -1); ws.members_next.assign(V, -1);
             ws.members_tail.assign(V, -1); ws.boundary.assign(V, 0); ws.reached.assign(V, 0); ws.mark.assign(V, 0); ws.visited.assign(V, 0);

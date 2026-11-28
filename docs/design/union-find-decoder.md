@@ -5,8 +5,8 @@ Status: implemented on `scs-bot/gamma-decoding` (`include/qpuforge/unionfind.hpp
 ## Purpose
 
 Phase Gamma needs real-time decoding at under 1 µs per round, first on an FPGA. The exact decoder (dynamic programme
-or Edmonds' blossom on all-pairs shortest paths) stays the reference. Union-find is the usual hardware candidate: it
-runs in almost-linear time, needs no shortest paths, and does no matching. This implementation is the software model
+or Edmonds' blossom on all-pairs shortest paths) stays the reference. Union-find is the usual hardware candidate: with
+boundary lists it runs in almost-linear time, and it needs no shortest paths and does no matching. This implementation is the software model
 of such a decoder, so its accuracy can be measured against the exact one on the same syndromes.
 
 ## Algorithm
@@ -66,3 +66,6 @@ At d = 7 the two are within Monte Carlo error of each other. Decode times are si
   operations per defect on hardware, which this code does not model.
 - There is no cluster-size bound and no sliding window: the decoder sees a whole shot. A streaming version is the
   next step towards the FPGA.
+- Each growth step walks every member of each growing cluster, not a separate list of its boundary vertices. Below
+  threshold clusters stay small and the cost is close to linear in the defects, but the worst case is quadratic in
+  the cluster size. Keeping a boundary list per cluster gives the almost-linear bound of Delfosse and Nickerson.

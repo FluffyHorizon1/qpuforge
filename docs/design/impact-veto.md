@@ -40,7 +40,7 @@ the statistic's histogram.
 `calibrate_veto(M, shots, seed, target, spec)` runs burst-free shots, records the histogram, and returns the
 smallest threshold whose tail fraction is at most `target`.
 
-Window choice, on the d = 5 test chip (10 rounds, 5% of shots with a chip-wide T1 impact, T1_peak 1 µs, false-veto
+Window choice (`results/decoder_sweeps.txt`, section 2), on the d = 5 test chip (10 rounds, 5% of shots with a chip-wide T1 impact, T1_peak 1 µs, false-veto
 target 1e-3): 3 rounds × radius 2 caught 77% of impacts. 2 × 1 caught 57%, 1 × 1 caught 29%, and the whole chip over
 3 rounds caught 77%. The whole chip over the whole shot caught 71% and is better only for weak, long, chip-wide
 severities: 26% against 10% of shots vetoed at s = 0.1. The default is 3 × 2. The impacts it misses mostly start late
@@ -62,7 +62,7 @@ rate · t_round · p_fail are formed as in `burst_floor`.
 
 What it shows: with shot-by-shot discard the floor does not come down. The burst lasts thousands of rounds, and the
 weak part of it, which the veto cannot tell from noise in one shot, still randomises the logical qubit. On the d = 5
-test chip (T1 burst, τ = 25 ms) the floor is 4.3e-8 per round with and without the discard. A latched hold of 10 τ
+test chip (T1 burst, τ = 25 ms; `results/decoder_sweeps.txt`, section 3) the floor is 4.3e-8 per round with and without the discard. A latched hold of 10 τ
 brings it to 9.8e-9 at 2.5% dead time; 15 τ gives 7.5e-11 at 3.75%. These points lie below the measured ladder and
 use its linear-tail extrapolation.
 

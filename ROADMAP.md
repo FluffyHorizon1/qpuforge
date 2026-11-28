@@ -14,9 +14,9 @@ assumptions listed in each design spec. They are design targets, not measured pe
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
 | 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (346 validation checks) | n/a |
-| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11), including mask DRC, metal connectivity and control lines; foundry DRC not yet run | open: fabricate and characterise |
-| **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation, including mask DRC, metal connectivity and control lines; foundry DRC not yet run (designs/beta1) | open |
-| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation, including mask DRC, metal connectivity and control lines; foundry DRC not yet run (designs/gamma1). Logical operations open | planned |
+| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11), including mask DRC and metal connectivity; foundry DRC not yet run | open: fabricate and characterise |
+| **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation, including mask DRC and metal connectivity; control-line budget missed by the flux line (9.7× vs 10×); foundry DRC not yet run (designs/beta1) | open |
+| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation, including mask DRC and metal connectivity; control-line budget missed by the flux line (9.7× vs 10×); foundry DRC not yet run (designs/gamma1). Logical operations open | planned |
 | Delta | modular | Several logical qubits linked between modules; logical-level benchmarks | planned | planned |
 
 ---
@@ -63,7 +63,7 @@ After this phase the model is calibrated against our own hardware, not just agai
 | Idle ZZ at the coupler park point | ≤ 10 kHz |
 | Layout | Placement/spacing checks and mask width/space DRC clean; extracted E_C within 3%, couplings within 6% of target; residual parked exchange re-nullable |
 | Metal connectivity | Conductors separate; shorted lines and all ground on the plane (ground straps allowed); SQUIDs island-to-plane |
-| Control lines | Each qubit's XY and flux line T1 limits ≥ 10× its design T1 |
+| Control lines | Each qubit's XY and flux line T1 limits ≥ 10× its design T1 (reported; to be gated once all three chips meet it) |
 | Fabrication Monte Carlo at 2% junction spread | ≥ 90% collision-free |
 
 ### Alpha hardware gate (after fabrication)

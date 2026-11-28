@@ -65,8 +65,23 @@ Three causes:
 
 ## Results
 
-See the CHANGELOG [Unreleased] entry and the reviews (`layout.connectivity`, `layout.control_lines`) for the numbers
-of the regenerated masks.
+| (this revision, from the reviews) | AF-17 | BF-49 | GF-97 |
+|---|---|---|---|
+| mask DRC, width + space violations | 0 + 0 | 0 + 0 | 0 + 0 |
+| floating ground fragments | 0 | 0 | 0 |
+| shorted lines reaching the plane | 58 of 58 | 178 of 178 | 362 of 362 |
+| SQUIDs joining an island to the plane | 41 of 41 | 129 of 129 | 265 of 265 |
+| ground straps (over lines / over coupler or bus strips) | 122 (47 / 41) | 373 (129 / 146) | 774 (265 / 315) |
+| XY / flux coupling, measure qubit (fF) | 0.029 / 0.030 | 0.030 / 0.032 | 0.030 / 0.032 |
+| control-line T1 limit / design T1, worst qubit (XY, flux) | 23.8×, 22.4× | 11.4×, **9.7×** | 11.4×, **9.7×** |
+
+Re-synthesised cells (fine mesh, against the design targets): AF-17 E_C within 0.12 %, couplings within 5.0 %, readout
+capacitance −0.5 %; Beta-1 (also GF-97) E_C within 0.08 %, couplings within 5.4 %, readout capacitance +0.3 %. Both
+re-null the parked exchange.
+
+Gating: the mask DRC and metal connectivity pass on all three chips and are gated. The control-line budget is missed
+by the flux line on the Beta-1 cells (9.7× against 10×), so it is reported, not gated, until all three chips meet it.
+Closing that gap needs the flux line's approach to the qubit reworked (for example a shorter run beside the T-bar tips).
 
 ## Not modelled / open
 

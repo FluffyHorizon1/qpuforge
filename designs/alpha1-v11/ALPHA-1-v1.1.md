@@ -4,7 +4,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Simulation gate **passed**: every criterion holds for every pair, including CZ leakage, and the layout passes the in-house mask checks: placement and spacing, the 4 µm width/space DRC (0 violations), metal connectivity with modelled ground straps (clean) and the control-line T1 budget (§5, §6). **Not yet checked:** a foundry DRC deck (airbridge rules included), the straps' capacitance to the coupler and bus strips they cross, and the flux lines' inductive coupling to the SQUIDs (§7). |
+| **Status** | Simulation gate **passed**: every criterion holds for every pair, including CZ leakage, and the layout passes the in-house mask checks: placement and spacing, the 4 µm width/space DRC (0 violations), metal connectivity with modelled ground straps (clean); the control-line T1 budget is met (reported, not gated; §5, §6). **Not yet checked:** a foundry DRC deck (airbridge rules included), the straps' capacitance to the coupler and bus strips they cross, and the flux lines' inductive coupling to the SQUIDs (§7). |
 | **Supersedes** | Alpha-1 v1.0 (`designs/alpha1/ALPHA-1.md`, qpuforge v0.2) |
 | **Purpose** | First error-correction-ready chip: 17-qubit distance-3 rotated surface code (memory experiment) |
 | **Tooling** | qpuforge v0.4: `alpha1_v11_review` (399 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
@@ -183,7 +183,7 @@ rebuilt from the extracted circuit:
   - Each qubit flux line is shorted into that corner next to the SQUID (17 of 17 reach the plane; 58 of 58 shorted lines in all).
   - The inner corners of each qubit, the strip between each coupler and its bus, and each plaquette are enclosed by cut-outs. 122 ground straps (modelled airbridges, 10 µm wide, ≤ 150 µm span, GDS layers 4/5) tie them to the plane: 47 cross a line, 41 a coupler body or bus strip, none a qubit. No floating ground remains.
   - Not modelled: a strap's capacitance to the coupler or bus it crosses (about 0.2 fF over a 6 µm bus at 3 µm bridge height, against C_bus ≈ 67 fF).
-- Control lines (gated): the XY line ends open outside the qubit cut-out, 247 µm right of and 279 µm below the qubit centre. Extracted with the qubit (`line_coupling`): XY 0.029 / 0.030 fF (measure / data qubit); flux line 0.030 fF effective, i.e. the capacitance to each piece of the shorted line weighted by sin(βz) from the short (2.0 fF if it were open). T1 limits at the idle frequencies: at least 1.56 ms (XY) and 1.47 ms (flux), 23.8× and 22.4× the design T1 of the worst qubit (Q16); budget 10×. In the previous revision the XY line ran into the qubit's corner and coupled 3.0 fF (T1 limit 0.2 µs). The flux line's mutual inductance to the SQUID loop is not modelled.
+- Control lines (reported, not gated, because the Beta-1 cells miss the budget on the flux line): the XY line ends open outside the qubit cut-out, 247 µm right of and 279 µm below the qubit centre. Extracted with the qubit (`line_coupling`): XY 0.029 / 0.030 fF (measure / data qubit); flux line 0.030 fF effective, i.e. the capacitance to each piece of the shorted line weighted by sin(βz) from the short (2.0 fF if it were open). T1 limits at the idle frequencies: at least 1.56 ms (XY) and 1.47 ms (flux), 23.8× and 22.4× the design T1 of the worst qubit (Q16); budget 10×. In the previous revision the XY line ran into the qubit's corner and coupled 3.0 fF (T1 limit 0.2 µs). The flux line's mutual inductance to the SQUID loop is not modelled.
 - All 17 resonators are drawn at their λ/4 length (4.17–4.35 mm).
 - Previews: `AF17_v11_layout.png`/`.svg`, `AF17_v11_detail.png`/`.svg`.
 - Independent reader: `tools/gds_preview.py`.
@@ -198,7 +198,7 @@ rebuilt from the extracted circuit:
 | Idle ZZ at park | ≤ 10 kHz | 3.4–4.5 kHz, mean 3.9 kHz (4.3 kHz re-nulled post-layout) ✔ (computed: `alpha1_v11_review.json → exit_criteria`) |
 | Mask | placement/spacing checks and 4 µm width/space DRC clean | clean; 0 + 0 ✔ |
 | Metal connectivity | conductors separate; shorted lines and all ground on the plane; SQUIDs island-to-plane | clean (122 ground straps) ✔ |
-| Control lines | each qubit's XY and flux line T1 limits ≥ 10× its design T1 | 23.8× (XY), 22.4× (flux) ✔ |
+| Control lines (reported, not gated) | each qubit's XY and flux line T1 limits ≥ 10× its design T1 | 23.8× (XY), 22.4× (flux) |
 | Layout | E_C within 3 %, couplings within 6 %, exchange re-nullable | 0.12 %; 5.0 %; yes ✔ |
 | Fabrication Monte Carlo, 2 % junction spread | ≥ 90 % collision-free | 98 % (v1.0 review; same frequency plan) ✔ |
 

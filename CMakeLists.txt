@@ -66,6 +66,72 @@ add_test(NAME cli_version_short COMMAND qpuforge_cli -V)
 set_tests_properties(cli_version cli_version_short PROPERTIES LABELS unit PASS_REGULAR_EXPRESSION "^qpuforge ${PROJECT_VERSION}")
 add_test(NAME cli_usage COMMAND qpuforge_cli)   # no arguments: prints usage and exits 1 (ignored with a pass regex)
 set_tests_properties(cli_usage PROPERTIES LABELS unit PASS_REGULAR_EXPRESSION "qpuforge --version \\| -V")
+# CLI argument guards. Each command takes only the options it reads; anything else is a usage error that names the
+# problem and exits 1 before any file is read. A pass regex ignores the exit status, so cli_exit_status checks the
+# documented statuses. All fast: a 2-qubit line chip written into the build tree, examples/alpha1.json (no CZ
+# calibration) or, for cz and gds (minutes of work), a chip file that does not exist, whose "error: cannot open" shows
+# that the command line itself was accepted.
+set(CLI_CHIP ${CMAKE_CURRENT_SOURCE_DIR}/examples/alpha1.json)
+set(CLI_OUT ${CMAKE_CURRENT_BINARY_DIR}/cli)                # prefix of the files the CLI tests write
+set(CLI_NO_CHIP ${CMAKE_CURRENT_BINARY_DIR}/cli_no_chip.json)   # never written
+function(qpuforge_cli_test name regex)
+  add_test(NAME cli_${name} COMMAND qpuforge_cli ${ARGN})
+  set_tests_properties(cli_${name} PROPERTIES LABELS unit PASS_REGULAR_EXPRESSION "${regex}")
+endfunction()
+# rejected
+qpuforge_cli_test(unknown_option_hwgate "qpuforge hwgate: unknown option '--hidden-dephasing-us' \\(an option of synth-chip\\)"
+  hwgate ${CLI_CHIP} ${CMAKE_CURRENT_SOURCE_DIR}/designs/alpha1-v11/example_characterisation_synthetic.json --hidden-dephasing-us 8)
+qpuforge_cli_test(unknown_option_run "qpuforge run: unknown option '--shot' \\(did you mean '--shots'\\?\\)" run ${CLI_CHIP} ghz:3 --shot 1000)
+qpuforge_cli_test(unknown_option_qec "qpuforge qec: unknown option '--round' \\(did you mean '--rounds'\\?\\)" qec ${CLI_CHIP} --round 4)
+qpuforge_cli_test(unknown_option_budget "qpuforge budget: unknown option '--shots'" budget ${CLI_CHIP} ghz:3 --shots 100)
+qpuforge_cli_test(unknown_option_gds "qpuforge gds: unknown option '--synthesise' \\(did you mean '--synthesize'\\?\\)"
+  gds ${CLI_CHIP} ${CLI_OUT}.gds --synthesise)
+qpuforge_cli_test(unknown_short_option "qpuforge new: unknown option '-grid' \\(did you mean '--grid'\\?\\)" new ${CLI_OUT}.json -grid 3x3)
+qpuforge_cli_test(unknown_command "qpuforge: unknown command 'anaylze' \\(did you mean 'analyze'\\?\\)" anaylze ${CLI_CHIP})
+qpuforge_cli_test(missing_value "qpuforge run: option '--shots' requires a value" run ${CLI_CHIP} ghz:3 --shots)
+qpuforge_cli_test(missing_value_before_option "qpuforge cz: option '--cache' requires a value" cz ${CLI_CHIP} --cache --out ${CLI_OUT}_cal.json)
+qpuforge_cli_test(bad_number_shots "qpuforge run: --shots expects an integer >= 0, got 'lots'" run ${CLI_CHIP} ghz:3 --shots lots)
+qpuforge_cli_test(bad_number_exponent "qpuforge qec: --shots expects an integer >= 1, got '1e5'" qec ${CLI_CHIP} --shots 1e5)
+qpuforge_cli_test(bad_number_real "qpuforge new: --f-hi expects a number, got '5.4GHz'" new ${CLI_OUT}.json --line 2 --f-hi 5.4GHz)
+qpuforge_cli_test(bad_count "qpuforge fab: --samples expects an integer >= 1, got '0'" fab ${CLI_CHIP} --samples 0)
+qpuforge_cli_test(bad_choice "qpuforge new: --arch expects fixed or tunable, got 'tunabel' \\(did you mean 'tunable'\\?\\)"
+  new ${CLI_OUT}.json --line 2 --arch tunabel)
+qpuforge_cli_test(bad_noise_source "qpuforge run: --off: 'contrl' is not one of .*\\(did you mean 'control'\\?\\)" run ${CLI_CHIP} ghz:3 --off zz,contrl)
+qpuforge_cli_test(bad_circuit "qpuforge run: circuit 'ghz:three': ghz:N needs a whole number N >= 1" run ${CLI_CHIP} ghz:three)
+qpuforge_cli_test(repeated_option "qpuforge run: option '--traj' given more than once" run ${CLI_CHIP} ghz:3 --traj 2 --traj 3)
+qpuforge_cli_test(extra_argument "qpuforge analyze: unexpected argument 'extra.json'" analyze ${CLI_CHIP} extra.json)
+qpuforge_cli_test(missing_argument "qpuforge run: missing <circuit>" run ${CLI_CHIP})
+qpuforge_cli_test(preset_takes_only_distance "qpuforge new: --name cannot be combined with --preset" new ${CLI_OUT}.json --preset alpha1 --name X)
+qpuforge_cli_test(burst_options_need_bursts "qpuforge qec: --burst-rate needs --bursts" qec ${CLI_CHIP} --burst-rate 1)
+# accepted: one run per command, every option given (cz and gds stop at the missing chip file)
+qpuforge_cli_test(ok_new "wrote .*cli_line2.json \\(2 qubits, 1 couplers\\)"
+  new ${CLI_OUT}_line2.json --line 2 --f-hi 5.4 --f-lo 4.8 --alpha -0.22 --g-MHz 4 --arch tunable --Q 3e6 --plan 8
+  --stagger-MHz 60 --name cli-line2 --feedlines 1 --kappa-MHz 1 --chi-MHz 0 --purcell 30 --readout-ns 500 --reset-ns 200
+  --reset-err 0.003 --err2q 0.002 --residual-zz-kHz 5 --active-reset)
+qpuforge_cli_test(ok_new_preset "wrote .*cli_gen0.json \\(17 qubits, 24 couplers\\)" new ${CLI_OUT}_gen0.json --preset gen0 --distance 3)
+qpuforge_cli_test(ok_analyze "cli-line2 .+ 2 qubits, 1 couplers" analyze ${CLI_OUT}_line2.json)
+qpuforge_cli_test(ok_layout "wrote .*cli_line2.svg" layout ${CLI_OUT}_line2.json ${CLI_OUT}_line2.svg)
+qpuforge_cli_test(ok_fab "collision-free yield: [0-9]+ / 3 " fab ${CLI_OUT}_line2.json --samples 3 --seed 2)
+qpuforge_cli_test(ok_run "state fidelity .*\\(2 trajectories\\)" run ${CLI_OUT}_line2.json ghz:2 --traj 2 --shots 4 --seed 5 --off zz,control --top 2)
+qpuforge_cli_test(ok_budget "error budget for GHZ-2" budget ${CLI_OUT}_line2.json ghz:2 --traj 2 --seed 5)
+set_tests_properties(cli_ok_new PROPERTIES FIXTURES_SETUP cli_line2)
+set_tests_properties(cli_ok_analyze cli_ok_layout cli_ok_fab cli_ok_run cli_ok_budget PROPERTIES FIXTURES_REQUIRED cli_line2)
+qpuforge_cli_test(ok_qec "logical-error floor from impacts"
+  qec ${CLI_CHIP} --rounds 2 --shots 50 --seed 3 --basis Z --statevector 0 --off leakage --decoder exact --leakage-removal none
+  --cache ${CLI_OUT}_unused_cache.json --bursts --burst-rate 0.1 --burst-tau-ms 25 --burst-t1-us 1 --burst-tphi-us 0)
+qpuforge_cli_test(ok_synth_chip "wrote .*cli_synth.json: 17 qubits"
+  synth-chip ${CLI_CHIP} ${CLI_OUT}_synth.json --seed 1 --shots 50 --rounds 2 --z-only --hidden-dephasing-us 0 --cache ${CLI_OUT}_unused_cache.json)
+qpuforge_cli_test(ok_hwgate "wrote .*cli_gate.json"   # exit 3 (gate not passed) is ignored by the pass regex
+  hwgate ${CLI_CHIP} ${CLI_OUT}_synth.json --phase alpha --shots 50 --seed 1 --out ${CLI_OUT}_gate.json --cache ${CLI_OUT}_unused_cache.json)
+set_tests_properties(cli_ok_synth_chip PROPERTIES FIXTURES_SETUP cli_synth)
+set_tests_properties(cli_ok_hwgate PROPERTIES FIXTURES_REQUIRED cli_synth)
+qpuforge_cli_test(ok_cz "error: cannot open .*cli_no_chip.json"
+  cz ${CLI_NO_CHIP} --out ${CLI_OUT}_cal.json --cache ${CLI_OUT}_unused_cache.json --g-qc 160 --f-on 6.1 --rise 7)
+qpuforge_cli_test(ok_gds "error: cannot open .*cli_no_chip.json"
+  gds ${CLI_NO_CHIP} ${CLI_OUT}.gds --cells ${CLI_OUT}_cells.json --synthesize --from ${CLI_OUT}_cells0.json --cell TOP)
+add_test(NAME cli_exit_status COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpuforge_cli> -DCHIP=${CLI_CHIP} -DMISSING=${CLI_NO_CHIP}
+         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_exit_status.cmake)
+set_tests_properties(cli_exit_status PROPERTIES LABELS unit)
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)

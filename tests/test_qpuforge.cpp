@@ -3347,6 +3347,9 @@ static void test_surgery_routing() {
                 CHECK(rb.p[0] > 1.5 * ra.p[0] && rb.rounds == ra.rounds && Eb.circuit.n > Ea.circuit.n, "a strip of 5 does not raise the ZZ error (%.4f vs %.4f)", rb.p[0], ra.p[0]);
             }
         }
+    }
+}
+
 // q18 (docs/design/flux-line-distortion.md): the opt-in flux-line distortion term. Off by default and then invisible
 // (no key written, the same bits); on, it is added on top of residual_ctrl_err and reaches err_2q_ctrl (what the
 // emulators read). No pulse simulation here: the Alpha-1 v1.1 calibrations come from a copy of results/cz_cache.json.

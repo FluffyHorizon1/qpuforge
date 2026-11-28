@@ -120,6 +120,11 @@ qpuforge_cli_test(commit_below_window "qpuforge qec: --commit \\(4\\) must be sm
   qec ${CLI_CHIP} --decoder uf-stream --window 4 --commit 4)
 qpuforge_cli_test(surgery_readout_needs_cnot "qpuforge surgery: --readout applies to --op cnot only" surgery --readout Z --shots 0)
 qpuforge_cli_test(surgery_even_distance "qpuforge surgery: --d expects odd distances from 3 to 15, got 4" surgery --d 3,4 --shots 0)
+qpuforge_cli_test(unknown_option_surgery "qpuforge surgery: unknown option '--shot' \\(did you mean '--shots'\\?\\)" surgery --shot 100)
+qpuforge_cli_test(bad_number_surgery_shots "qpuforge surgery: --shots expects an integer >= 0, got '1e5'" surgery --shots 1e5)
+qpuforge_cli_test(bad_seed_surgery "qpuforge surgery: --seed expects an integer from 0 to 18446744073709551615, got '-1'" surgery --shots 0 --seed -1)
+qpuforge_cli_test(bad_choice_surgery "qpuforge surgery: --op expects zz, xx or cnot, got 'zzz'" surgery --op zzz)
+qpuforge_cli_test(surgery_extra_argument "qpuforge surgery: unexpected argument 'extra'" surgery extra)
 qpuforge_cli_test(bad_probability "qpuforge qec: --herald-fidelity expects a number from 0 to 1, got '1.5'" qec ${CLI_CHIP} --herald --herald-fidelity 1.5)
 qpuforge_cli_test(loss_tangent_needs_materials "qpuforge analyze: --loss-tangent needs --materials <sidecar.json>"   # before the chip is read
   analyze ${CLI_NO_CHIP} --loss-tangent)
@@ -157,6 +162,12 @@ qpuforge_cli_test(ok_qec_herald_derived
 qpuforge_cli_test(ok_surgery "CNOT d=3 .*noiseless tableau check, 2 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
   surgery --op cnot --d 3 --input 00 --readout Z --chip beta1 --shots 0 --seed 1 --merge-rounds 0 --pre 1 --post 1 --samples 2
   --cache ${CLI_OUT}_unused_cache.json)   # --shots 0: the noiseless check only (no CZ calibration)
+# the ZZ and XX measurements (ok_surgery is the CNOT); a "FAILED" or an error in the output is a regression
+qpuforge_cli_test(ok_surgery_zz "ZZ measurement d=3 \\|00>.*0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
+  surgery --op zz --d 3 --input 00 --shots 0 --seed 5)
+qpuforge_cli_test(ok_surgery_xx "XX measurement d=3 \\|\\+\\+>.*0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
+  surgery --op xx --d 3 --shots 0)
+set_tests_properties(cli_ok_surgery cli_ok_surgery_zz cli_ok_surgery_xx PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:")
 qpuforge_cli_test(ok_synth_chip "wrote .*cli_synth.json: 17 qubits"
   synth-chip ${CLI_CHIP} ${CLI_OUT}_synth.json --seed 1 --shots 50 --rounds 2 --z-only --hidden-dephasing-us 0 --cache ${CLI_OUT}_unused_cache.json)
 qpuforge_cli_test(ok_hwgate "wrote .*cli_gate.json"   # exit 3 (gate not passed) is ignored by the pass regex
@@ -186,6 +197,15 @@ set_tests_properties(cli_exit_status PROPERTIES LABELS unit)
 add_test(NAME cli_herald_stream COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpuforge_cli> -DCHIP=${CLI_CHIP}
          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_herald_stream.cmake)
 set_tests_properties(cli_herald_stream PROPERTIES LABELS unit)
+# usage on request (exit 0, stdout): the pass-regex tests cannot see the exit status, so a script checks it
+foreach(m long:cli_help short:cli_help_short word:cli_help_word command:cli_help_command)
+  string(REPLACE ":" ";" mp ${m})
+  list(GET mp 0 mode)
+  list(GET mp 1 tname)
+  add_test(NAME ${tname} COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpuforge_cli> -DMODE=${mode}
+           -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_help.cmake WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(${tname} PROPERTIES LABELS unit)
+endforeach()
 # CLI guards for `analyze --materials` (not validation checks), on the committed Alpha-1 v1.1 design: a sidecar with
 # values is applied before the device report, atomforge's placeholder sidecar changes nothing, the loss tangent needs
 # --loss-tangent, a chip design given as the sidecar is refused, and the usage text lists the flags.
@@ -209,6 +229,36 @@ set_tests_properties(cli_materials_refused PROPERTIES PASS_REGULAR_EXPRESSION "e
 set_tests_properties(cli_usage_materials PROPERTIES PASS_REGULAR_EXPRESSION "analyze <chip.json> \\[--materials <sidecar.json> \\[--loss-tangent\\]\\]")
 set_tests_properties(cli_materials cli_materials_placeholder cli_materials_loss_tangent cli_materials_loss_tangent_opt_in cli_materials_refused
   cli_usage_materials PROPERTIES LABELS unit)
+# --materials on the other design-consuming sub-commands (it used to be silently ignored there): applied before the command
+# runs, the sidecar's error is raised, and layout/gds refuse it instead of ignoring it.
+add_test(NAME cli_materials_fab COMMAND qpuforge_cli fab ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_DATA}/materials-values.json --samples 5)
+add_test(NAME cli_materials_run COMMAND qpuforge_cli run ${QPUFORGE_CLI_CHIP} ghz:3 --traj 10 --shots 2 --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_budget COMMAND qpuforge_cli budget ${QPUFORGE_CLI_CHIP} ghz:3 --traj 10 --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_run_refused COMMAND qpuforge_cli run ${QPUFORGE_CLI_CHIP} ghz:3 --traj 10 --shots 2 --materials ${QPUFORGE_CLI_CHIP})
+add_test(NAME cli_materials_layout_refused COMMAND qpuforge_cli layout ${QPUFORGE_CLI_CHIP} cli_materials_layout.svg --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_loss_tangent_alone COMMAND qpuforge_cli fab ${QPUFORGE_CLI_CHIP} --loss-tangent --samples 5)
+add_test(NAME cli_materials_gds_refused COMMAND qpuforge_cli gds ${QPUFORGE_CLI_CHIP} cli_materials_gds.gds --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_qec COMMAND qpuforge_cli qec ${CMAKE_CURRENT_SOURCE_DIR}/examples/alpha1.json --rounds 2 --shots 50 --seed 3 --materials ${QPUFORGE_CLI_DATA}/materials-values.json --loss-tangent)
+add_test(NAME cli_materials_cz_missing_chip COMMAND qpuforge_cli cz ${CMAKE_CURRENT_BINARY_DIR}/cli_no_chip.json --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_hwgate_missing_chip COMMAND qpuforge_cli hwgate ${CMAKE_CURRENT_BINARY_DIR}/cli_no_chip.json ${QPUFORGE_CLI_DATA}/materials-values.json --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+set_tests_properties(cli_materials_fab PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06.*fabrication Monte Carlo: 5 chips")
+set_tests_properties(cli_materials_run PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06")
+set_tests_properties(cli_materials_budget PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +junction_gap_ueV.*scale with the gap.*error budget for GHZ-3")
+set_tests_properties(cli_materials_run_refused PROPERTIES PASS_REGULAR_EXPRESSION "error: .*alpha1_v11.json: materials sidecar: schema must be")
+set_tests_properties(cli_materials_layout_refused PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge layout: --materials is not supported by `layout`")
+set_tests_properties(cli_loss_tangent_alone PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge fab: --loss-tangent needs --materials <sidecar.json>")
+set_tests_properties(cli_materials_fab cli_materials_run cli_materials_budget cli_materials_run_refused cli_materials_layout_refused cli_loss_tangent_alone PROPERTIES LABELS unit)
+set_tests_properties(cli_materials_gds_refused PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge gds: --materials is not supported by `gds`")
+# examples/alpha1.json has no physical coupler: no CZ calibration, so the run takes seconds
+set_tests_properties(cli_materials_qec PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06.*memory-Z experiment, distance 3")
+# cz and hwgate are expensive (CZ calibration, a full gate run): a chip file that does not exist shows that --materials was accepted by the
+# command line and read the chip first (the sidecar is applied after the chip has loaded, so "cannot open" comes first)
+set_tests_properties(cli_materials_cz_missing_chip cli_materials_hwgate_missing_chip PROPERTIES PASS_REGULAR_EXPRESSION "error: cannot open .*cli_no_chip.json")
+set_tests_properties(cli_materials_gds_refused cli_materials_qec cli_materials_cz_missing_chip cli_materials_hwgate_missing_chip PROPERTIES LABELS unit)
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)

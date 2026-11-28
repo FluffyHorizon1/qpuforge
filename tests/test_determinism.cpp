@@ -11,8 +11,8 @@
 // (parallel fault enumeration -> DEM) and the 0.4 syndrome statistics; the same memory decoded with union-find (batch and
 // streaming), with heralded leakage (fixed factors, weights derived from the leakage model, DQLR with heralding), with
 // the streaming decoder's operation profile, and with per-shot impact injection and a calibrated veto; run_surgery_frame on a
-// d = 3 lattice-surgery ZZ measurement with leakage on (three observables, each with its own decoder); and the
-// trajectory emulator's sampled XEB (a double reduction).
+// d = 3 lattice-surgery ZZ measurement and a d = 3 three-patch CNOT with leakage on (each observable has its own decoder);
+// and the trajectory emulator's sampled XEB (a double reduction).
 #include "qpuforge/qpuforge.hpp"
 #include <cstdio>
 #include <cstring>
@@ -111,26 +111,34 @@ static std::string xeb_digest() {
            " shots=" + std::to_string(r.shots);
 }
 
-static std::string surgery_digest() {
-    // the chip and the decoders are built once per process; only the Monte Carlo is repeated per thread count
-    static const auto setup = [] {
-        const auto E = surgery_parity(3, 'Z', '0', '1');
-        const auto D = surgery_chip(E.sched.lat, "alpha1_v11");
-        const auto R = analyze(D);
-        auto nm = noise_model(D, R);
-        nm.leakage = true; nm.leak_1q = 1e-3; nm.leak_transport = 0.2;
-        for (const auto& p : R.pairs) if (p.designed) {
-            const int a = D.index_of(p.a), b = D.index_of(p.b);
-            const int mover = D.qubits[std::size_t(a)].role == "data" ? b : a;
-            nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, 2e-3};
-        }
-        return std::make_shared<SurgerySetup>(prepare_surgery(D, R, nm, E, 'Z'));
-    }();
-    const auto r = run_surgery_frame(*setup, 3000, 23);   // 2 full blocks + a partial one
-    std::string out = "surgery";
+// the noise model of the surgery digests: Alpha-1 v1.1 physics with leakage on
+static std::shared_ptr<SurgerySetup> surgery_setup(const SurgeryExperiment& E) {
+    const auto D = surgery_chip(E.sched.lat, "alpha1_v11");
+    const auto R = analyze(D);
+    auto nm = noise_model(D, R);
+    nm.leakage = true; nm.leak_1q = 1e-3; nm.leak_transport = 0.2;
+    for (const auto& p : R.pairs) if (p.designed) {
+        const int a = D.index_of(p.a), b = D.index_of(p.b);
+        const int mover = D.qubits[std::size_t(a)].role == "data" ? b : a;
+        nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, 2e-3};
+    }
+    return std::make_shared<SurgerySetup>(prepare_surgery(D, R, nm, E, surgery_decode_basis(E)));
+}
+
+static std::string surgery_line(const char* name, const SurgerySetup& setup) {
+    const auto r = run_surgery_frame(setup, 3000, 23);   // 2 full blocks + a partial one
+    std::string out = name;
     for (std::size_t k = 0; k < r.names.size(); ++k) out += " " + std::to_string(r.errors[k]);
     out += " any=" + std::to_string(r.any_errors) + " def=" + hex(r.mean_defects) + " lev=" + hex(r.leak_events_per_shot) + " ";
     return out;
+}
+
+static std::string surgery_digest() {
+    // the chips and the decoders are built once per process; only the Monte Carlo is repeated per thread count.
+    // The ZZ measurement has three observables; the three-patch CNOT has hyperedges in its DEM and a different observable count.
+    static const auto zz = surgery_setup(surgery_parity(3, 'Z', '0', '1'));
+    static const auto cnot = surgery_setup(surgery_cnot(3, '0', '0'));
+    return surgery_line("surgery", *zz) + surgery_line("cnot", *cnot);
 }
 
 static std::string digest() { return frame_digest() + surgery_digest() + xeb_digest(); }

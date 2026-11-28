@@ -143,7 +143,8 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_loss_tangent_opt_in`,
   `cli_materials_refused` and `cli_usage_materials` CLI guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the
   path of `tests/data`.
-- 500 validation checks in all (`results/test_output.txt`): 346 on `main` before the decoding work (the 321 of 0.4.0
+- 504 validation checks in all: 500 on `main` (`results/test_output.txt`, not regenerated for the mask-connectivity work) and
+  four more from it (below). Of the 500: 346 on `main` before the decoding work (the 321 of 0.4.0
   plus 25 in `materials`), plus 21 from the decoding work (#20), 48 from fabrication readiness (#19), 3 from the
   streaming decoder (#27) and 82 from lattice surgery (#21). The 0.4 groups now give 328: fabrication readiness added
   four `pulse_cz` checks and one `layout` check, the decoding work two `fault_enumeration` checks. The strict CLI (#24)

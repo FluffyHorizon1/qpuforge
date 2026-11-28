@@ -148,7 +148,48 @@ These are assumptions of the model, not things it verifies.
 
 AF-17, development run with re-synthesised cells (fine mesh; not yet the committed review):
 
-RESULTS_TABLE
+| AF-17 | combined line (default) | separate XY line (tip at 100 µm) |
+|---|---|---|
+| mask DRC, width + space violations | 0 + 0 | 0 + 0 |
+| qubit SQUID grounds and flux-line shorts on plane metal, no strap | 17 of 17, 17 of 17 | 17 of 17, 17 of 17 |
+| … of the SQUID grounds: on border-joined metal / on bump-grounded plaquettes | 9 / 8 | 9 / 8 |
+| coupler SQUID grounds on plane metal (border / bumps) | 24 of 24 (8 / 16) | 24 of 24 (8 / 16) |
+| ground bumps; fewest on a sealed plaquette (rule 4) | 1431; 48 | 1419; 47 |
+| ground straps; fragments on a single strap; deepest chain | 216; 0; 1 | 216; 0; 1 |
+| tuning mutual M, measure / data / coupler (pH) | 1.78 / 1.79 / 1.63 | 1.72 / 1.73 / 1.63 |
+| I(Φ0/2), measure / data / coupler (mA; limit 2) | 0.58 / 0.58 / 0.64 | 0.60 / 0.60 / 0.64 |
+| flux in a neighbouring SQUID loop, of the own | ≤ 1.2 % | ≤ 1.4 % |
+| common-mode mutual M_cm, measure / data (pH) | 0.563 / 0.557 (set by the slot arms) | 0.013 / 0.054 |
+| bump-return term added to M_cm (pH) | 0.031 | 0.032 |
+| T1 limit, flux line capacitive / through the loop / common mode (× design T1) | 8917 / 452 / **10.6** | 9933 / 487 / 744 |
+| T1 limit of the drive port (× design T1; limit 10) | **10.6** (the common mode) | **0.7** (C(XY, qubit) 0.155 fF) |
+| coupler T1 limit (× longest qubit T1; limit 10) | 3585 (own flux line) | **1.2** (C(XY, coupler) 0.110 fF) |
+| drive on a neighbouring qubit (limit 10 %) | **9.6 %** | 1 % |
+| drive power for 25 MHz Rabi (limit −55 dBm) | −74.9 dBm | −89.2 dBm |
+| line budget | passes | **fails** (drive T1, coupler T1) |
+
+Cells (fine mesh, against the design targets): E_C within 0.02 %, couplings within 4.4 %, readout capacitance −0.5 %;
+the parked exchange can be re-nulled. The separate-mode column uses the same cells, not re-synthesised with the XY
+line present, and one tip position; moving the tip out lowers C(XY, qubit) but raises the drive on neighbours (about
+40 % at 0.03 fF in an earlier run), so no tip position was found that meets all the drive gates in this model.
+
+The combined mode passes with little margin, and the margin is smaller than the model's own accuracy:
+
+- the T1 gate needs M_cm ≤ 0.58 pH and the crosstalk gate needs M_cm ≥ 0.54 pH (the neighbour's pick-up is 0.04 pH
+  plus 0.01 pH through the bumps), so the window is 0.56 ± 0.02 pH;
+- M_cm of the data-qubit launcher at edge panels of 2.5 / 1.5 / 1.0 µm: 0.559 / 0.591 / 0.572 pH (M: 1.70 / 1.80 /
+  1.88 pH, not converged to better than 5 %);
+- sensitivity of M_cm: +0.004 pH for a uniform +0.5 µm edge bias of the collar slot; −0.035 pH per µm of the long arm
+  alone; +0.042 pH per µm of the short arm alone; +0.11 pH per µm if the whole launcher moves along the collar against
+  the SQUID finger; 0.03 pH per µm of the feed position. M changes by at most 2 % over the same range.
+
+So the combined mode holds its gates against a uniform lithographic bias, but a single edge off by more than about
+0.5 µm, or a model error of 4 %, takes it outside one gate or the other. The launcher and the finger are on one mask
+layer, so their relative position is not a fabrication tolerance; the junction layer's alignment is, and the model
+does not resolve the loop's own geometry.
+
+Previews of this run: [a plaquette](img/mask-connectivity-plaquette.png), [the launcher of Q8](img/mask-connectivity-launcher.png)
+(gold: metal, navy: etch, red: junction regions, teal: signal bumps, white: ground bumps, violet: straps).
 
 ## Not modelled / open
 

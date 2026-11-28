@@ -129,6 +129,7 @@ Unknown options are errors: each command accepts only the options its usage list
 unknown, misspelt or repeated option, a missing value or a malformed number stops it before it reads any file. Exit
 status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC-clean), 3 `hwgate`: gate not passed,
 `surgery`: a noiseless check failed.
+`qpuforge --help` (or `-h`, `help`) prints the usage and `qpuforge <command> --help` prints one command's usage, on stdout, exit 0.
 
 ## Physics and emulation model
 

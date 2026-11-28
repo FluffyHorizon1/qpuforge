@@ -83,6 +83,8 @@ static const UsageBlock kUsageCommands[] = {
     {"new", "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gamma1|gen0 [--distance D]   named designs\n"},
     {"new", "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"},
     {"", "  qpuforge --version | -V                           print the version and exit (first argument only)\n"},
+    {"", "  qpuforge --help | -h | help                       print this usage and exit 0; qpuforge <command> --help prints one command's\n"
+         "                                                    usage (stdout, exit 0)\n"},
 };
 
 static const UsageBlock kUsageNotes[] = {
@@ -1052,6 +1054,14 @@ int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 1; }
     const std::string cmd = argv[1];
     if (cmd == "--version" || cmd == "-V") { std::printf("qpuforge %s\n", QPUFORGE_VERSION); return 0; }
+    if (cmd == "--help" || cmd == "-h" || cmd == "help") {   // usage on request: stdout, exit 0
+        if (cmd == "help" && argc > 2) {                     // `qpuforge help <command>`
+            const std::string which = argv[2];
+            for (const auto& k : commands()) if (which == k.name) { usage(stdout, k.name); return 0; }
+        }
+        usage();
+        return 0;
+    }
     const Command* c = nullptr;
     for (const auto& k : commands()) if (cmd == k.name) c = &k;
     if (!c) {
@@ -1063,6 +1073,14 @@ int main(int argc, char** argv) {
                      s.empty() ? "" : (" (did you mean '" + s + "'?)").c_str());
         usage(stderr);
         return 1;
+    }
+    for (int i = 2; i < argc; ++i) {   // `<command> --help` / `-h` (not as the value of an option that takes one)
+        const std::string t = argv[i];
+        if (t != "--help" && t != "-h") continue;
+        const Option* prev = i > 2 ? c->find(argv[i - 1]) : nullptr;
+        if (prev && prev->kind != Kind::Flag) continue;
+        usage(stdout, c->name);
+        return 0;
     }
     try {
         return c->run(Args::parse(*c, argc, argv));

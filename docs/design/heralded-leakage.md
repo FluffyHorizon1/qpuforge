@@ -1,6 +1,6 @@
 # Design note: leakage-aware decoding from heralded leakage
 
-Status: implemented on `scs-bot/gamma-decoding` (`HeraldSpec`, `MatchingDecoder::decode_scaled`,
+Status: implemented and merged into `main` in PR #20 (`HeraldSpec`, `MatchingDecoder::decode_scaled`,
 `herald_footprints` in `include/qpuforge/qec.hpp`).
 
 ## Model

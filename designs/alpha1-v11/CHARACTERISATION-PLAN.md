@@ -133,12 +133,12 @@ brackets are the change in the simulated logical error from that review.
 
 | Failing criterion | Likely cause | First response |
 |---|---|---|
-| T1 | Dielectric loss, or Purcell decay through the readout | Surface treatment and base-layer material (doubling Q: −38 %); check the Purcell filter |
+| T1 | Dielectric loss, or Purcell decay through the readout | Surface treatment and base-layer material (doubling Q: −36 %); check the Purcell filter |
 | T2 | Flux noise away from the sweet spot; residual photons in the resonators | Confirm sweet-spot biasing; improve readout-line filtering |
-| CZ error | Flux-pulse distortion; spectator collisions; coupler-on point | Recalibrate predistortion; re-run the three-knob calibration (residual 2e-3 instead of 1e-3: +41 %) |
+| CZ error | Flux-pulse distortion; spectator collisions; coupler-on point | Recalibrate predistortion; re-run the three-knob calibration (residual 2e-3 instead of 1e-3: +37 %) |
 | CZ leakage | Ramp too fast, or the \|11⟩–\|20⟩ crossing is mis-set | Longer ramps; the leakage-removing reset tolerates about ten times the simulated rate |
-| Readout | Low signal-to-noise or T1 decay during readout | TWPA bias; integration weights (300 ns readout at the same error: −25 %) |
-| Idle ZZ | Coupler park point off the exchange null | Re-null by moving the coupler park frequency (post-layout value: 8.295 GHz) |
+| Readout | Low signal-to-noise or T1 decay during readout | TWPA bias; integration weights (300 ns readout at the same error: −22 %) |
+| Idle ZZ | Coupler park point off the exchange null | Re-null by moving the coupler park frequency (post-layout value: 8.405 GHz) |
 | Detection drift | Leakage accumulating | Verify the leakage-removing reset; consider data-qubit leakage removal |
 | Model versus measurement | An error source that is not in the parameter list | See §6 |
 

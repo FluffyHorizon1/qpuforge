@@ -10,16 +10,17 @@ the commands below to reproduce them.
 | `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T07:08:45Z | 2205 s (in parallel) |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | `fill_spec.py` and templates as committed with them | — | — | — | — |
 | `results/design_study.{csv,txt}` | `design_study > results/design_study.txt` from the repository root (default: 300 trajectories; the program writes the CSV itself) | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27 (time not recorded) | 31 s |
-| `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 415 checks, 0 failed) | `ea63b9f` (`main` 5495bce merged into `scs-bot/fab-readiness`; the reviews' tree plus #20, whose default decoding path is unchanged) | g++ 13.3.0 | 4 (informational) | 2026-11-28T03:38:01Z | 926 s |
+| `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 500 checks, 0 failed) | `8de7512` (clean tree a0a5686: `main` after #21 and #24) | g++ 13.3.0 | 4 (informational) | 2026-11-28T05:47:52Z | 918 s |
 | `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` (warm start from the previous committed cell file, `git show 0629252:designs/alpha1-v11/layout_cells.json`), output copied to the committed path | `xmon` with the SQUID ground lead (`layout.hpp` as in `b889856` minus the XY-line move, which does not enter the cells) | g++ 13.3.0 | 2 | 2026-11-28T05:00Z | 1318 s (two syntheses in parallel) |
 | `designs/beta1/layout_cells.json` (also used by GF-97) | same, with `designs/beta1/beta1.json` and the previous committed Beta-1 cell file | same | g++ 13.3.0 | 2 | 2026-11-28T05:00Z | 1301 s |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` (exit status 0: DRC and connectivity clean) | `da83b64` (clean tree; `layout.hpp` unchanged since) | g++ 13.3.0 | — | 2026-11-28T05:05:02Z | 208 s |
 | `designs/alpha1-v11/example_characterisation_synthetic.json`, `example_gate_report_synthetic.json` | the first two commands of `CHARACTERISATION-PLAN.md` §7 with `virtual.json` → `designs/alpha1-v11/example_characterisation_synthetic.json` and `--out designs/alpha1-v11/example_gate_report_synthetic.json`; the hidden-dephasing pair as written there (output not committed) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:58Z | 22 s (all four) |
 | `designs/alpha1-v11/AF17_v11_layout.{png,svg}`, `AF17_v11_detail.{png,svg}`, `docs/from-committed-layout/af17-{full,zoom,q5}.svg` | `python3 tools/gds_preview.py designs/alpha1-v11/AF17_v11.gds <out>`; detail `--zoom 1550,2450,2250,3150`, zoom `--zoom 1350,2250,2700,3600`, Q5 `--zoom 1580,2480,2020,2920` (ground straps in violet) | matplotlib 3.10 | — | — | 2026-11-28 | — |
 | `designs/beta1/BF49_layout.{png,svg}`, `designs/gamma1/GF97_layout.{png,svg}` | `python3 tools/gds_preview.py designs/beta1/BF49.gds <out>`, `python3 tools/gds_preview.py designs/gamma1/GF97.gds <out>` | matplotlib 3.10 | — | — | 2026-11-28 | — |
+| `results/surgery_study.{txt,json}` | `OMP_NUM_THREADS=4 surgery_study 100000` (CZ model v4) | `d837044b0be6318f911a621d4a2c44c82fe8f4eb` (`scs-bot/lattice-surgery` with `main` 0629252 merged; clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T04:36:26Z | 1005 s |
 | `results/cz_cache.json` | `qpuforge cz designs/alpha1-v11/alpha1_v11.json --cache results/cz_cache.json` from an empty cache (16 calibrations simulated); every review reuses it (0 simulated, 16 cached) | CZ model version 4 (`pulse.hpp` and `src/` as committed with this file) | g++ 13.3.0 | 2 | 2026-11-28T01:32:18Z | 259 s |
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
-| `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `f9c704cd9a0ca427f1b1a3d5b5d75d56a47893f9` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T00:27:08Z | 1904 s |
+| `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `86bfdab97c68960fa308e82c6ca28d914abf1a47` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:28:50Z | 2671 s |
 | `results/decoder_sweeps.{json,txt}` | `decoder_sweeps` (`OMP_NUM_THREADS=4 ./build/decoder_sweeps`) | `5e69544f153985be9ae2b042b467f762f06f85d2` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:30:44Z | 57 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
@@ -27,14 +28,16 @@ the commands below to reproduce them.
   commit: each review JSON says `source_commit: ae46662…`, `source_tree_dirty: false`. Its review and layout code is the
   code of `56ba3e4`, where an earlier run of the same three reviews gave the same output except for the machine-dependent
   fields. `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
-  `results/test_output.txt` was not regenerated for PR #28 (its check total is set on `main`).
+  `results/test_output.txt` was not regenerated for PR #28: it is `main`'s, made from `8de7512` (clean tree a0a5686, which
+  `main` has after #21 and #24).
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
   - gamma: frame Monte Carlo seeds 11 + rounds (distance scaling; memory-X adds 7919), 77 (decoder comparison), 505 (impacts), 21 + rounds (long runs); fab Monte Carlo seed 7.
-  - decoder study: 11 + rounds (union-find against exact; memory-X adds 7919), 300 + d (heralds), 401 (veto calibration), 403 (impact injection), 505 (burst ladders, with and without the veto).
+  - decoder study: 11 + rounds (union-find against exact; memory-X adds 7919), 300 + d (heralds), 401 (veto calibration), 403 (impact injection), 505 (burst ladders, with and without the veto), 601 (streaming union-find).
   - decoder sweeps: 77 (herald rules), 3 / 9 / 5 (veto windows: calibration, injection, severity runs), 3 / 505 (hold: calibration, ladder).
     Section 1 (fault enumeration) and the decode times are wall-clock measurements on four threads.
+  - surgery: frame Monte Carlo seed 1000 + 100 d + 10 k (+5 for Beta-1), k = 0 ZZ, 1 XX, 2 CNOT Z basis, 3 CNOT X basis; tableau check seed 77. The study reuses `results/cz_cache.json` (no new calibrations).
 - **Thread count does not change the results.** Since 0.4 the Pauli-frame Monte Carlo seeds every shot from
   (`seed`, shot index) and adds its partial sums in a fixed block order, and the trajectory emulator adds its sampled
   XEB in trajectory order (`docs/design/deterministic-mc.md`). Every Monte Carlo number in the 0.4 outputs above is
@@ -45,13 +48,15 @@ the commands below to reproduce them.
   Per-shot seeding draws a different, statistically equivalent sample, so the values differ from those within Monte
   Carlo error even where nothing else changed.
 - **Machine-dependent fields.** `runtime_s` and the decode times (`decode_us_per_round*`) are wall-clock measurements
-  and change from run to run, as do the group times, the decode times and the fault-enumeration times (reference /
-  fast) printed in `results/test_output.txt`. With the same toolchain, a rerun at any thread count reproduces every
+  and change from run to run, as do the group times, the decode times and the fault-enumeration times (reference,
+  sparse and linear-time) printed in `results/test_output.txt`. With the same toolchain, a rerun at any thread count reproduces every
   other number.
 - **Cell files.** Both were synthesised with the DRC-aware generator (bus no narrower than its strip, shorted staircase
   ends, ground-sliver clean-up of the extraction cells, G_md aimed 1.5 % high) in one run each, warm-started from the 0.4
   cell file. The synthesis is deterministic: rerunning the command on the same code and starting file gives the same
-  cells. The reviews evaluate the committed cells against the current targets.
+  cells. `layout.hpp` has changed since `0900b14` (`cf0455e`), but on tree a0a5686 both commands, warm-started from the
+  same 0.4 cell files, still give the committed cells byte for byte (checked 2026-11-28). The reviews evaluate the
+  committed cells against the current targets.
 - **Alpha-1 v1.0 review (historical; not regenerated for v0.3 or v0.4).** `results/alpha1_review.{json,txt}` reproduce
   digit for digit only with the binary that was committed alongside them, run with two threads from a checkout of
   `3fe4d23`:
@@ -88,5 +93,5 @@ the commands below to reproduce them.
   `leak_weight` 10; `docs/design/cz-leakage.md`). The cache keys encode all of these, and a cache from another model
   version is rejected. 15 of the 16 entries are bit-identical to version 2.
 - **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
-- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `ea63b9f`:
-  415 checks passed, 0 failed.
+- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `8de7512`
+  (tree a0a5686, which `main` has after #21 and #24): 500 checks passed, 0 failed.

@@ -31,18 +31,25 @@ chip.json ──► device physics ─────────► noise model �
 | Layer | Module | What it does |
 |---|---|---|
 | Union-find decoder | `unionfind.hpp`, `qec.hpp` | Weighted union-find (Delfosse-Nickerson growth, peeling), `DecodeMethod::UnionFind`, `qpuforge qec --decoder uf`: the real-time candidate; exact matching stays the reference. On Gamma-1 (14 rounds, same syndromes) its logical error per round is 0.98-1.10x the exact decoder's at d = 3, 5 and 7 |
+| Streaming union-find | `unionfind.hpp`, `qec.hpp` | Sliding-window decoding over rounds (`StreamingUnionFind`, `qpuforge qec --decoder uf-stream --window W --commit C`): each window is decoded with the later rounds as a boundary, and its first C rounds are committed. At d = 7 (50 rounds) it gives 1.16x batch union-find's failures for 10/5 windows and 1.05x for 20/10. The window must extend about d rounds past the commit region |
 | Heralded leakage | `qec.hpp` | 3-state readout of the measure qubits (`HeraldSpec`: herald fidelity, false-herald rate); the decoder lowers the weights of the edges of the heralded qubit's round, with exact matching on the per-shot re-weighted graph (`decode_scaled`). `qpuforge qec --herald`. With the leakage-removing reset on Gamma-1 d = 7: -10% logical error at the chip's own leakage, -46% at 10x |
 | Impact veto | `qec.hpp` | Per-shot impact injection at a random time and place (`ImpactSpec`, deterministic per (seed, shot)), a sliding space-time window veto calibrated to a false-veto rate (`VetoSpec`, `calibrate_veto`), and the floor over the burst profile with the veto (`burst_floor_veto`). `qpuforge qec --bursts --veto` |
-| Linear-time setup | `qec.hpp` | Single-fault enumeration is linear in the number of rounds (per-qubit tails from each measurement cut): Gamma-1 d = 7 at 50 rounds in 1.3 s against 41 s for the 0.4 routine, identical output |
+| Linear-time setup | `qec.hpp` | Single-fault enumeration is linear in the number of rounds (per-qubit tails from each measurement cut): Gamma-1 d = 7 at 50 rounds in 1.4 s against 44 s for the 0.4 routine, identical output |
 
 Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decoder_study.cpp`). Design notes:
 [`docs/design/`](docs/design/).
+
+### Unreleased: lattice surgery
+
+| Layer | Module | What it does |
+|---|---|---|
+| Lattice surgery | `surgery.hpp` | Several surface-code patches on one lattice with merge and split schedules: logical ZZ and XX measurement between two patches and the three-patch logical CNOT, with detectors and observables across the merge and split boundaries, Pauli-frame corrections, a stabiliser-tableau check of the noiseless circuit, one exact matching decoder per observable and the memory experiments' noise model. With Beta-1 physics the ZZ outcome is wrong in 0.74 % of measurements at d = 3 and 0.14 % at d = 5; a CNOT on \|00⟩ gets some output wrong in 2.7 % and 0.71 % of runs (`results/surgery_study.txt`, [design note](docs/design/lattice-surgery.md)) |
 
 ### What's new in v0.4
 
 | Layer | Module | What it does |
 |---|---|---|
-| Exact decoding at any size | `matching.hpp`, `qec.hpp` | Edmonds' blossom algorithm (primal-dual, O(n³)) for minimum-weight perfect matching of any number of defects. The dynamic programme is kept for up to 8 defects, where it is faster. The greedy fallback above 22 defects is gone. On a 30-round distance-5 run (20 defects per shot on average) decoding takes about 26 µs per shot, against 28 ms for the v0.3 decoder (wall-clock, from `results/test_output.txt`) |
+| Exact decoding at any size | `matching.hpp`, `qec.hpp` | Edmonds' blossom algorithm (primal-dual, O(n³)) for minimum-weight perfect matching of any number of defects. The dynamic programme is kept for up to 8 defects, where it is faster. The greedy fallback above 22 defects is gone. On a 30-round distance-5 run (20 defects per shot on average) decoding takes about 39 µs per shot, against 35 ms for the v0.3 decoder (wall-clock, from `results/test_output.txt`) |
 | Both memory bases | `qec.hpp` | Memory experiments in the X basis (\|+⟩ logical state, X-type detectors, logical X) beside the Z basis |
 | Correlated bursts | `qec.hpp` | High-energy impacts as a chip-wide excess decay or dephasing rate that relaxes exponentially; the decoder keeps its quiet-chip priors. Gives the probability that one impact flips the logical qubit, the unprotected time, how long the burst is visible in the syndrome, and the logical-error floor |
 | Hardware gate | `characterise.hpp` | A data-file format for measured chip parameters, a model built from them, and automatic evaluation of the roadmap's hardware gates, including model versus measurement. A virtual chip generates test data until hardware exists |
@@ -66,11 +73,12 @@ Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decod
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 367 validation checks (~6 min on 4 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 500 validation checks (~15 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
 ./build/gamma1_review          # Gamma-1 review       -> designs/gamma1/gamma1_review.json
+./build/surgery_study          # lattice surgery      -> results/surgery_study.{txt,json}
 python3 tools/fill_spec.py beta    # BETA-1.md from its template and review data (also: gamma)
 ```
 
@@ -78,7 +86,7 @@ python3 tools/fill_spec.py beta    # BETA-1.md from its template and review data
 
 The `json` and `gds` unit groups (64 checks) cover the JSON parser/writer (including a lossless design-file round trip for the `gen0`, `alpha1`, `alpha1v11` and `beta1` presets) and the GDSII stream writer (record framing, UNITS encoding, coordinate/record-length guards, reproducible `SOURCE_DATE_EPOCH` dates).
 
-- The three `smoke` entries run the review programs end to end with 200 shots. They write into the build tree and
+- The four `smoke` entries run the review programs and the surgery study end to end with 200 shots. They write into the build tree and
   leave the committed outputs untouched.
 - Each review program also takes `--out DIR`, `--cache FILE` and `--smoke`; see `examples/review_io.hpp`.
 - Committed review outputs, except the historical Alpha-1 v1.0 review, record their source commit, compiler, seeds and
@@ -92,16 +100,17 @@ qpuforge new chip.json --preset alpha1v11                   # Alpha-1 v1.1 (phys
 qpuforge new chip.json --preset beta1                       # Beta-1 (distance 5, 49 qubits)
 qpuforge new chip.json --preset gamma1                      # Gamma-1 (distance 7, 97 qubits)
 qpuforge qec chip.json --basis both --rounds 14 --cache results/cz_cache.json   # memory in the Z and the X basis
+qpuforge surgery --op cnot --d 3,5 --input 00 --cache results/cz_cache.json     # lattice surgery (also --op zz, --op xx)
 qpuforge qec chip.json --bursts --cache results/cz_cache.json                   # + logical-error floor from impacts
 qpuforge synth-chip chip.json data.json --seed 3 --cache results/cz_cache.json  # virtual chip -> characterisation file
 qpuforge hwgate chip.json data.json --phase alpha --out report.json             # hardware gate from measured data
 qpuforge cz chip.json --cache results/cz_cache.json --out cal.json      # pulse-level CZ calibration of every pair
-qpuforge qec chip.json --leakage-removal lrr|lrr+dqlr|none --cache results/cz_cache.json
-qpuforge gds chip.json chip.gds --cells cells.json [--synthesize]       # layout synthesis + DRC + GDSII
+qpuforge qec chip.json --leakage-removal lrr+dqlr --cache results/cz_cache.json  # leakage removal (also lrr, dqlr, none)
+qpuforge gds chip.json chip.gds --cells cells.json --synthesize         # layout synthesis + DRC + GDSII (without --synthesize, an existing cells.json is reused)
 qpuforge new chip.json --surface 3 --arch tunable           # any surface-code chip
 qpuforge new chip.json --grid 3x3 --arch tunable --g-MHz 4  # grid / line / ring chips
 qpuforge analyze chip.json                                  # device report + design-rule check
-qpuforge analyze chip.json --materials sidecar.json [--loss-tangent]            # apply an atomforge forge.materials.v0 sidecar first
+qpuforge analyze chip.json --materials sidecar.json         # apply an atomforge forge.materials.v0 sidecar first (add --loss-tangent to use Q = 1/tanδ)
 qpuforge layout chip.json chip.svg                          # floor-plan
 qpuforge run chip.json examples/ghz5.qasm --traj 400        # emulate a circuit (mid-circuit measure/reset supported)
 qpuforge run chip.json xeb:10                               # also ghz:N qft:N bv:N
@@ -112,8 +121,14 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 ```
 
 `new` options: `--grid RxC | --line N | --ring N | --surface D`, `--f-hi/--f-lo` (GHz), `--alpha`, `--g-MHz`, `--arch fixed|tunable`,
-`--Q`, `--plan 2|4|8`, `--stagger-MHz`, `--feedlines`, `--kappa-MHz`, `--chi-MHz`, `--purcell`, `--readout-ns`, `--reset-ns`,
-`--reset-err`, `--active-reset`, `--err2q`, `--residual-zz-kHz`. Designs are plain JSON, so you can edit any qubit or coupler by hand.
+`--Q`, `--plan 2|4|8`, `--stagger-MHz`, `--name`, `--feedlines`, `--kappa-MHz`, `--chi-MHz`, `--purcell`, `--readout-ns`,
+`--reset-ns`, `--reset-err`, `--active-reset`, `--err2q`, `--residual-zz-kHz`; a `--preset` design takes only `--distance`.
+Designs are plain JSON, so you can edit any qubit or coupler by hand.
+
+Unknown options are errors: each command accepts only the options its usage lists (`qpuforge` without arguments), and an
+unknown, misspelt or repeated option, a missing value or a malformed number stops it before it reads any file. Exit
+status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC- and connectivity-clean), 3 `hwgate`: gate not passed,
+`surgery`: a noiseless check failed.
 
 ## Physics and emulation model
 
@@ -135,7 +150,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 367 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 500 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -204,6 +219,12 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   source fails it (ratio 6.1). Threshold failures and missing data are reported.
 * Designs: feedline plans of Beta-1 and Gamma-1, no frequency collisions, and the CZ interaction point solved at the
   tuned anharmonicity (1–2.5 MHz above the idle-anharmonicity estimate).
+* Lattice surgery: on a stabiliser tableau, no detector fires and every logical outcome is right for ZZ and XX
+  measurement on |00⟩ |01⟩ |10⟩ |11⟩ |++⟩ |+−⟩ |−+⟩ |−−⟩ (d = 3, 5) and for the CNOT on Z-, X-basis and Bell-pair inputs.
+  A reference-qubit process check passes for Z- and X-basis patches. A single patch through the surgery engine
+  reproduces the memory experiment shot for shot, with and without leakage, and its chip equals Beta-1 at d = 3. The
+  d = 3 detector error models have no undetectable logical faults, and every single fault is corrected except a few
+  coherent-ZZ crosstalk terms that straddle two rounds (total probability at most 2.1e-7).
 * Materials sidecar (`forge.materials.v0`, `materials.hpp`, [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md)): the
   placeholder file exactly as atomforge writes it leaves Alpha-1 v1.1 unchanged. Sidecar values of Q_dielectric and the
   junction gap reach `analyze()`: T1_diel matches 2πf/Q to 1e-12 and E_J scales with the gap. The loss tangent becomes
@@ -226,7 +247,8 @@ distance 5 gives 0.18 % (Λ ≈ 2.6). This is the historical Alpha-1 v1.0 review
 
 The tunable coupler wins clearly. With fixed coupling, faster gates and always-on ZZ crosstalk trade against each other.
 
-**v0.4 results** (simulation; see the design specs for assumptions). Logical error per round, memory-Z / memory-X:
+**Results of the committed reviews** (simulation with CZ model version 4, `results/PROVENANCE.md`; see the design specs for
+assumptions). Logical error per round, memory-Z / memory-X:
 
 | Design | Code distance | Logical error per round | Notes |
 |---|---|---|---|
@@ -283,8 +305,8 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
 * Pauli-frame QEC model: accurate for incoherent noise. Strong coherent ZZ (tens of kHz and up) is under-counted, so use
   `--statevector` to cross-check such designs.
 * Setting up a memory experiment is linear in the number of rounds for the fault enumeration, but the matching
-  decoder's all-pairs shortest paths cost the cube of the detector count (Gamma-1, d = 7: whole setup 1.3 s at 25
-  rounds, 3.8 s at 50, on four threads).
+  decoder's all-pairs shortest paths cost the cube of the detector count (Gamma-1, d = 7: whole setup 1.4 s at 25
+  rounds, 3.9 s at 50, on four threads).
 * Results from before v0.4 with more than 22 defects in a shot used a greedy decoder fallback and were pessimistic. The
   design reviews in this repository have been re-run with the exact decoder, except the historical Alpha-1 v1.0 review.
 * The statevector backend is practical to about 26–28 qubits; the Pauli-frame backend handles d = 5–7 easily.
@@ -295,8 +317,8 @@ See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on t
 
 1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
 2. Multi-qubit pulse simulation of spectator crossings; flux-pulse distortion and predistortion model.
-3. Multi-patch circuits (lattice surgery) for Phase Gamma; a streaming (sliding-window) union-find decoder as the
-   reference for the FPGA.
+3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, a joint
+   multi-observable decoder and routing between patches.
 4. Data-qubit leakage heralding, and herald weights derived from the leakage model.
 5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.

@@ -42,7 +42,7 @@ The per-pair g12 in the table above is set by the pulse-level calibration itself
 
 **Protocol.** The measure qubit (the higher frequency) is the *mover*. For each CZ:
 
-1. Its flux pulse brings |11⟩ into resonance with |20⟩ (f_mover + α = f_data). The interaction point is 5.33–5.50 GHz, an excursion of 308–665 MHz.
+1. Its flux pulse brings |11⟩ into resonance with |20⟩ (f_mover + α = f_data). The interaction point is 5.32–5.50 GHz, an excursion of 308–665 MHz.
 2. At the same time the coupler swings from 8.5 GHz down to ≈ 6.03–6.14 GHz, which turns on the |11⟩–|20⟩ coupling (gap 36 MHz for the 5.99/5.29 GHz test pair with the coupler at 6.10 GHz, `results/test_output.txt`).
 3. One full |11⟩ → |20⟩ → |11⟩ cycle gives the conditional phase π.
 

@@ -114,7 +114,9 @@ chip names its origin. Alternatives:
 ### Phase 5: real producers and per-element loss (G7), depends on other work
 
 * D5 decided **both**: first a hand-written Alpha-1 sidecar (`provenance: "assumed"`, every number explained in its `reason`
-  and none presented as a sourced value), so the whole path is exercised now; later the DFT bridge writes sidecars.
+  and none presented as a sourced value), so the whole path is exercised now; later the DFT bridge writes sidecars. The
+  first half is `designs/alpha1-v11/materials-alpha1-v11-handwritten.json` on `data/alpha1-sidecar-handwritten`; it repeats
+  the chip's own assumed values, so it changes no number.
 * atomforge side: a07/a08 (DFT `ExternalPotential` bridge) gives energies in eV; it still gives no loss tangent. A
   tanδ needs a separate model (TLS density × dipole moment, or measured), so the first non-null quantity will more likely be
   `provenance: "assumed"` / `"measured"` from a person than `dft-loss-tangent` from the code.

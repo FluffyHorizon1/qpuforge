@@ -78,7 +78,9 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
   guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
-- 370 validation checks in all (346 on `main` before the decoding work, plus 24 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
+- 500 validation checks in all: 346 on `main` before this release's work, plus 21 from the decoding work (#20), 48 from
+  fabrication readiness (#19), 3 from the streaming decoder (#27) and 82 from lattice surgery (#21)
+  (`results/test_output.txt`). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
   `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
 

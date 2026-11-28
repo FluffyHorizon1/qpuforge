@@ -10,7 +10,7 @@ the commands below to reproduce them.
 | `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:36Z | 982 s |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
 | `results/design_study.{csv,txt}` | `design_study > results/design_study.txt` from the repository root (default: 300 trajectories; the program writes the CSV itself) | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27 (time not recorded) | 31 s |
-| `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 415 checks, 0 failed) | `ea63b9f` (`main` 5495bce merged into `scs-bot/fab-readiness`; the reviews' tree plus #20, whose default decoding path is unchanged) | g++ 13.3.0 | 4 (informational) | 2026-11-28T03:38:01Z | 926 s |
+| `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 500 checks, 0 failed) | `8de7512` (clean tree a0a5686: `main` after #21 and #24) | g++ 13.3.0 | 4 (informational) | 2026-11-28T05:47:52Z | 917 s |
 | `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` (warm start from the 0.4 cell file, `git show 5125500:designs/alpha1-v11/layout_cells.json`), output copied to the committed path | `0900b14` (`layout.hpp` and `src/` unchanged since) | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 267 s |
 | `designs/beta1/layout_cells.json` (also used by GF-97) | same, with `designs/beta1/beta1.json` and the 0.4 Beta-1 cell file | same | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 280 s |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` (exit status 2: the mask DRC is not clean) | same | g++ 13.3.0 | — | 2026-11-28T02:17:35Z | — |
@@ -88,5 +88,5 @@ the commands below to reproduce them.
   `leak_weight` 10; `docs/design/cz-leakage.md`). The cache keys encode all of these, and a cache from another model
   version is rejected. 15 of the 16 entries are bit-identical to version 2.
 - **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
-- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `ea63b9f`:
-  415 checks passed, 0 failed.
+- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `8de7512`
+  (tree a0a5686, which `main` has after #21 and #24): 500 checks passed, 0 failed.

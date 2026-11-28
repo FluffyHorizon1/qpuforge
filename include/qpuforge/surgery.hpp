@@ -920,13 +920,13 @@ inline std::vector<SurgeryFault> surgery_faults(SurgerySetup& M, bool with_other
         for (std::size_t k = 0; k < M.exp.detectors.size(); ++k) if (M.exp.detector_type[k] != M.basis) M.other_detectors.push_back(M.exp.detectors[k]);
         for (const auto& dt : M.other_detectors) ext.detectors.push_back(dt);
     }
-    const auto faults = enumerate_faults(M.frame, ext);
+    auto faults = enumerate_faults(M.frame, ext);
     M.n_faults = faults.size();
     std::vector<SurgeryFault> out(faults.size());
     for (std::size_t i = 0; i < faults.size(); ++i) {
-        const auto& f = faults[i];
+        auto& f = faults[i];
         SurgeryFault& s = out[i];
-        s.p = f.p; s.moment = f.moment; s.what = f.what;
+        s.p = f.p; s.moment = f.moment; s.what = std::move(f.what);
         for (int dt : f.dets) {
             if (dt < nd) s.dets.push_back(dt);
             else if (dt < nd + no) s.mask = std::uint8_t(s.mask | (1u << (dt - nd)));
@@ -936,16 +936,19 @@ inline std::vector<SurgeryFault> surgery_faults(SurgerySetup& M, bool with_other
     return out;
 }
 
-// Single-fault signatures for each decoded observable (decoded detectors only), from one enumeration.
+// Single-fault signatures of one decoded observable, or of each (decoded detectors only), from one enumeration.
+inline std::vector<FaultSignature> surgery_fault_signatures_of(const std::vector<SurgeryFault>& faults, std::size_t o) {
+    std::vector<FaultSignature> out;
+    out.reserve(faults.size());
+    for (const auto& f : faults) {
+        FaultSignature s; s.p = f.p; s.moment = f.moment; s.obs = (f.mask >> o) & 1; s.what = f.what; s.dets = f.dets;
+        out.push_back(std::move(s));
+    }
+    return out;
+}
 inline std::vector<std::vector<FaultSignature>> surgery_fault_signatures(const std::vector<SurgeryFault>& faults, std::size_t n_obs) {
     std::vector<std::vector<FaultSignature>> out(n_obs);
-    for (std::size_t o = 0; o < n_obs; ++o) {
-        out[o].reserve(faults.size());
-        for (const auto& f : faults) {
-            FaultSignature s; s.p = f.p; s.moment = f.moment; s.obs = (f.mask >> o) & 1; s.what = f.what; s.dets = f.dets;
-            out[o].push_back(std::move(s));
-        }
-    }
+    for (std::size_t o = 0; o < n_obs; ++o) out[o] = surgery_fault_signatures_of(faults, o);
     return out;
 }
 inline std::vector<std::vector<FaultSignature>> surgery_fault_signatures(SurgerySetup& M) {
@@ -1025,9 +1028,8 @@ inline SurgerySetup prepare_surgery(const ChipDesign& D, const ChipReport& R, co
             if (E.sched.lat.sites[std::size_t(q)].data) { const int s = sim[std::size_t(D.index_of(q))]; if (s >= 0) M.is_data[std::size_t(s)] = 1; }
     }
     const auto faults = surgery_faults(M, correlated);
-    const auto fk = surgery_fault_signatures(faults, M.obs.size());
-    for (std::size_t o = 0; o < fk.size(); ++o) {
-        M.dem.push_back(build_dem(fk[o], int(M.view.detectors.size())));
+    for (std::size_t o = 0; o < M.obs.size(); ++o) {
+        M.dem.push_back(build_dem(surgery_fault_signatures_of(faults, o), int(M.view.detectors.size())));
         // an observable that a single fault can flip without any decoded detector is mis-typed or mis-assembled
         if (M.dem.back().undetectable_logical > 0)
             throw std::runtime_error("prepare_surgery: observable " + E.observables[std::size_t(M.obs[o])].name + " has " +

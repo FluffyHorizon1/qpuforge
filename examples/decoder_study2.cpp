@@ -84,6 +84,46 @@ int main(int argc, char** argv) {
                     m.set("none", run_json(rb)); m.set("fixed", run_json(rf)); m.set("derived", run_json(rd));
                     o.set(method_key(meth), m);
                 }
+                // a worked example: the heralded readouts of the middle round with the largest leak probability, one that
+                // feeds detectors (a Z-type measure qubit) and one that feeds none (X-type), and their five likeliest edges
+                if (d == 5) {
+                    const auto& uf = M.decoder->union_find();
+                    std::vector<std::vector<int>> dets_of(H.prior.size());
+                    for (std::size_t k = 0; k < M.exp.detectors.size(); ++k) for (int c : M.exp.detectors[k]) dets_of[std::size_t(c)].push_back(int(k));
+                    const int per_round = int(M.code.stabs.size()), c0 = (R / 2) * per_round;
+                    Json xj = Json::array();
+                    for (int type = 0; type < 2; ++type) {
+                        int best = -1;
+                        for (int c = c0; c < c0 + per_round; ++c)
+                            if (dets_of[std::size_t(c)].empty() == (type == 1) && (best < 0 || H.prior[std::size_t(c)] > H.prior[std::size_t(best)])) best = c;
+                        if (best < 0) continue;
+                        const double zl = H.prior[std::size_t(best)], pi = zl * 0.95 / (zl * 0.95 + (1 - zl) * 1e-3);
+                        auto v = H.cond[std::size_t(best)];
+                        std::sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.second > b.second || (a.second == b.second && a.first < b.first); });
+                        say("       example, round %d, %s-type measure qubit (bit %d): P(leaked at readout) %.2e, so a herald is true with probability %.3f; %zu edges, the likeliest:\n",
+                            R / 2, type ? "X" : "Z", best, zl, pi, v.size());
+                        Json ej = Json::array();
+                        for (std::size_t i = 0; i < std::min<std::size_t>(5, v.size()); ++i) {
+                            const auto& ed = uf.edge[std::size_t(v[i].first)];
+                            const double p0 = 1.0 / (1.0 + std::exp(ed.w)), q = pi * v[i].second, p = p0 * (1 - q) + q * (1 - p0), pc = std::max(std::min(p, 1 - p), p0);
+                            const bool own = !dets_of[std::size_t(best)].empty() && ed.u == dets_of[std::size_t(best)].front() &&
+                                             ed.v == (dets_of[std::size_t(best)].size() > 1 ? dets_of[std::size_t(best)].back() : uf.n_detectors());
+                            double fixed_w = ed.w;                 // what the footprint rule gives this edge
+                            for (const auto& [fe, ro] : M.herald_edges[std::size_t(best)]) if (fe == v[i].first) fixed_w = ro ? 0.0 : 0.4 * ed.w;
+                            say("           %-20s P(fault | leaked) %.3f: p %.1e -> %.3f, weight %.2f -> %.2f%s (fixed rule: %.2f)\n", own ? "its measurement edge" : "another edge",
+                                v[i].second, p0, p, ed.w, std::log((1 - pc) / pc), p > 0.5 ? " (applied)" : "", fixed_w);
+                            Json e = Json::object();
+                            e.set("own_measurement_edge", own); e.set("p_fault_given_leaked", v[i].second); e.set("p_prior", p0); e.set("p_with_herald", p);
+                            e.set("weight_prior", ed.w); e.set("weight_with_herald", std::log((1 - pc) / pc)); e.set("applied", p > 0.5); e.set("weight_fixed_rule", fixed_w);
+                            ej.push(e);
+                        }
+                        Json x = Json::object();
+                        x.set("type", type ? "X" : "Z"); x.set("bit", best); x.set("p_leaked_at_readout", zl); x.set("p_herald_true", pi); x.set("edges", double(v.size()));
+                        x.set("likeliest", ej);
+                        xj.push(x);
+                    }
+                    o.set("example", xj);
+                }
                 hj.set("d" + std::to_string(d) + "_x" + std::to_string(int(scale)), o);
             }
         }

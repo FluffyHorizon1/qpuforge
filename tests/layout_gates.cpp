@@ -252,10 +252,12 @@ int main(int argc, char** argv) {
             LineBudget S = B;
             S.bump_pH = k.bump_pH; S.bump_own_fraction = k.own; S.bump_neighbour_fraction = k.neighbour;
             line_budget_evaluate(S, D, R, L, m);
+            char xy[64] = "";
+            if (S.separate_xy) std::snprintf(xy, sizeof xy, ", through the XY line %.1fx", std::min(S.ratio_coupler, 9999.0));
             std::printf("  sensitivity, %s (%.1f pH per bump, fractions %.2f / %.2f): bump term up to %.3f pH (coupler %.3f pH); common-mode T1 %.1fx (Q%d), drive T1 %.1fx "
-                        "(Q%d), coupler T1 %.1fx; drive on a neighbour %.1f%% (%s); 25 MHz Rabi at %.1f dBm -> drive %s, flux %s\n", k.what, S.bump_pH, S.bump_own_fraction,
-                        S.bump_neighbour_fraction, S.max_M_bump_pH, S.M_bump_coupler_pH, std::min(S.min_ratio_flux_cm, 9999.0), S.worst_flux_cm_qubit,
-                        std::min(S.min_ratio_drive, 9999.0), S.worst_drive_qubit, std::min(S.ratio_coupler, 9999.0), 100 * std::min(S.max_drive_crosstalk, 99.0),
+                        "(Q%d), coupler T1 through its flux line %.1fx%s; drive on a neighbour %.1f%% (%s); 25 MHz Rabi at %.1f dBm -> drive %s, flux %s\n", k.what, S.bump_pH,
+                        S.bump_own_fraction, S.bump_neighbour_fraction, S.max_M_bump_pH, S.M_bump_coupler_pH, std::min(S.min_ratio_flux_cm, 9999.0), S.worst_flux_cm_qubit,
+                        std::min(S.min_ratio_drive, 9999.0), S.worst_drive_qubit, std::min(S.ratio_coupler_flux, 9999.0), xy, 100 * std::min(S.max_drive_crosstalk, 99.0),
                         S.worst_crosstalk.c_str(), S.drive_power_dBm, S.drive_ok() ? "ok" : "FAIL", S.flux_ok() ? "ok" : "FAIL");
         }
     }

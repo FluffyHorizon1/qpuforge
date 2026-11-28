@@ -2609,6 +2609,27 @@ static void test_layout_checks() {
         CHECK(std::abs(B.max_M_bump_pH - mb) < 1e-12 && std::abs(B.min_ratio_flux_cm / cm - 1) < 1e-12 && std::abs(S.min_ratio_flux_cm / cm2 - 1) < 1e-12 &&
               std::abs(S.max_M_bump_pH - 2 * mb) < 1e-12 && S.min_ratio_flux_cap == B.min_ratio_flux_cap, "bump term %.4f pH (expected %.4f), common mode %.4g vs %.4g",
               B.max_M_bump_pH, mb, B.min_ratio_flux_cm, cm);
+        // the coupler's decay into its own flux line (common mode) is a flux-line gate with either kind of control line:
+        // the line is there with XY lines too
+        {
+            double T1max = 0;
+            for (const auto& q : R.q) T1max = std::max(T1max, q.T1_us);
+            const FluxTransmon ct = FluxTransmon::from_target(D.coupler.f_max_GHz, D.coupler.alpha_GHz);
+            bool ok = true;
+            for (const bool sep : {false, true}) {
+                LineBudget C = B; C.separate_xy = sep; C.coupler = "1-2";
+                C.coupler_flux.ok = true; C.coupler_flux.M_pH = 1.6; C.coupler_flux.I_half_mA = 0.64;
+                for (LineCell* c : {&C.meas, &C.data}) c->flux.M_cm_pH = 0.05;
+                LineBudget H = C;
+                C.coupler_flux.M_cm_pH = 0.02; line_budget_evaluate(C, D, R, L, m);
+                H.coupler_flux.M_cm_pH = 2.0; line_budget_evaluate(H, D, R, L, m);
+                const double expect = flux_cm_T1_us(2.0, ct.EJ(ct.flux_for_f01(8.3)), 8.3) / T1max;
+                std::printf("  coupler through its own flux line (%s): %.0fx with M_cm 0.02 pH (flux %s), %.2fx with 2 pH (flux %s)\n", sep ? "XY lines" : "combined lines",
+                            C.ratio_coupler_flux, C.flux_ok() ? "ok" : "NOT ok", H.ratio_coupler_flux, H.flux_ok() ? "ok" : "NOT ok");
+                ok = ok && C.flux_ok() && !H.flux_ok() && std::abs(H.ratio_coupler_flux / expect - 1) < 1e-12;
+            }
+            CHECK(ok, "the coupler's own flux line is not gated in both modes");
+        }
     }
     {   // (7) formulas. T1 of a coupling C into a matched line: C_sigma / (omega^2 C^2 Z0); the shorted line's weight
         // sin(beta z) makes the effective capacitance proportional to f, so that limit goes as f^-4, not f^-2.
@@ -2728,7 +2749,7 @@ static void test_layout_presets() {
               100 * std::min(LB.max_drive_crosstalk, 99.0), LB.worst_crosstalk.c_str(), LB.drive_power_dBm);
         CHECK(LB.flux_ok(), "%s flux lines: I(Phi0/2) %.3g mA (limit %.0f), T1 limits capacitive %.1fx, loop %.1fx, common mode %.1fx, coupler %.1fx", c.name,
               std::min(LB.max_I_half_mA, 1e6), kMaxHalfFluxQuantum_mA, std::min(LB.min_ratio_flux_cap, 9999.0), std::min(LB.min_ratio_flux_loop, 9999.0),
-              std::min(LB.min_ratio_flux_cm, 9999.0), std::min(LB.ratio_coupler, 9999.0));
+              std::min(LB.min_ratio_flux_cm, 9999.0), std::min(LB.ratio_coupler_flux, 9999.0));
         CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);
         CHECK(std::abs(P.park_gap_MHz) < 0.05, "%s parked exchange not re-nullable (%.3f MHz)", c.name, P.park_gap_MHz);
     }

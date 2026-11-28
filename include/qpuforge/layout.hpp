@@ -2962,7 +2962,8 @@ struct LineBudget {
     double min_ratio_drive{1e300}, min_ratio_flux_cap{1e300}, min_ratio_flux_loop{1e300}, min_ratio_flux_cm{1e300};
     double min_T1_drive_us{1e300}, min_T1_flux_cap_us{1e300}, min_T1_flux_loop_us{1e300}, min_T1_flux_cm_us{1e300};
     int worst_drive_qubit{-1}, worst_flux_cap_qubit{-1}, worst_flux_loop_qubit{-1}, worst_flux_cm_qubit{-1};
-    double min_T1_coupler_us{1e300}, ratio_coupler{1e300}; std::string worst_coupler;      // coupler T1 limit through an XY line, or through its own flux line
+    double min_T1_coupler_us{1e300}, ratio_coupler{1e300}; std::string worst_coupler;      // coupler T1 limit through an XY line (separate XY lines)
+    double T1_coupler_flux_us{1e300}, ratio_coupler_flux{1e300};                            // coupler T1 limit through its own flux line (common mode), either mode
     double max_drive_crosstalk{0}; std::string worst_crosstalk;
     double drive_power_dBm{-1e300};                      // worst (highest) power for the Rabi rate
     double min_mediated_fraction{1e300}, max_mediated_fraction{-1e300};   // separate XY: (C_eff - C_direct) / C_direct over the qubits
@@ -2974,7 +2975,7 @@ struct LineBudget {
     double flux_cell_um{0}, flux_mesh_change_pH{0}, flux_mesh_change_rel{0};
     bool flux_mesh_ok() const { return flux_mesh_change_pH <= kMaxFluxMeshChange_pH && flux_mesh_change_rel <= kMaxFluxMeshChangeRel; }
     bool drive_ok() const { return min_ratio_drive >= kLineT1Margin && (!separate_xy || ratio_coupler >= kLineT1Margin) && crosstalk_evaluated && max_drive_crosstalk <= kMaxDriveCrosstalk && drive_power_dBm <= kMaxDrivePower_dBm; }
-    bool flux_ok() const { return min_ratio_flux_cap >= kLineT1Margin && min_ratio_flux_loop >= kLineT1Margin && min_ratio_flux_cm >= kLineT1Margin && (separate_xy || ratio_coupler >= kLineT1Margin) && max_I_half_mA <= kMaxHalfFluxQuantum_mA && flux_mesh_ok(); }
+    bool flux_ok() const { return min_ratio_flux_cap >= kLineT1Margin && min_ratio_flux_loop >= kLineT1Margin && min_ratio_flux_cm >= kLineT1Margin && ratio_coupler_flux >= kLineT1Margin && max_I_half_mA <= kMaxHalfFluxQuantum_mA && flux_mesh_ok(); }
     bool ok() const { return evaluated && drive_ok() && flux_ok(); }
 };
 namespace detail {
@@ -3048,14 +3049,13 @@ inline void line_budget_evaluate(LineBudget& B, const ChipDesign& D, const ChipR
     }
     if (B.coupler_flux.ok) {
         B.max_I_half_mA = std::max(B.max_I_half_mA, B.coupler_flux.I_half_mA);
-        if (!B.separate_xy) {                              // coupler decay into its own flux line (common mode)
-            const FluxTransmon ct = FluxTransmon::from_target(D.coupler.f_max_GHz, D.coupler.alpha_GHz);
-            B.M_bump_coupler_pH = own_f * bump_return_pH(L, "SC" + B.coupler, B.bump_pH);
-            B.min_T1_coupler_us = flux_cm_T1_us(B.coupler_flux.M_cm_pH + B.M_bump_coupler_pH, ct.EJ(ct.flux_for_f01(f_coupler_GHz)), f_coupler_GHz, Z0);
-            B.worst_coupler = "C" + B.coupler;
-        }
-    } else if (!B.coupler.empty()) { B.note = "coupler flux line: " + B.coupler_flux.note; B.max_I_half_mA = 1e300; }
+        // coupler decay into its own flux line (common mode): the line is there with either kind of control line
+        const FluxTransmon ct = FluxTransmon::from_target(D.coupler.f_max_GHz, D.coupler.alpha_GHz);
+        B.M_bump_coupler_pH = own_f * bump_return_pH(L, "SC" + B.coupler, B.bump_pH);
+        B.T1_coupler_flux_us = flux_cm_T1_us(B.coupler_flux.M_cm_pH + B.M_bump_coupler_pH, ct.EJ(ct.flux_for_f01(f_coupler_GHz)), f_coupler_GHz, Z0);
+    } else if (!B.coupler.empty()) { B.note = "coupler flux line: " + B.coupler_flux.note; B.max_I_half_mA = 1e300; B.T1_coupler_flux_us = 0; }
     B.ratio_coupler = T1max > 0 ? B.min_T1_coupler_us / T1max : 1e300;
+    B.ratio_coupler_flux = T1max > 0 ? B.T1_coupler_flux_us / T1max : 1e300;
     B.evaluated = true;
     if (!B.crosstalk_solved) return;
     std::map<int, int> index;
@@ -3224,16 +3224,14 @@ inline std::string line_budget_summary(const LineBudget& B) {
                   "control lines %s (Q%d measure / Q%d data, coupler C%s parked at %.3f GHz):\n%s\n"
                   "    flux %s: M %.3f / %.3f pH, coupler %.3f pH; I(Phi0/2) %.3g / %.3g mA, coupler %.3g mA (limit %.0f); flux in other SQUID loops %s%.1f%% "
                   "of the own (%s); T1 limits: capacitive (%.2f / %.2f fF open) >= %.3g ms = %.1fx (Q%d); through the loop at asymmetry >= %.2f %.3g ms = %.1fx "
-                  "(Q%d); common mode %.3g ms = %.1fx (Q%d)%s; budget %.0fx",
+                  "(Q%d); common mode %.3g ms = %.1fx (Q%d); coupler C%s through its own flux line (M_cm %.3f pH) %.3g ms = %.1fx the longest qubit T1; budget %.0fx",
                   B.ok() ? "ok" : "NOT ok", B.meas.qubit, B.data.qubit, B.coupler.c_str(), B.f_coupler_GHz, d,
                   B.flux_ok() ? "ok" : "NOT ok", B.meas.flux.M_pH, B.data.flux.M_pH, B.coupler_flux.M_pH, x(B.meas.flux.I_half_mA), x(B.data.flux.I_half_mA),
                   x(B.coupler_flux.I_half_mA), kMaxHalfFluxQuantum_mA, B.crosstalk_evaluated ? "<= " : "not evaluated ", 100 * B.max_flux_crosstalk,
                   B.worst_flux_crosstalk.c_str(), B.meas.C_flux_open_fF, B.data.C_flux_open_fF, B.min_T1_flux_cap_us / 1e3, x(B.min_ratio_flux_cap),
                   B.worst_flux_cap_qubit, kAssumedSquidAsymmetry, std::min(B.min_T1_flux_loop_us / 1e3, 1e9), x(B.min_ratio_flux_loop), B.worst_flux_loop_qubit,
-                  std::min(B.min_T1_flux_cm_us / 1e3, 1e9), x(B.min_ratio_flux_cm), B.worst_flux_cm_qubit,
-                  B.separate_xy ? "" : (std::string("; coupler through its own flux line (M_cm ") + std::to_string(B.coupler_flux.M_cm_pH).substr(0, 5) + " pH) " +
-                                        std::to_string(std::min(B.min_T1_coupler_us / 1e3, 1e9)).substr(0, 6) + " ms = " + std::to_string(x(B.ratio_coupler)).substr(0, 5) + "x the longest qubit T1").c_str(),
-                  kLineT1Margin);
+                  std::min(B.min_T1_flux_cm_us / 1e3, 1e9), x(B.min_ratio_flux_cm), B.worst_flux_cm_qubit, B.coupler.c_str(), B.coupler_flux.M_cm_pH,
+                  std::min(B.T1_coupler_flux_us / 1e3, 1e9), x(B.ratio_coupler_flux), kLineT1Margin);
     char e[700];
     std::snprintf(e, sizeof e, "\n    shared return through the ground bumps (%.1f pH per bump assumed, fewest on a qubit's metal %d): up to %.3f pH added to M_cm "
                   "of a qubit, %.3f pH for the coupler; included in the common-mode T1 limits, the drive power and the drive crosstalk (worst signs)\n"
@@ -3262,6 +3260,7 @@ inline Json line_budget_json(const LineBudget& B) {
     }
     j.set("min_T1_drive_us", fin(B.min_T1_drive_us)); j.set("min_ratio_drive", fin(B.min_ratio_drive)); j.set("worst_drive_qubit", B.worst_drive_qubit);
     j.set("min_T1_coupler_us", fin(B.min_T1_coupler_us)); j.set("ratio_coupler", fin(B.ratio_coupler)); j.set("worst_coupler", B.worst_coupler);
+    j.set("T1_coupler_flux_line_us", fin(B.T1_coupler_flux_us)); j.set("ratio_coupler_flux_line", fin(B.ratio_coupler_flux));
     j.set("max_drive_crosstalk", fin(B.max_drive_crosstalk)); j.set("worst_drive_crosstalk", B.worst_crosstalk); j.set("max_drive_crosstalk_allowed", kMaxDriveCrosstalk);
     j.set("rabi_MHz", kRabiMHz); j.set("drive_power_dBm", B.drive_power_dBm); j.set("max_drive_power_dBm", kMaxDrivePower_dBm);
     j.set("M_measure_pH", B.meas.flux.M_pH); j.set("M_data_pH", B.data.flux.M_pH); j.set("M_coupler_pH", B.coupler_flux.M_pH);

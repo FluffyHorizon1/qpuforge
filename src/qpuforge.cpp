@@ -28,11 +28,15 @@ static void usage() {
         "  qpuforge budget <chip.json> <circuit> [--traj N]  error budget by noise source\n"
         "  qpuforge fab <chip.json> [--samples N] [--seed S] fabrication Monte Carlo (junction spread)\n"
         "  qpuforge qec <chip.json> [--rounds 2,4,6,8,10] [--shots N] [--basis Z|X|both] [--statevector N]\n"
-        "                [--off SRC,..] [--decoder exact|legacy|greedy] [--bursts] [--burst-rate Hz] [--burst-tau-ms T]\n"
-        "                [--burst-t1-us T] [--burst-tphi-us T]\n"
+        "                [--off SRC,..] [--decoder exact|uf|legacy|greedy] [--bursts] [--burst-rate Hz] [--burst-tau-ms T]\n"
+        "                [--burst-t1-us T] [--burst-tphi-us T] [--herald] [--herald-fidelity F] [--herald-false P]\n"
+        "                [--herald-factor X] [--herald-rule footprint|detector] [--veto] [--veto-window R] [--veto-radius L]\n"
+        "                [--veto-false P] [--impact-p P] [--burst-radius L]\n"
         "                surface-code memory experiment: logical error per round (needs a surface layout);\n"
-        "                --bursts adds the logical-error floor set by high-energy impacts;\n"
-        "                --decoder legacy reproduces the pre-v0.4 decoder (greedy above 22 defects) on the same syndromes\n"
+        "                --bursts adds the logical-error floor set by high-energy impacts; with --veto, impacts are also\n"
+        "                injected per shot and detected by a sliding-window veto (residual floor, discard fraction);\n"
+        "                --decoder legacy reproduces the pre-v0.4 decoder (greedy above 22 defects) on the same syndromes;\n"
+        "                --herald: 3-state readout heralds leaked measure qubits; decoded with and without them\n"
         "  qpuforge synth-chip <chip.json> <data.json> [--seed S] [--shots N] [--rounds 5,15,25] [--z-only]\n"
         "                [--hidden-dephasing-us T]   virtual chip -> characterisation file (to test the chain)\n"
         "  qpuforge hwgate <chip.json> <data.json> [--phase alpha|beta] [--shots N] [--out report.json]\n"
@@ -404,8 +408,25 @@ static int cmd_qec(int argc, char** argv) {
         const std::string dsel = arg(argc, argv, "--decoder", "exact");
         if (dsel == "legacy") fro.method = DecodeMethod::Legacy;
         else if (dsel == "greedy") fro.method = DecodeMethod::Greedy;
-        else if (dsel != "exact") throw std::runtime_error("--decoder must be exact, legacy or greedy");
-        if (dsel != "exact") std::printf("decoder: %s\n", dsel == "legacy" ? "pre-v0.4 behaviour (exact up to 22 defects, greedy beyond)" : "greedy matching");
+        else if (dsel == "uf" || dsel == "union-find") fro.method = DecodeMethod::UnionFind;
+        else if (dsel != "exact") throw std::runtime_error("--decoder must be exact, uf, legacy or greedy");
+        if (dsel != "exact")
+            std::printf("decoder: %s\n", dsel == "legacy" ? "pre-v0.4 behaviour (exact up to 22 defects, greedy beyond)"
+                                         : dsel == "greedy" ? "greedy matching" : "weighted union-find (real-time candidate; not exact)");
+    }
+    const bool herald = has_flag(argc, argv, "--herald");
+    if (herald) {
+        fro.herald.on = true;
+        fro.herald.fidelity = std::stod(arg(argc, argv, "--herald-fidelity", "0.95"));
+        fro.herald.false_rate = std::stod(arg(argc, argv, "--herald-false", "0.001"));
+        fro.herald.footprint_factor = std::stod(arg(argc, argv, "--herald-factor", "0.4"));
+        const std::string rule = arg(argc, argv, "--herald-rule", "footprint");
+        if (rule != "footprint" && rule != "detector") throw std::runtime_error("--herald-rule must be footprint or detector");
+        fro.herald.footprint = rule == "footprint";
+        if (!fro.herald.footprint) fro.herald.touch_factor = fro.herald.footprint_factor;
+        std::printf("heralded leakage: 3-state readout of the measure qubits, fidelity %.3f, false-herald rate %.1e; %s rule, factor %.2f%s\n",
+                    fro.herald.fidelity, fro.herald.false_rate, rule.c_str(), fro.herald.footprint_factor,
+                    nm.leakage ? (nm.reset_removes_leakage ? "" : " (the reset does not remove leakage)") : " (leakage is not simulated: only false heralds)");
     }
     double best_T1 = 0, best_T2 = 0;
     for (const auto& q : R.q) { best_T1 = std::max(best_T1, q.T1_us); best_T2 = std::max(best_T2, q.T2_us); }
@@ -421,6 +442,12 @@ static int cmd_qec(int argc, char** argv) {
                         res.eps_per_round, res.mean_defects, res.max_defects, res.decode_us_per_shot);
             if (M.frame.leakage) std::printf("   leaked: data %.1e meas %.1e", res.leak_frac_data, res.leak_frac_meas);
             std::printf("\n");
+            if (herald) {
+                FrameRunOptions blind = fro; blind.herald.use_in_decoder = false;
+                const auto nb = run_memory_frame(M, shots, seed + unsigned(r) + (basis == 'X' ? 7919u : 0u), blind);
+                std::printf("          heralds %.2f per shot (%.0f%% leaked); same syndromes decoded without heralds: P_L %.5f, eps %.5f (with: %.5f)\n",
+                            res.heralds_per_shot, 100 * res.herald_true_frac, nb.p_logical, nb.eps_per_round, res.eps_per_round);
+            }
             if (res.ignored_exchange_pairs) std::printf("    ! %d near-degenerate exchange pair(s) not modelled by the Pauli-frame simulator\n", res.ignored_exchange_pairs);
             if (sv_shots > 0 && r == rounds.front()) {
                 const auto sv = run_memory_statevector(M, nm, sv_shots, seed);
@@ -450,6 +477,40 @@ static int cmd_qec(int argc, char** argv) {
             std::printf("    one impact flips the logical qubit with probability %.2f; unprotected for %.0f ms, visible in the syndrome for %.0f ms\n",
                         b.p_fail, b.dead_time_ms, b.detectable_ms);
             std::printf("    logical-error floor from impacts: %.2e per round (quiet chip: %.2e)\n", b.floor_per_round, b.eps0);
+        }
+        if (has_flag(argc, argv, "--veto")) {
+            VetoSpec V;
+            V.window_rounds = std::stoi(arg(argc, argv, "--veto-window", "3"));
+            V.radius = std::stod(arg(argc, argv, "--veto-radius", "2"));
+            const double target = std::stod(arg(argc, argv, "--veto-false", "0.001"));
+            ImpactSpec I; I.burst = B; I.burst.radius = std::stod(arg(argc, argv, "--burst-radius", "0"));
+            I.p_shot = std::stod(arg(argc, argv, "--impact-p", "0.05"));
+            for (char basis : bases) {
+                const auto M = prepare_memory(D, R, nm, br, basis);
+                const auto cal = calibrate_veto(M, shots, seed + 91, target, V, fro);
+                V.on = true; V.threshold = cal.threshold;
+                FrameRunOptions inj = fro; inj.impact = I;
+                FrameRunOptions vet = inj; vet.veto = V;
+                FrameRunOptions clean = fro; clean.veto = V;
+                const auto rc = run_memory_frame(M, shots, seed + 93, clean);
+                const auto ri = run_memory_frame(M, shots, seed + 93, inj);
+                const auto rv = run_memory_frame(M, shots, seed + 93, vet);
+                std::printf("\n  impact veto, memory-%c (%d rounds): window %d rounds x radius %.1f, threshold %d events (false-veto rate %.1e on %ld burst-free shots, target %.1e)\n",
+                            basis, br, V.window_rounds, V.radius, V.threshold, cal.false_rate, cal.shots, target);
+                std::printf("    impacts injected in %.1f%% of shots (onset uniform in the shot, %s): %ld impacts, %ld caught (%.0f%%)\n",
+                            100 * I.p_shot, I.burst.radius > 0 ? "local" : "chip-wide", rv.impacts, rv.impacts_vetoed,
+                            100.0 * double(rv.impacts_vetoed) / double(std::max(rv.impacts, 1L)));
+                std::printf("    eps/round: burst-free %.5f; with impacts %.5f without the veto, %.5f with it (%.2f%% of shots discarded; burst-free: %.2f%%)\n",
+                            rc.eps_per_round, ri.eps_per_round, rv.eps_kept, 100.0 * double(rv.discarded) / double(rv.shots), 100.0 * double(rc.discarded) / double(rc.shots));
+                std::printf("    failures in impacted shots: %ld without the veto, %ld left after it\n", ri.errors_impacted, rv.errors_impacted_kept);
+                const auto bv = burst_floor_veto(D, R, nm, B, br, shots, seed + 5, V, basis, fro.method);
+                std::printf("    over the burst profile (chip-wide severity ladder): floor %.2e per round without the veto, %.2e with shot-by-shot discard (%.2f ms discarded per impact)\n",
+                            bv.floor_per_round, bv.floor_per_round_veto, bv.discarded_ms);
+                std::printf("    latched veto (discard for a hold time after the onset):");
+                for (const auto& L : bv.latched) std::printf("  %.0f tau: %.1e (dead %.1e)", L.hold_tau, L.floor_per_round, L.dead_time_frac);
+                std::printf("\n");
+                V.on = false;
+            }
         }
     }
     return 0;

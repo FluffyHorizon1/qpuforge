@@ -50,6 +50,8 @@ def main():
         closed = all(p['xy'][0] == p['xy'][-1] for p in s['polys'])
         print(f'structure {name}: {len(s["polys"])} boundaries {dict(sorted(c.items()))}, {len(s["texts"])} labels, rings closed: {closed}')
     import matplotlib; matplotlib.use('Agg')
+    # reproducible output: SVG element ids from a fixed salt, no creation date in the SVG/PDF metadata (QA 2026-11-28)
+    matplotlib.rcParams['svg.hashsalt'] = 'qpuforge-gds-preview'
     import matplotlib.pyplot as plt
     from matplotlib.collections import PolyCollection
     s = next(iter(lib['structs'].values()))
@@ -75,7 +77,7 @@ def main():
             ax.text(x, y, t['s'], fontsize=6 if not zoom else 9, color='white')
     ax.set_aspect('equal'); ax.set_xlabel('um'); ax.set_ylabel('um')
     ax.set_title(f'{next(iter(lib["structs"]))}  (gold: metal, navy: etch, red: junctions, teal: bumps, violet: ground straps)', fontsize=9)
-    fig.tight_layout(); fig.savefig(out); print('wrote', out)
+    fig.tight_layout(); fig.savefig(out, metadata={'Date': None} if out.lower().endswith(('.svg', '.pdf')) else None); print('wrote', out)
 
 if __name__ == '__main__':
     main()

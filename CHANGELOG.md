@@ -222,6 +222,9 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   Gamma-1: 9 of 9.
 - `qpuforge gds` prints the connectivity summary and exits 2 unless both the DRC and the connectivity are clean.
 - `tools/gds_preview.py` draws the ground straps.
+- `tools/gds_preview.py` writes reproducible SVG/PDF files: `svg.hashsalt` is fixed and the `Date` metadata is dropped, so
+  two renders of the same GDS are byte-identical (checked with matplotlib 3.10.9; before, two renders of the AF-17 Q5
+  view differed in every element id and the date). The committed SVGs are re-rendered with the next mask regeneration.
 - **Layout cells.** The bus is never drawn narrower than its strip: below that, the direct-coupling knob of the
   synthesis pulls the bus ends back from the qubits instead of shrinking the T-bar to a sliver (0.075 µm on the 0.4
   AF-17 cells, 0.25 µm on BF-49). The synthesis aims the direct coupling 1.5 % above target so that the parked exchange

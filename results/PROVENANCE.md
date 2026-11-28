@@ -94,6 +94,7 @@ the commands below to reproduce them.
   (qubit/coupler/qubit), charge cutoff 12, guarded leakage fallback (`leak_limit` 2e-4, `coh_limit` 5e-4,
   `leak_weight` 10; `docs/design/cz-leakage.md`). The cache keys encode all of these, and a cache from another model
   version is rejected. 15 of the 16 entries are bit-identical to version 2.
-- **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
+- **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`. SVGs
+  rendered after 2026-11-28 have a fixed `svg.hashsalt` and no date, so a re-render of an unchanged GDS is byte-identical.
 - **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `8de7512`
   (tree a0a5686, which `main` has after #21 and #24): 500 checks passed, 0 failed.

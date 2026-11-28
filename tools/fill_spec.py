@@ -72,6 +72,37 @@ def drc_text(lay):
             f"({d['etch_min_width_um']:.0f} µm / {d['etch_min_space_um']:.0f} µm, projection metric): {ws}")
 
 
+def mask_clean(lay):
+    d = lay.get('drc', {})
+    return bool(d) and d.get('placement_clean') and d['etch_width_violations'] + d['etch_space_violations'] == 0
+
+
+def conn_text(lay):
+    c = lay.get('connectivity')
+    if not c:
+        return 'not checked'
+    return (f"{c['floating_ground']:,} floating ground fragments; {c['shorted_lines_on_plane']} of {c['shorted_lines']} shorted lines "
+            f"reach the ground plane (qubit flux lines {c['flux_lines_on_plane']} of {c['flux_lines']}); "
+            f"{c['junctions_landed']} of {c['junctions']} junctions land on metal at both ends; "
+            f"{c['islands_merged']} conductors share metal with another island")
+
+
+def mask_note(lay, sec):
+    d = lay.get('drc', {})
+    c = lay.get('connectivity', {})
+    drc = ('passes the placement and island-spacing checks and the mask-level width/space check '
+           f"({d['etch_min_width_um']:.0f} µm on the merged etch layer, projection metric) with no violations"
+           if mask_clean(lay) else
+           f"reports {d.get('etch_width_violations', 0):,} width and {d.get('etch_space_violations', 0):,} space violations on the merged etch layer")
+    if c.get('clean'):
+        return f"**Mask.** The layout {drc}, and the metal connectivity check is clean (§{sec})."
+    return (f"**The mask is not fabrication-ready.** The layout {drc} (§{sec}), but the metal connectivity check (`layout.hpp`, "
+            f"`ConnectivityReport`; reported, not gated) is not clean: {conn_text(lay)}. The extraction treats every enclosed "
+            f"ground fragment as grounded, so the extracted circuit is that of an ideal ground. Open before tape-out: the "
+            f"enclosed ground between the qubit arms and around the buses (ground straps or airbridges), the qubit flux-line "
+            f"short (drawn open), junction landing, the coupling of the XY and flux lines to the qubits, the foundry's DRC deck.")
+
+
 def leak_note(d):
     mx, mean = d['cz_leak_max'], d['cz_leak_mean']
     if mx > 2e-4:
@@ -85,7 +116,9 @@ def layout_vals(lay):
     return {
         'CHIP_W': f'{lay.get("width_mm", 0):.1f}', 'CHIP_H': f'{lay.get("height_mm", 0):.1f}', 'ETCH': f'{lay.get("etch_polygons", 0):,}',
         'JJ': lay.get('junction_regions', 0), 'BUMPS': lay.get('bumps', 0),
-        'DRC': drc_text(lay), 'DRC_W': f"{d.get('etch_width_violations', 0):,}", 'DRC_S': f"{d.get('etch_space_violations', 0):,}",
+        'DRC': drc_text(lay), 'CONN': conn_text(lay),
+        'MASK_STATUS': ('passes the mask width/space DRC but is not fabrication-ready: metal connectivity open' if mask_clean(lay) else 'not fabrication-ready'),
+        'DRC_W': f"{d.get('etch_width_violations', 0):,}", 'DRC_S': f"{d.get('etch_space_violations', 0):,}",
         'EC_ERR': f'{100 * lay.get("max_EC_err", 0):.1f} %', 'G_ERR': f'{100 * lay.get("max_coupling_err", 0):.1f} %',
         'RO_C_ERR': f'{100 * lay.get("readout_C_err", 0):+.1f} %', 'RO_C': f'{lay.get("readout_C_fF", 0):.2f}',
         'RO_G': f'{lay.get("readout_g_MHz", 0):.0f}', 'RO_G_T': f'{lay.get("readout_g_target_MHz", 0):.0f}',
@@ -103,7 +136,7 @@ def beta(scratch=None):
              'yield': 'trimmed fabrication yield ≥ 80 % collision-free',
              'leakage': 'chosen leakage scheme at least as good as the alternative over 50 rounds',
              'stability': 'detection rate flat over 100 rounds with the leakage-removing reset (drift < 5 %)',
-             'drc': 'first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated, see §6)',
+             'drc': 'layout passes placement and island-spacing checks (mask DRC and metal connectivity reported, not gated; see §6)',
              'layout': 'extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable'}
     gates, npass = gate_table(ec, names)
     bud, sens = r['budget_d3'], r['sensitivity_d3']
@@ -157,7 +190,9 @@ def beta(scratch=None):
         'EXTRA_LINES': 2 * (w['feedlines'] - 3), 'PARK_BELOW': f'{(8.5 - lay.get("park_fc_GHz", 8.5)) * 1e3:.0f}',
         'GATES': gates,
     }
-    vals.update(layout_vals(lay))
+    vals.update(layout_vals(lay)); vals['MASK_NOTE'] = mask_note(lay, '6')
+    vals['RO_PAD_A'] = f"{load('designs/alpha1-v11/layout_cells.json')['measure_qubit']['readout_pad_um']:.1f}"
+    vals['RO_PAD_B'] = f"{load('designs/beta1/layout_cells.json')['measure_qubit']['readout_pad_um']:.1f}"
     fill('designs/beta1/BETA-1.template.md', dst, vals)
 
 
@@ -171,7 +206,7 @@ def gamma(scratch=None):
              'impacts': 'logical-error floor from impacts below 10 % of the distance-7 error (both scenarios)',
              'stability': 'detection rate flat over 40 rounds with the leakage-removing reset (drift < 5 %)',
              'yield': 'trimmed fabrication yield ≥ 80 % collision-free',
-             'drc': 'first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated, see §7)',
+             'drc': 'layout passes placement and island-spacing checks (mask DRC and metal connectivity reported, not gated; see §7)',
              'layout': 'extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable'}
     gates, npass = gate_table(ec, names)
     e = lambda dd, b: pc(s[f'd{dd}'][f'eps_{b}'], 5 if dd == 7 else 4)
@@ -220,7 +255,7 @@ def gamma(scratch=None):
         'BETA_LINES': w['beta1_lines'], 'ALPHA_LINES': w['alpha1_lines'],
         'GATES': gates,
     }
-    vals.update(layout_vals(lay))
+    vals.update(layout_vals(lay)); vals['MASK_NOTE'] = mask_note(lay, '7')
     fill('designs/gamma1/GAMMA-1.template.md', dst, vals)
 
 

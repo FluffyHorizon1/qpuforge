@@ -623,7 +623,7 @@ static void test_pulse_cz() {
         CHECK(std::abs(gap - pert) < 1.5 * nlo * pert, "gap vs perturbation theory");
     }
     // calibration of the 3 knobs
-    const auto [P, R] = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns);
+    const auto [P, R] = optimize_cz(S, S.c.flux_for_f01(ce.f_on_GHz), ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval, CZModel::leak_weight, CZModel::leak_limit, CZModel::coh_limit);
     const auto Rf = simulate_cz(S, P, 0.05);
     std::printf("  calibrated CZ: %.1f ns, 1-F %.2e, leakage %.2e, phase error %+.1e rad; dt 0.1 -> 0.05 ns changes F by %.1e\n", R.duration_ns,
                 1 - R.fidelity, R.leakage, R.cphase - PI, std::abs(Rf.fidelity - R.fidelity));
@@ -632,6 +632,27 @@ static void test_pulse_cz() {
     CHECK(std::abs(R.cphase - PI) < 5e-3, "CZ conditional phase");
     CHECK(R.duration_ns > 30 && R.duration_ns < 60, "CZ duration %.1f", R.duration_ns);
     CHECK(std::abs(Rf.fidelity - R.fidelity) < 2e-6, "time-step convergence");
+    {   // leakage fallback on the two pair classes with the most leakage under the plain 1 - F calibration:
+        //   5.81/5.29 GHz sits on a leaky short-flat-top branch (2.3e-4 > the 2e-4 limit): the repeat must move it to the
+        //     low-leakage branch, with 1 - F no worse and within 5e-4;
+        //   5.87/5.29 GHz leaks 1.2e-4, within the limit: the fallback must leave its plain calibration untouched.
+        for (double fl : {5.81, 5.87}) {
+            const auto Sw = design_pair_system(fl, -0.22, 5.29, -0.22, ce);
+            const double xw = Sw.c.flux_for_f01(ce.f_on_GHz);
+            const auto plain = optimize_cz(Sw, xw, ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval);
+            const auto cal = optimize_cz(Sw, xw, ce.t_rise_ns, CZModel::dt_ns, CZModel::max_eval, CZModel::leak_weight, CZModel::leak_limit, CZModel::coh_limit);
+            std::printf("  pair %.2f/5.29 GHz: plain calibration 1-F %.2e, leakage %.2e (%.1f ns); with the leakage fallback 1-F %.2e, leakage %.2e (%.1f ns)\n",
+                        fl, 1 - plain.second.fidelity, plain.second.leakage, plain.second.duration_ns, 1 - cal.second.fidelity, cal.second.leakage, cal.second.duration_ns);
+            if (fl < 5.84) {
+                CHECK(plain.second.leakage > CZModel::leak_limit, "5.81/5.29 plain calibration no longer above the limit (%.2e): revisit the fallback", plain.second.leakage);
+                CHECK(cal.second.leakage <= CZModel::leak_limit && 1 - cal.second.fidelity <= 1 - plain.second.fidelity && 1 - cal.second.fidelity <= CZModel::coh_limit,
+                      "5.81/5.29 fallback: leakage %.2e, 1-F %.2e (plain %.2e)", cal.second.leakage, 1 - cal.second.fidelity, 1 - plain.second.fidelity);
+            } else {
+                CHECK(plain.second.leakage <= CZModel::leak_limit, "5.87/5.29 plain leakage %.2e", plain.second.leakage);
+                CHECK(cal.second.fidelity == plain.second.fidelity && cal.first.t_flat == plain.first.t_flat, "5.87/5.29 within the limit must keep its plain calibration");
+            }
+        }
+    }
     // level-truncation convergence: the calibrated pulse re-simulated with one more coupler / qubit level
     // (Lc = 3 was not converged: it left ~4e-3 rad of conditional-phase error, hence the default Lc = 4)
     {
@@ -771,7 +792,9 @@ static void test_layout() {
         const auto L = assemble_chip(D, cs);
         double worst = 0; for (const auto& r : L.resonators) worst = std::max(worst, std::abs(r.drawn_um - r.target_um));
         CHECK(L.problems.empty(), "chip placement/spacing: %s", L.problems.empty() ? "" : L.problems.front().c_str());
-        std::printf("  AF-17 mask DRC (not asserted; first-cut layout): %s\n", drc_summary(L).c_str());
+        std::printf("  AF-17 mask DRC: %s\n", drc_summary(L).c_str());
+        CHECK(L.drc_count("width") == 0 && L.drc_count("space") == L.conn.fills_reverted, "AF-17 mask DRC: %d width + %d space violations",
+              L.drc_count("width"), L.drc_count("space"));
         CHECK(worst < 1.0 && L.resonators.size() == 17, "resonator lengths");
         const std::string gds_path = temp_path("af17.gds");
         write_gds(L, gds_path, "T");
@@ -1764,6 +1787,122 @@ static void test_designs_v04() {
     CHECK(shift_min > 0.5 && shift_max < 6.0, "tuned-anharmonicity correction outside the expected few MHz");
 }
 
+// ---------------------------------------------------------------- layout_geometry: DRC-aware cell and mask clean-up logic
+static void test_layout_geometry() {
+    std::puts("[layout_geometry] bus knob continuity, shorted staircase end, ground-sliver fill (merges ground only, never island metal), metal connectivity, guarded fill");
+    using namespace layout;
+    auto count = [](const std::vector<DrcMarker>& m, const char* rule) { int n = 0; for (const auto& x : m) n += x.rule.find(rule) != std::string::npos; return n; };
+    {   // bus knob: T-bar length above w_bus, retraction below it, continuous at u = w_bus, round trip, never narrower than the strip
+        CouplerGeom c;
+        for (double u : {40.0, 12.0, 6.0, 3.0, 0.0, -10.0}) {
+            set_bus_knob(c, u);
+            CHECK(std::abs(bus_knob(c) - u) < 1e-12, "bus knob round trip at u=%g: %g", u, bus_knob(c));
+            CHECK(c.bus_tbar() >= c.w_bus - 1e-12, "bus T-bar %g narrower than the strip", c.bus_tbar());
+        }
+        set_bus_knob(c, c.w_bus); CHECK(std::abs(c.bus_gap() - c.g_c) < 1e-12 && std::abs(c.bus_tbar() - c.w_bus) < 1e-12, "branches meet at u = w_bus");
+        set_bus_knob(c, 0.0); CHECK(std::abs(c.bus_gap() - (c.g_c + kBusRetract * c.w_bus)) < 1e-12, "retraction below w_bus");
+        c.l_b = 0.075; c.g_b = -1;                                     // a pre-0.4.1 cell file with a sliver T-bar
+        XmonParams q;
+        const auto E = coupler_and_bus(q, c, 900, 0, 0, 0, true, 200, q.L);
+        double narrow = 1e9; for (const auto& r : E.bus) narrow = std::min({narrow, r.w(), r.h()});
+        CHECK(narrow >= c.w_bus - 1e-9, "bus drawn with a %.3f um feature", narrow);
+    }
+    {   // shorted staircase end: no trench under the last square, the one before trimmed to its edges -> no etch slit
+        std::vector<Rect> m, h;
+        detail::stair(0, 0, 50, 50, m, h, true);
+        const auto etch = detail::etch_of(h, m);
+        const auto mk = detail::width_space_check(etch, 4, 4, "s");
+        std::printf("  shorted staircase: %zu squares, %zu trench squares, %d width + %d space markers\n", m.size(), h.size(), count(mk, "width"), count(mk, "space"));
+        CHECK(h.size() + 1 == m.size() && count(mk, "width") == 0 && count(mk, "space") == 0, "shorted staircase end leaves DRC markers");
+        // the last square's outer edges (x = 55, y = 55) must border ground, i.e. the short really reaches the plane
+        bool etched = false; for (const auto& r : h) etched |= r.contains(55.5, 50) || r.contains(50, 55.5);
+        CHECK(!etched, "the shorted square does not touch the ground plane");
+    }
+    {   // ground sliver between two cut-outs is merged; a metal island in the same gap is left alone; a wide strip is kept
+        std::vector<Rect> holes{{0, 0, 20, 20}, {22, 0, 42, 20},           // 2 um ground strip: filled
+                                {100, 0, 120, 20}, {130, 0, 150, 20}};     // 10 um ground strip: kept
+        const std::vector<Rect> none;
+        const int added = detail::fill_ground_slivers(holes, none, 4.0);
+        const auto mk = detail::width_space_check(detail::etch_of(holes, none), 4, 4, "f");
+        std::printf("  ground-sliver fill: %d rectangle(s) added, %d space markers after\n", added, count(mk, "space"));
+        CHECK(added == 1 && mk.empty(), "sliver fill: %d added, %zu markers", added, mk.size());
+        bool wide_kept = true; for (const auto& r : holes) if (r.intersects({121, 1, 129, 19})) wide_kept = false;
+        CHECK(wide_kept, "a 10 um ground strip was etched");
+        std::vector<Rect> h2{{0, 0, 20, 20}, {22, 0, 42, 20}};
+        const std::vector<Rect> island{{20, 5, 22, 15}};                   // a 2 um island touching the gap: not ground
+        const int added2 = detail::fill_ground_slivers(h2, island, 4.0);
+        CHECK(added2 == 0 && h2.size() == 2, "fill touched a gap containing island metal (%d added)", added2);
+    }
+    {   // metal connectivity: a closed ring of cut-outs encloses a floating ground pocket; an island inside a cut-out is
+        // its own component; etch and points outside the outline have none
+        const Rect outline{0, 0, 100, 100};
+        const std::vector<Rect> ring{{20, 20, 80, 30}, {20, 70, 80, 80}, {20, 30, 30, 70}, {70, 30, 80, 70}};
+        auto M = detail::metal_map(outline, ring, 37);       // columns narrower than the ring: joins across column edges
+        std::printf("  metal map of a closed ring: %d components (plane %d, pocket %d, etch %d)\n", M.n_comp, M.at(5, 5), M.at(50, 50), M.at(25, 50));
+        CHECK(M.n_comp == 2 && M.at(5, 5) != M.at(50, 50) && M.at(25, 50) == -1 && M.at(95, 95) == M.at(5, 5) && M.at(-1, 5) == -1,
+              "closed ring: %d components", M.n_comp);
+        std::vector<Rect> open = ring; open[3] = {70, 30, 80, 45}; open.push_back({70, 55, 80, 70});      // 10 um opening
+        CHECK(detail::metal_map(outline, open, 37).n_comp == 1, "ring with an opening must leave one component");
+    }
+    {   // guarded sliver fill: a pocket joined to the plane only by a 3 um neck keeps the neck (the DRC reports it); an
+        // ordinary 2 um sliver between two cut-outs elsewhere is still merged
+        const Rect outline{0, 0, 200, 100};
+        std::vector<Rect> holes{{20, 20, 80, 30}, {20, 70, 80, 80}, {20, 30, 30, 70}, {70, 30, 80, 48}, {70, 51, 80, 70},   // neck y 48..51
+                                {120, 20, 150, 80}, {152, 20, 180, 80}};                                                 // 2 um sliver
+        const auto G = detail::guarded_fill(outline, holes, {}, 4.0);
+        const auto mk = detail::width_space_check(detail::etch_of(holes, {}), 4, 4, "g");
+        std::printf("  guarded fill: %d kept, %d undone; pocket on the plane: %s; %zu DRC marker(s) left\n", G.kept, G.undone,
+                    G.map.at(50, 50) == G.map.at(5, 5) ? "yes" : "no", mk.size());
+        CHECK(G.map.at(50, 50) == G.map.at(5, 5), "guarded fill cut the pocket off the plane");
+        CHECK(G.undone >= 1 && G.kept >= 1 && mk.size() == 1, "guarded fill: kept %d, undone %d, markers %zu", G.kept, G.undone, mk.size());
+        bool merged = false; for (const auto& h : holes) merged |= h.contains(151, 50);
+        CHECK(merged, "the 2 um sliver away from the pocket was not merged");
+    }
+}
+
+// ---------------------------------------------------------------- layout_presets: the committed chips are mask-clean and on target
+#ifndef QPUFORGE_SOURCE_DIR
+#define QPUFORGE_SOURCE_DIR "."
+#endif
+static void test_layout_presets() {
+    std::puts("[layout_presets] AF-17, BF-49, GF-97 from the committed cell files: placement clean, mask DRC, connectivity report, extraction on target, re-nullable");
+    using namespace layout;
+    struct Chip { const char* name; ChipDesign D; const char* cells; };
+    const std::vector<Chip> chips{{"AF-17", alpha1_v11(3), "designs/alpha1-v11/layout_cells.json"},
+                                  {"BF-49", beta1(5), "designs/beta1/layout_cells.json"},
+                                  {"GF-97", gamma1(7), "designs/beta1/layout_cells.json"}};
+    std::map<std::string, LayoutMetrics> metrics;                    // the Gamma-1 chip reuses the Beta-1 cells
+    for (const auto& c : chips) {
+        std::ifstream f(std::string(QPUFORGE_SOURCE_DIR) + "/" + c.cells);
+        CHECK(bool(f), "%s: cannot open %s", c.name, c.cells);
+        if (!f) continue;
+        std::stringstream ss; ss << f.rdbuf();
+        const CellSet C = cells_from_json(Json::parse(ss.str()));
+        const auto L = assemble_chip(c.D, C);
+        if (!metrics.count(c.cells)) metrics[c.cells] = evaluate_cells(C, MeshOptions{1.5, 50.0, 1.6});
+        const auto& m = metrics[c.cells];
+        const auto R = analyze(c.D);
+        const auto T = targets_from_design(c.D, R);
+        const auto P = post_layout(c.D, R, m);
+        auto rel = [](double a, double t) { return std::abs(a / t - 1); };
+        const double ec = std::max({rel(m.EC_m, T.EC_m), rel(m.EC_d, T.EC_d), rel(m.EC_c, T.EC_c)});
+        const double g = std::max({rel(m.G_mc, T.G_mc), rel(m.G_cd, T.G_cd), rel(m.G_md, T.G_md)});
+        const double cr = rel(m.C_qr_fF, T.C_qr_fF);
+        std::printf("  %s: %s; %d sliver fills; E_C within %.2f%%, couplings within %.2f%%, readout C within %.2f%%, re-nulled gap %.1e MHz\n    %s\n", c.name,
+                    drc_summary(L).c_str(), L.slivers_filled, 100 * ec, 100 * g, 100 * cr, P.park_gap_MHz, connectivity_summary(L).c_str());
+        CHECK(L.problems.empty(), "%s placement: %s", c.name, L.problems.empty() ? "" : L.problems.front().c_str());
+        // the only DRC markers left are the ground necks the connectivity guard kept (one per undone fill)
+        CHECK(L.drc_count("width") == 0 && L.drc_count("space") == L.conn.fills_reverted, "%s mask DRC: %d width + %d space violations, %d fills undone",
+              c.name, L.drc_count("width"), L.drc_count("space"), L.conn.fills_reverted);
+        // connectivity is reported, not gated (floating ground, shorted lines and junction landing are open); what must
+        // hold already: no two conductors share metal and no conductor is shorted to the plane
+        CHECK(L.conn.islands_merged == 0 && L.conn.islands_on_plane == 0, "%s: %d conductors merged, %d on the plane", c.name, L.conn.islands_merged,
+              L.conn.islands_on_plane);
+        CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);
+        CHECK(std::abs(P.park_gap_MHz) < 0.05, "%s parked exchange not re-nullable (%.3f MHz)", c.name, P.park_gap_MHz);
+    }
+}
+
 // ---------------------------------------------------------------- materials: forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md)
 #ifndef QPUFORGE_TEST_DATA
 #define QPUFORGE_TEST_DATA "tests/data"   // CMake passes the absolute path; this default works from the source root
@@ -1927,6 +2066,8 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"leakage_frame", test_leakage_frame},
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
+    {"layout_geometry", test_layout_geometry},
+    {"layout_presets", test_layout_presets},
     {"json_rfc", test_json_rfc},
     {"json_depth", test_json_depth},
     {"gds_write", test_gds_write},

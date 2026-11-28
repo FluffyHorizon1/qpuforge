@@ -3,6 +3,33 @@
 All notable changes to qpuforge. Versions follow `MAJOR.MINOR.PATCH`; before 1.0, a minor release may change the API, and
 every such change is listed under **API changes**.
 
+## [Unreleased]
+
+### Fixed
+- CLI: each command accepts only the options it reads. An unknown or misspelt option (`--shot 1000`, `-grid`, or another
+  command's option such as `hwgate --hidden-dephasing-us`) used to be ignored without a word; it is now an error that
+  names the option and the closest match, prints the command's usage and exits 1 before any file is read. So are an
+  option given twice or without its value, a missing or extra positional argument, a malformed number (`--shots lots`;
+  `--shots 1e5`, which `std::stoi` read as 1), a count out of range (`fab --samples 0` crashed, `run --traj 0` reported
+  a fidelity of 1), a negative seed (`std::stoul` wrapped it) and an unknown choice (`--arch tunabel` gave a
+  fixed-coupling chip; `--off contrl` and `--leakage-removal lrrr` did nothing). `new --preset` rejects the generator
+  options it ignored, `new` takes one topology, `qec` rejects `--burst-*` without `--bursts`, and `budget` no longer
+  accepts `--shots`, which it never used.
+- CLI: `hwgate --out`, `cz --out`, the `synth-chip` data file and the `gds --cells` write-back fail with "cannot write"
+  (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
+  `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
+
+### Changed
+- **Behaviour change:** a malformed number, an unknown circuit (`ghz:x`) and an unknown `--basis`, `--decoder`,
+  `--preset` or `--phase` value are usage errors (exit 1); they used to exit 2, numbers with "error: stoi". The usage
+  text and README document the exit statuses: 0 done, 1 usage error, 2 error while running (also `gds`: layout not
+  DRC-clean), 3 `hwgate`: gate not passed.
+- CLI: the usage text lists every option of every command (`budget --seed`, `qec --seed --cache --leakage-removal`,
+  `synth-chip --cache`, `hwgate --seed --cache` and most `new` options were missing), and a usage error prints the
+  usage of its command only. Options may come before the positional arguments.
+- Tests: `cli_*` guards (label `unit`) for unknown options, missing values, malformed numbers and choices, repeated and
+  extra arguments, one accepted invocation per command, failed writes and the exit statuses.
+
 ## [0.4.0] (unreleased)
 
 Finishes the software side of Phases Alpha and Beta and starts Phase Gamma: an exact decoder at any number of defects,

@@ -6,23 +6,6 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 find_package(OpenMP)
-
-# provenance for the review programs (examples/review_io.hpp): source commit at configure time
-find_package(Git QUIET)
-set(QPUFORGE_GIT_SHA "unknown")
-set(QPUFORGE_GIT_DIRTY 0)
-if(GIT_FOUND)
-  execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse HEAD WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                  OUTPUT_VARIABLE QPUFORGE_GIT_SHA OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE _git_rc)
-  if(NOT _git_rc EQUAL 0)
-    set(QPUFORGE_GIT_SHA "unknown")
-  endif()
-  execute_process(COMMAND ${GIT_EXECUTABLE} status --porcelain --untracked-files=no WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                  OUTPUT_VARIABLE _git_status OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-  if(NOT "${_git_status}" STREQUAL "")
-    set(QPUFORGE_GIT_DIRTY 1)
-  endif()
-endif()
 add_library(qpuforge INTERFACE)
 target_include_directories(qpuforge INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(OpenMP_CXX_FOUND)
@@ -51,8 +34,28 @@ set_target_properties(qpuforge_cli PROPERTIES OUTPUT_NAME qpuforge)
 target_compile_definitions(test_qpuforge PRIVATE QPUFORGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 # `qpuforge --version` prints this (the version comes from project(... VERSION ...) above)
 target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERSION}")
+# Provenance of the review and study programs (examples/git_stamp.hpp): the commit they are built from and whether
+# tracked files are modified, taken on every build, so that the stamp describes the tree the binary was built from.
+# (It used to be two compile definitions computed when CMake configured the build directory: a directory configured at
+# one commit and rebuilt after later commits kept writing the old commit into its outputs.)
+# qpuforge_git_stamp_update is always out of date and runs cmake/git_stamp.cmake, which rewrites git_stamp.cpp only
+# when the stamp changes. That file is the whole of the static library the six programs link, so a new commit costs
+# one small compile and six relinks, and a build with nothing new recompiles and relinks nothing.
+find_package(Git QUIET)   # a hint for the script, which looks for git on PATH when this one is missing at build time
+set(QPUFORGE_GIT_STAMP_CPP ${CMAKE_CURRENT_BINARY_DIR}/git_stamp.cpp)
+add_custom_target(qpuforge_git_stamp_update
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DOUTPUT=${QPUFORGE_GIT_STAMP_CPP}
+          -DGIT_EXECUTABLE=${GIT_EXECUTABLE} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/git_stamp.cmake
+  BYPRODUCTS ${QPUFORGE_GIT_STAMP_CPP}
+  COMMENT "Stamping the source commit"
+  VERBATIM)
+add_library(qpuforge_git_stamp STATIC ${QPUFORGE_GIT_STAMP_CPP})
+add_dependencies(qpuforge_git_stamp qpuforge_git_stamp_update)
+target_include_directories(qpuforge_git_stamp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)   # git_stamp.hpp
+target_compile_definitions(qpuforge_git_stamp PUBLIC QPUFORGE_GIT_STAMP)   # git_stamp.hpp: the stamp is linked in
+target_compile_options(qpuforge_git_stamp PRIVATE ${QPUFORGE_COMPILE_OPTIONS})
 foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps surgery_study)
-  target_compile_definitions(${name} PRIVATE QPUFORGE_GIT_SHA="${QPUFORGE_GIT_SHA}" QPUFORGE_GIT_DIRTY=${QPUFORGE_GIT_DIRTY})
+  target_link_libraries(${name} PRIVATE qpuforge_git_stamp)
 endforeach()
 # the materials group reads its forge.materials.v0 sidecar fixtures from the source tree
 target_compile_definitions(test_qpuforge PRIVATE QPUFORGE_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
@@ -198,6 +201,13 @@ add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)
 set_tests_properties(fp_contract_flags PROPERTIES LABELS unit)
+# Stamp guard (not one of the validation checks): on a scratch git repository in the build tree, cmake/git_stamp.cmake
+# must follow HEAD and the dirty flag from one run to the next, and leave the stamp file alone when nothing changed.
+# No network. Without git only the "unknown" stamp is checked and the test is reported as skipped, not failed.
+add_test(NAME git_stamp COMMAND ${CMAKE_COMMAND} -DSTAMP_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/cmake/git_stamp.cmake
+         -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR} -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_git_stamp.cmake)
+set_tests_properties(git_stamp PROPERTIES LABELS unit SKIP_REGULAR_EXPRESSION "git_stamp: skipped")
 # Thread-count determinism guard (not one of the validation checks): Monte Carlo results must be bit-identical for any
 # OpenMP thread count (docs/design/deterministic-mc.md). 'determinism' compares 1/2/3/4/8 threads in one process;
 # 'determinism_env' runs separate processes under OMP_NUM_THREADS=1,2,4,8 and compares their digests.

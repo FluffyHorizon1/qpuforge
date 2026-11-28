@@ -22,3 +22,18 @@ if(NOT txt MATCHES [[test_fp_contract:tests/test_fp_contract.cpp]]
     AND NOT txt MATCHES [[target_compile_options\(test_fp_contract PRIVATE \$\{QPUFORGE_COMPILE_OPTIONS\}\)]])
   message(FATAL_ERROR "test_fp_contract is not built with QPUFORGE_COMPILE_OPTIONS")
 endif()
+# A target created outside that helper, by add_executable or add_library with a literal name (test_determinism, the
+# qpuforge_git_stamp library), needs its own target_compile_options line with the list. An INTERFACE library compiles
+# nothing and is skipped.
+string(REGEX MATCHALL "add_(executable|library)\\([A-Za-z0-9_]+ [A-Z]*" declarations "${txt}")
+foreach(declaration IN LISTS declarations)
+  if(declaration MATCHES " INTERFACE$")
+    continue()
+  endif()
+  string(REGEX REPLACE "^add_[a-z]+\\(([A-Za-z0-9_]+) .*$" "\\1" target "${declaration}")
+  string(FIND "${txt}" "target_compile_options(${target} PRIVATE \${QPUFORGE_COMPILE_OPTIONS})" at)
+  if(at EQUAL -1)
+    message(FATAL_ERROR "${target} is not built with QPUFORGE_COMPILE_OPTIONS")
+  endif()
+  message(STATUS "${target}: QPUFORGE_COMPILE_OPTIONS")
+endforeach()

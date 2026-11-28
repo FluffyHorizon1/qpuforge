@@ -68,3 +68,5 @@ Testing/
 Thumbs.db
 !tests/compare_thread_digests.cmake
 !tests/check_cli_exit_status.cmake
+!tests/check_git_stamp.cmake
+!cmake/git_stamp.cmake

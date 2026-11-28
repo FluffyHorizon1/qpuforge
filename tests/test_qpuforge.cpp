@@ -2730,6 +2730,17 @@ static long plain_stream(const MemorySetup& M, const StreamingUnionFind& S, long
     o.herald.use_in_decoder = false; o.stream = &S;
     return run_memory_frame(M, shots, seed, o).logical_errors;
 }
+// per-shot records (ShotRecord): failures recorded, shots on which two records hold the same syndrome, distinct syndromes
+static long record_failures(const ShotRecord& r) { long n = 0; for (std::uint8_t f : r.failed) n += f; return n; }
+static long record_same(const ShotRecord& a, const ShotRecord& b) {
+    long n = 0;
+    for (std::size_t s = 0; s < std::min(a.syndrome.size(), b.syndrome.size()); ++s) n += a.syndrome[s] == b.syndrome[s];
+    return n;
+}
+static long record_distinct(const ShotRecord& r) {
+    auto v = r.syndrome; std::sort(v.begin(), v.end());
+    return long(std::unique(v.begin(), v.end()) - v.begin());
+}
 static void test_herald_weights() {
     std::puts("[herald weights] weights derived from the leakage model: the model's leak probabilities against the sampler, logical gain against the fixed factors");
     const auto D = surface_chip(5); const auto R = analyze(D);
@@ -2741,7 +2752,9 @@ static void test_herald_weights() {
     FrameRunOptions fixed; fixed.herald.on = true;
     FrameRunOptions blind = fixed; blind.herald.use_in_decoder = false;
     FrameRunOptions der = fixed; der.herald.derived = true;
-    const auto rb = run_memory_frame(M, shots, 515, blind), rf = run_memory_frame(M, shots, 515, fixed), rd = run_memory_frame(M, shots, 515, der);
+    ShotRecord xb, xf, xd;                                   // per-shot records of the first three runs (part 5)
+    FrameRunOptions blind_r = blind, fixed_r = fixed, der_r = der; blind_r.record = &xb; fixed_r.record = &xf; der_r.record = &xd;
+    const auto rb = run_memory_frame(M, shots, 515, blind_r), rf = run_memory_frame(M, shots, 515, fixed_r), rd = run_memory_frame(M, shots, 515, der_r);
     // 1. the leakage chain against the Monte Carlo, and how much of each herald it explains
     const double mc_true = rb.heralds_per_shot * rb.herald_true_frac, model_true = model_true_heralds(M, fixed.herald.fidelity);
     std::size_t edges = 0; for (const auto& v : H.cond) edges += v.size();
@@ -2784,6 +2797,19 @@ static void test_herald_weights() {
         CHECK(c.logical_errors != qb.logical_errors && 10 * e.logical_errors < 8 * c.logical_errors && f.logical_errors == plain_stream(M, slide, shots, 515, never),
               "streaming with heralds: blind %ld (batch %ld), never firing %ld, derived %ld", c.logical_errors, qb.logical_errors, f.logical_errors, e.logical_errors);
     }
+    // 5. the per-shot records: they hold every failure, and the three runs saw the same syndrome on every shot, so
+    //    they can be compared shot by shot (the decoder's input differs, the sampled shot does not)
+    {
+        long only_f = 0, only_b = 0;
+        for (std::size_t s = 0; s < xb.failed.size(); ++s) { only_f += xf.failed[s] && !xb.failed[s]; only_b += xb.failed[s] && !xf.failed[s]; }
+        const long same = std::min(record_same(xb, xf), record_same(xb, xd)), distinct = record_distinct(xb);
+        std::printf("  per-shot records: the same syndrome in all three runs on %ld of %ld shots (%ld distinct syndromes); fixed against none, shot by shot: %ld fail only with the fixed factors, %ld only without heralds\n",
+                    same, shots, distinct, only_f, only_b);
+        CHECK(record_failures(xb) == rb.logical_errors && record_failures(xf) == rf.logical_errors && record_failures(xd) == rd.logical_errors && same == shots &&
+              2 * distinct > shots && only_f - only_b == rf.logical_errors - rb.logical_errors,
+              "per-shot records: failures %ld / %ld / %ld (runs %ld / %ld / %ld), the same syndrome on %ld of %ld shots, %ld distinct", record_failures(xb),
+              record_failures(xf), record_failures(xd), rb.logical_errors, rf.logical_errors, rd.logical_errors, same, shots, distinct);
+    }
 }
 
 // ---------------------------------------------------------------- data-qubit leakage heralding (DQLR with transfer)
@@ -2803,12 +2829,14 @@ static void test_dqlr_herald() {
     // dump (the 0.4 model): the measure-qubit readout sees almost none of the data-qubit leakage
     auto Md = prepare_memory(D, R, nm, 10);
     prepare_herald_model(Md);
-    const auto db = run_memory_frame(Md, shots, 616, blind), dd = run_memory_frame(Md, shots, 616, h);
+    ShotRecord xdb, xtb;                                     // per-shot records of the runs without heralds
+    FrameRunOptions blind_d = blind, blind_t = blind; blind_d.record = &xdb; blind_t.record = &xtb;
+    const auto db = run_memory_frame(Md, shots, 616, blind_d), dd = run_memory_frame(Md, shots, 616, h);
     // transfer
     auto nt = nm; nt.dqlr_transfer = true;
     auto Mt = prepare_memory(D, R, nt, 10);
     prepare_herald_model(Mt);
-    const auto tb = run_memory_frame(Mt, shots, 616, blind), td = run_memory_frame(Mt, shots, 616, h);
+    const auto tb = run_memory_frame(Mt, shots, 616, blind_t), td = run_memory_frame(Mt, shots, 616, h);
     const double mc_d = db.heralds_per_shot * db.herald_true_frac, mc_t = tb.heralds_per_shot * tb.herald_true_frac;
     const double mo_d = model_true_heralds(Md, h.herald.fidelity), mo_t = model_true_heralds(Mt, h.herald.fidelity);
     std::printf("  d=5, 10 rounds, data-qubit CZ leakage 2e-3, %.2f leakage events per shot; true heralds per shot: dump %.4f (model %.4f), transfer %.4f (model %.4f)\n",
@@ -2825,8 +2853,19 @@ static void test_dqlr_herald() {
     CHECK(Mt.herald_model.worst_unexplained < 0.01, "transfer: %.3f of a herald unexplained", Mt.herald_model.worst_unexplained);
     // transfer off: bit for bit the sampler of before (the flag alone changes nothing without DQLR)
     auto n0 = stressed_leakage(D, R, 2e-3), n1 = n0; n1.dqlr_transfer = true;
-    const auto r0 = run_memory_frame(prepare_memory(D, R, n0, 6), 5000, 9), r1 = run_memory_frame(prepare_memory(D, R, n1, 6), 5000, 9);
+    ShotRecord x0, x1; FrameRunOptions o0, o1; o0.record = &x0; o1.record = &x1;
+    const auto r0 = run_memory_frame(prepare_memory(D, R, n0, 6), 5000, 9, o0), r1 = run_memory_frame(prepare_memory(D, R, n1, 6), 5000, 9, o1);
     CHECK(r0.logical_errors == r1.logical_errors && r0.leak_frac_meas == r1.leak_frac_meas && r0.mean_defects == r1.mean_defects, "the transfer flag without DQLR changed the run");
+    // the dump and the transfer share each shot's random stream: their syndromes agree until a removal pulse finds a
+    // leaked data qubit, so the shots in which none does are the same in both (paired comparisons); with the flag
+    // alone (no DQLR) every shot is the same
+    const long same_dt = record_same(xdb, xtb), same_01 = record_same(x0, x1);
+    std::printf("  per-shot records: dump and transfer without heralds see the same syndrome on %ld of %ld shots; the flag without DQLR on %ld of 5000\n",
+                same_dt, shots, same_01);
+    CHECK(record_failures(xdb) == db.logical_errors && record_failures(xtb) == tb.logical_errors && 10 * same_dt > shots && same_dt < shots &&
+          same_01 == 5000 && x0.failed == x1.failed,
+          "per-shot records: dump %ld / %ld failures, transfer %ld / %ld, the same syndrome on %ld of %ld shots; flag alone %ld of 5000", record_failures(xdb),
+          db.logical_errors, record_failures(xtb), tb.logical_errors, same_dt, shots, same_01);
 }
 
 // ---------------------------------------------------------------- operation counts of the streaming decoder
@@ -2881,8 +2920,9 @@ static void test_stream_ops() {
         UFCostModel one; one.name = "unit"; one.fixed = 5; for (long& v : one.per) v = 1;
         const long shots = 6000;
         FrameRunOptions so; so.stream = &S;
-        const auto ref = run_memory_frame(M, shots, 88, so);
-        const auto P = run_stream_profile(M, S, shots, 88, false, {one}), Q = run_stream_profile(M, S, shots, 88, true, {one});
+        ShotRecord xr, xp, xq; FrameRunOptions so_r = so; so_r.record = &xr;
+        const auto ref = run_memory_frame(M, shots, 88, so_r);
+        const auto P = run_stream_profile(M, S, shots, 88, false, {one}, &xp), Q = run_stream_profile(M, S, shots, 88, true, {one}, &xq);
         long nw = 0, empty = 0; for (const auto& [v, k] : P.cycles_hist[0]) { nw += k; if (v == one.empty) empty += k; }
         long nloads = 0; for (const auto& [v, k] : P.count_hist[0]) nloads += k;
         std::printf("  profile of %ld shots, window 6 / commit 3: %ld failures (run_memory_frame %ld); %ld windows, %.1f%% without defects; with the pre-decoder %ld failures, %.1f%% of the windows with defects cleared\n",
@@ -2896,6 +2936,16 @@ static void test_stream_ops() {
               StreamProfile::mean(P.latency_hist[0]) >= StreamProfile::mean(P.cycles_hist[0]) &&
               StreamProfile::mean(P.stream_latency_hist[0]) >= StreamProfile::mean(P.latency_hist[0]) && !P.stream_late_hist[0].empty(),
               "profile statistics (mean cycles %.2f, with the pre-decoder %.2f)", StreamProfile::mean(P.cycles_hist[0]), StreamProfile::mean(Q.cycles_hist[0]));
+        // the per-shot records: the profile runner fails on the same shots as run_memory_frame with the same decoder,
+        // and with and without the pre-decoder it sees the same syndromes (paired comparison)
+        long only_q = 0, only_p = 0;
+        for (std::size_t s = 0; s < xp.failed.size(); ++s) { only_q += xq.failed[s] && !xp.failed[s]; only_p += xp.failed[s] && !xq.failed[s]; }
+        std::printf("  per-shot records: plain and run_memory_frame fail on the same shots: %s; with the pre-decoder %ld fail only with it, %ld only without\n",
+                    xp.failed == xr.failed ? "yes" : "no", only_q, only_p);
+        CHECK(xp.failed == xr.failed && xp.syndrome == xr.syndrome && xq.syndrome == xr.syndrome && record_failures(xq) == Q.logical_errors &&
+              only_q - only_p == Q.logical_errors - P.logical_errors && record_distinct(xp) > shots / 2,
+              "profile records: %ld failures recorded with the pre-decoder (%ld), same failures as run_memory_frame: %d", record_failures(xq), Q.logical_errors,
+              int(xp.failed == xr.failed));
     }
 }
 

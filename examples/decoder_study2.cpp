@@ -8,8 +8,11 @@
 //   3. operation counts of the streaming union-find decoder at d = 3, 5, 7 for the window / commit settings of
 //      decoder_study section 5, and the cycle counts of two hardware models against the QEC round, with and without an
 //      isolated-pair pre-decoder (docs/design/streaming-union-find-fpga.md). A model: nothing here ran on hardware.
+// Every comparison of two runs on the same shots is also made shot by shot (ShotRecord): failures in both runs, in
+// the first only, in the second only, and the difference with its paired standard error.
 // Writes results/decoder_study2.{txt,json}. Options as for the reviews ([shots] [--out DIR] [--cache FILE] [--smoke]).
 #include "review_util.hpp"
+#include <array>
 #include <chrono>
 #include <cstdarg>
 
@@ -32,6 +35,43 @@ static Json run_json(const MemoryResult& r) {
     o.set("failures", double(r.logical_errors)); o.set("eps", r.eps_per_round);
     return o;
 }
+// Two runs on the same shots (the same seed), compared shot by shot: failures in both, in the first only, in the
+// second only, and the shots on which both saw the same syndrome. First minus second is (first only) - (second only),
+// with the paired standard error sqrt(first only + second only) (McNemar). Runs on different syndromes take the
+// unpaired error sqrt(first + second).
+struct Pair { long n{0}, both{0}, first{0}, second{0}, same{0}; long n_first() const { return both + first; } long n_second() const { return both + second; } };
+static Pair pair_of(const ShotRecord& A, const ShotRecord& B) {
+    Pair p; p.n = long(std::min(A.failed.size(), B.failed.size()));
+    for (std::size_t s = 0; s < std::size_t(p.n); ++s) {
+        const bool a = A.failed[s] != 0, b = B.failed[s] != 0;
+        p.both += a && b; p.first += a && !b; p.second += !a && b; p.same += A.syndrome[s] == B.syndrome[s];
+    }
+    return p;
+}
+static double same_frac(const Pair& p) { return p.n ? double(p.same) / double(p.n) : 0.0; }
+static double pair_se(const Pair& p, bool paired) { return std::sqrt(double(paired ? p.first + p.second : p.n_first() + p.n_second())); }
+static std::string pair_text(const Pair& p, const char* a, const char* b) {
+    const double se = pair_se(p, true); const long dl = p.first - p.second;
+    char buf[320];
+    std::snprintf(buf, sizeof buf, "%s - %s %+ld +/- %.1f (z %+.1f; both %ld, only %s %ld, only %s %ld)", a, b, dl, se, se > 0 ? double(dl) / se : 0.0, p.both, a, p.first,
+                  b, p.second);
+    return buf;
+}
+static std::string unpaired_text(const Pair& p, const char* a, const char* b) {
+    const double se = pair_se(p, false); const long dl = p.n_first() - p.n_second();
+    char buf[320];
+    std::snprintf(buf, sizeof buf, "%s - %s %+ld +/- %.1f (z %+.1f, unpaired)", a, b, dl, se, se > 0 ? double(dl) / se : 0.0);
+    return buf;
+}
+static Json pair_json(const Pair& p, bool paired) {
+    Json o = Json::object();
+    const double se = pair_se(p, paired); const long dl = p.n_first() - p.n_second();
+    o.set("paired", paired); o.set("failures_first", double(p.n_first())); o.set("failures_second", double(p.n_second()));
+    if (paired) { o.set("both", double(p.both)); o.set("only_first", double(p.first)); o.set("only_second", double(p.second)); }
+    o.set("difference", double(dl)); o.set("standard_error", se); o.set("z", se > 0 ? double(dl) / se : 0.0);
+    o.set("identical_syndromes", same_frac(p));
+    return o;
+}
 
 int main(int argc, char** argv) {
     g_opt = parse(argc, argv, 100000);
@@ -41,10 +81,14 @@ int main(int argc, char** argv) {
     const int R = 14;                                              // rounds of the memory runs (as in decoder_study)
     const std::vector<int> dists = g_opt.smoke ? std::vector<int>{3, 5} : std::vector<int>{3, 5, 7};
     say("Decoder study, part 2, Gamma-1 (GF-97): %ld shots per point, %d-round memory-Z runs unless stated\n", shots, R);
+    say("Paired comparisons (two runs on the same shots): \"A - B d +/- s (z; both n, only A a, only B b)\": n shots fail in both runs, a in A only,\n"
+        "b in B only; d = a - b is the difference in failures and s = sqrt(a + b) its paired standard error. Unpaired (different syndromes):\n"
+        "s = sqrt(failures of A + failures of B).\n");
 
     // ------------------------------------------------------------------ 1. derived herald weights
     say("\n1. Herald weights derived from the leakage model (3-state readout of the measure qubits, fidelity 0.95, false-herald rate 1e-3;\n"
-        "   leakage-removing reset; same syndromes; fixed = footprint rule, factor 0.4)\n");
+        "   leakage-removing reset; fixed = footprint rule, factor 0.4). The three runs of a point (none, fixed, derived) decode the same\n"
+        "   syndromes: the share of shots with identical syndromes is printed with the paired comparison\n");
     {
         Json hj = Json::object();
         for (int d : dists) {
@@ -54,9 +98,7 @@ int main(int argc, char** argv) {
                 auto nm = noise_model(D, Rd);
                 for (auto& kv : nm.leak_cz) kv.second.second *= scale;
                 auto M = prepare_memory(D, Rd, nm, R, 'Z');
-                const auto t0 = std::chrono::steady_clock::now();
                 prepare_herald_model(M);
-                const double t_model = since(t0);
                 const auto& H = M.herald_model;
                 const long n = d == 7 ? 2 * shots : shots;
                 const std::uint64_t seed = 300 + std::uint64_t(d);
@@ -65,13 +107,14 @@ int main(int argc, char** argv) {
                     FrameRunOptions fx; fx.method = meth; fx.herald.on = true;
                     FrameRunOptions off = fx; off.herald.use_in_decoder = false;
                     FrameRunOptions dv = fx; dv.herald.derived = true;
+                    ShotRecord xb, xf, xd; off.record = &xb; fx.record = &xf; dv.record = &xd;
                     const auto rb = run_memory_frame(M, n, seed, off), rf = run_memory_frame(M, n, seed, fx), rd = run_memory_frame(M, n, seed, dv);
                     if (meth == DecodeMethod::Auto) {
                         std::size_t entries = 0; for (const auto& v : H.cond) entries += v.size();
                         say("   d=%d, CZ leakage x%-2.0f: %.3f leakage events and %.2f heralds per shot (%.0f%% leaked); true heralds per shot %.4f sampled, %.4f from the model;\n"
-                            "       model: %zu (bit, edge) entries, at most %.3f of a herald unexplained by the %d-round look-back, built in %.2f s\n",
+                            "       model: %zu (bit, edge) entries, at most %.3f of a herald unexplained by the %d-round look-back\n",
                             d, scale, rb.leak_events_per_shot, rb.heralds_per_shot, 100 * rb.herald_true_frac, rb.heralds_per_shot * rb.herald_true_frac,
-                            true_heralds_model(M, fx.herald.fidelity), entries, H.worst_unexplained, H.max_rounds, t_model);
+                            true_heralds_model(M, fx.herald.fidelity), entries, H.worst_unexplained, H.max_rounds);
                         o.set("shots", double(n)); o.set("leak_events_per_shot", rb.leak_events_per_shot); o.set("heralds_per_shot", rb.heralds_per_shot);
                         o.set("herald_true_frac", rb.herald_true_frac); o.set("true_heralds_per_shot_model", true_heralds_model(M, fx.herald.fidelity));
                         o.set("model_entries", double(entries)); o.set("model_worst_unexplained", H.worst_unexplained);
@@ -80,8 +123,15 @@ int main(int argc, char** argv) {
                     auto pct = [&](const MemoryResult& r) { return rb.logical_errors > 0 ? 100.0 * (double(r.logical_errors) / double(rb.logical_errors) - 1) : 0.0; };
                     say("       %-10s: failures of %ld: %ld without heralds, %ld fixed (%+.0f%%), %ld derived (%+.0f%%); eps %.3e / %.3e / %.3e\n", method_name(meth), n,
                         rb.logical_errors, rf.logical_errors, pct(rf), rd.logical_errors, pct(rd), rb.eps_per_round, rf.eps_per_round, rd.eps_per_round);
+                    const Pair fb = pair_of(xf, xb), db = pair_of(xd, xb), df = pair_of(xd, xf);
+                    say("                   paired (identical syndromes on %.2f%% of shots): %s;\n                   %s;\n                   %s\n",
+                        100 * std::min(same_frac(fb), same_frac(db)), pair_text(fb, "fixed", "none").c_str(), pair_text(db, "derived", "none").c_str(),
+                        pair_text(df, "derived", "fixed").c_str());
                     Json m = Json::object();
                     m.set("none", run_json(rb)); m.set("fixed", run_json(rf)); m.set("derived", run_json(rd));
+                    Json pj = Json::object();
+                    pj.set("fixed_vs_none", pair_json(fb, true)); pj.set("derived_vs_none", pair_json(db, true)); pj.set("derived_vs_fixed", pair_json(df, true));
+                    m.set("paired", pj);
                     o.set(method_key(meth), m);
                 }
                 // a worked example: the heralded readouts of the middle round with the largest leak probability, one that
@@ -131,9 +181,13 @@ int main(int argc, char** argv) {
     }
 
     // ------------------------------------------------------------------ 2. data-qubit leakage heralding
-    say("\n2. Data-qubit leakage heralding (derived weights; same syndromes within a scheme, different syndromes between schemes)\n"
+    say("\n2. Data-qubit leakage heralding (derived weights)\n"
         "   schemes: LRR = leakage-removing reset alone (Gamma-1); +DQLR = data-qubit leakage removal that dumps the leakage; +DQLR-herald = the\n"
-        "   removal pulse leaves the leakage on the measure qubit, heralded by that qubit's next readout\n");
+        "   removal pulse leaves the leakage on the measure qubit, heralded by that qubit's next readout\n"
+        "   Within a scheme, the runs without and with heralds decode the same syndromes (paired). +DQLR and +DQLR-herald have the same circuit\n"
+        "   and seed: a shot makes the same random draws in both until a removal pulse takes the leakage off a data qubit, so the shots in which\n"
+        "   none does are identical, and the two are compared shot by shot (the share of identical syndromes is printed). LRR has no removal\n"
+        "   pulse and a shorter round: its syndromes are not those of +DQLR, and that comparison takes the unpaired error\n");
     {
         Json dj = Json::object();
         for (int d : dists) {
@@ -146,6 +200,8 @@ int main(int argc, char** argv) {
                                                      : "stress: the data qubit is the leaking partner of every CZ");
                 for (double scale : {1.0, 10.0}) {
                     Json sj = Json::object();
+                    // per-shot records of every run of this point: [scheme][method][0 = without heralds, 1 = with]
+                    std::vector<std::vector<std::array<ShotRecord, 2>>> rec(3, std::vector<std::array<ShotRecord, 2>>(meths.size()));
                     for (int scheme : {0, 1, 2}) {
                         ChipDesign D = gamma1(d);
                         if (scheme >= 1) D.leakage.dqlr = true;                // the removal pulse lengthens the reset (and the round)
@@ -160,14 +216,17 @@ int main(int argc, char** argv) {
                         prepare_herald_model(M);
                         const char* sname = scheme == 0 ? "LRR" : scheme == 1 ? "+DQLR" : "+DQLR-herald";
                         Json o = Json::object();
-                        for (DecodeMethod meth : meths) {
+                        for (std::size_t mi = 0; mi < meths.size(); ++mi) {
+                            const DecodeMethod meth = meths[mi];
                             FrameRunOptions dv; dv.method = meth; dv.herald.on = true; dv.herald.derived = true;
                             FrameRunOptions off = dv; off.herald.use_in_decoder = false;
+                            off.record = &rec[std::size_t(scheme)][mi][0]; dv.record = &rec[std::size_t(scheme)][mi][1];
                             const auto rb = run_memory_frame(M, n, seed, off), rd = run_memory_frame(M, n, seed, dv);
-                            if (meth == meths.front()) {
-                                say("     x%-2.0f %-12s: round %.0f ns, leaked data %.1e meas %.1e, %.2f heralds per shot (%.0f%% leaked; true %.4f sampled, %.4f model)\n", scale, sname,
+                            if (mi == 0) {
+                                say("     x%-2.0f %-12s: round %.0f ns, leaked data %.1e meas %.1e, %.2f heralds per shot (%.0f%% leaked; true %.4f sampled, %.4f model);\n"
+                                    "                        at most %.3f of a herald unexplained by the %d-round look-back\n", scale, sname,
                                     rb.round_ns, rb.leak_frac_data, rb.leak_frac_meas, rb.heralds_per_shot, 100 * rb.herald_true_frac, rb.heralds_per_shot * rb.herald_true_frac,
-                                    true_heralds_model(M, dv.herald.fidelity));
+                                    true_heralds_model(M, dv.herald.fidelity), M.herald_model.worst_unexplained, M.herald_model.max_rounds);
                                 o.set("round_ns", rb.round_ns); o.set("leak_frac_data", rb.leak_frac_data); o.set("leak_frac_meas", rb.leak_frac_meas);
                                 o.set("leak_events_per_shot", rb.leak_events_per_shot);
                                 o.set("heralds_per_shot", rb.heralds_per_shot); o.set("herald_true_frac", rb.herald_true_frac);
@@ -175,12 +234,30 @@ int main(int argc, char** argv) {
                             }
                             say("         %-10s: failures of %ld: %ld without heralds (eps %.3e), %ld with (eps %.3e): %+.0f%%\n", method_name(meth), n, rb.logical_errors,
                                 rb.eps_per_round, rd.logical_errors, rd.eps_per_round, rb.logical_errors > 0 ? 100.0 * (double(rd.logical_errors) / double(rb.logical_errors) - 1) : 0.0);
+                            const Pair wn = pair_of(rec[std::size_t(scheme)][mi][1], rec[std::size_t(scheme)][mi][0]);
+                            say("                     paired (identical syndromes on %.2f%% of shots): %s\n", 100 * same_frac(wn), pair_text(wn, "with", "without").c_str());
                             Json m = Json::object();
-                            m.set("none", run_json(rb)); m.set("derived", run_json(rd));
+                            m.set("none", run_json(rb)); m.set("derived", run_json(rd)); m.set("paired_derived_vs_none", pair_json(wn, true));
                             o.set(method_key(meth), m);
                         }
                         sj.set(scheme == 0 ? "lrr" : scheme == 1 ? "lrr_dqlr" : "lrr_dqlr_herald", o);
                     }
+                    // between schemes: the transfer against the dump shot by shot, the dump against the reset alone unpaired
+                    Json cj = Json::object();
+                    for (std::size_t mi = 0; mi < meths.size(); ++mi) {
+                        const Pair t0 = pair_of(rec[2][mi][0], rec[1][mi][0]), t1 = pair_of(rec[2][mi][1], rec[1][mi][1]);
+                        const Pair l0 = pair_of(rec[1][mi][0], rec[0][mi][0]), l1 = pair_of(rec[1][mi][1], rec[0][mi][1]);
+                        say("         %-10s: identical syndromes on %.1f%% of shots for +DQLR-herald and +DQLR, %.2f%% for +DQLR and LRR\n"
+                            "                     without heralds: %s; %s\n"
+                            "                     with heralds:    %s; %s\n",
+                            method_name(meths[mi]), 100 * same_frac(t0), 100 * same_frac(l0), pair_text(t0, "+DQLR-herald", "+DQLR").c_str(),
+                            unpaired_text(l0, "+DQLR", "LRR").c_str(), pair_text(t1, "+DQLR-herald", "+DQLR").c_str(), unpaired_text(l1, "+DQLR", "LRR").c_str());
+                        Json c = Json::object();
+                        c.set("transfer_vs_dump_none", pair_json(t0, true)); c.set("transfer_vs_dump_derived", pair_json(t1, true));
+                        c.set("dump_vs_lrr_none", pair_json(l0, false)); c.set("dump_vs_lrr_derived", pair_json(l1, false));
+                        cj.set(method_key(meths[mi]), c);
+                    }
+                    sj.set("between_schemes", cj);
                     dj.set("d" + std::to_string(d) + (variant == 0 ? "_designed" : "_data_leak") + "_x" + std::to_string(int(scale)), sj);
                 }
             }
@@ -215,18 +292,22 @@ int main(int argc, char** argv) {
             for (auto [W, C] : std::vector<std::pair<int, int>>{{2, 1}, {4, 2}, {6, 3}, {10, 5}, {20, 10}}) {
                 if (W > RS) continue;
                 const StreamingUnionFind S(int(M.exp.detectors.size()), M.dem.edges, M.exp.detector_round, W, C);
-                const auto P = run_stream_profile(M, S, n, 601, false, models), Q = run_stream_profile(M, S, n, 601, true, models);
+                ShotRecord xp, xq;
+                const auto P = run_stream_profile(M, S, n, 601, false, models, &xp), Q = run_stream_profile(M, S, n, 601, true, models, &xq);
+                const Pair pq = pair_of(xq, xp);
                 const long with_def = Q.windows - Q.windows_empty;
                 say("     window %2d / commit %2d (%d vertices, %d edges per window; %ld windows): %ld failures, %ld with the pre-decoder; windows without defects %.1f%%;\n"
                     "         the pre-decoder clears %.1f%% of all windows (%.1f%% of those with defects)\n",
                     W, C, S.window_vertices(S.n_windows() > 2 ? 1 : 0), S.window_edges(S.n_windows() > 2 ? 1 : 0), P.windows, P.logical_errors, Q.logical_errors,
                     100.0 * double(P.windows_empty) / double(P.windows), 100.0 * double(Q.windows_cleared) / double(Q.windows),
                     with_def > 0 ? 100.0 * double(Q.windows_cleared) / double(with_def) : 0.0);
+                say("         paired (identical syndromes on %.2f%% of shots): %s\n", 100 * same_frac(pq), pair_text(pq, "pre-decoder", "plain").c_str());
                 Json o = Json::object();
                 o.set("window", W); o.set("commit", C); o.set("windows", double(P.windows)); o.set("failures", double(P.logical_errors));
                 o.set("failures_predecode", double(Q.logical_errors)); o.set("frac_windows_empty", double(P.windows_empty) / double(P.windows));
                 o.set("frac_windows_cleared_by_predecoder", double(Q.windows_cleared) / double(Q.windows));
                 o.set("frac_defect_windows_cleared_by_predecoder", with_def > 0 ? double(Q.windows_cleared) / double(with_def) : 0.0);
+                o.set("paired_predecode_vs_plain", pair_json(pq, true));
                 o.set("window_vertices", S.window_vertices(S.n_windows() > 2 ? 1 : 0)); o.set("window_edges", S.window_edges(S.n_windows() > 2 ? 1 : 0));
                 auto stats = [](const StreamProfile::Hist& h, double scale) {
                     Json s = Json::object();

@@ -10,11 +10,11 @@
 // count that is not a multiple of the block size, in both memory bases and with two decode methods, including the setup
 // (parallel fault enumeration -> DEM) and the 0.4 syndrome statistics; the same memory decoded with union-find (batch and
 // streaming), with heralded leakage (fixed factors, weights derived from the leakage model, DQLR with heralding), with
-// the streaming decoder's operation profile, and with per-shot impact injection and a calibrated veto; run_surgery_frame on a
-// d = 3 lattice-surgery ZZ measurement and a d = 3 three-patch CNOT with leakage on (each observable has its own decoder);
-// the ZZ shots again through run_surgery_decoders with every surgery decoder (joint matching, union-find, two-pass
-// correlated), and an XX measurement through a routing strip decoded jointly; and the trajectory emulator's sampled XEB
-// (a double reduction).
+// the streaming decoder's operation profile (two of these runs also with their per-shot records), and with per-shot
+// impact injection and a calibrated veto; run_surgery_frame on a d = 3 lattice-surgery ZZ measurement and a d = 3
+// three-patch CNOT with leakage on (each observable has its own decoder); the ZZ shots again through
+// run_surgery_decoders with every surgery decoder (joint matching, union-find, two-pass correlated), and an XX
+// measurement through a routing strip decoded jointly; and the trajectory emulator's sampled XEB (a double reduction).
 #include "qpuforge/qpuforge.hpp"
 #include <cstdio>
 #include <cstring>
@@ -27,6 +27,12 @@
 using namespace qpuforge;
 
 static std::string hex(double v) { char b[64]; std::snprintf(b, sizeof b, "%a", v); return b; }
+// the per-shot record of a run (outcome and syndrome hash of every shot), folded into one word
+static std::string record_hex(const ShotRecord& r) {
+    std::uint64_t h = splitmix64_mix(r.failed.size());
+    for (std::size_t s = 0; s < r.failed.size(); ++s) h = splitmix64_mix(h ^ r.syndrome[s] ^ std::uint64_t(r.failed[s]));
+    char b[32]; std::snprintf(b, sizeof b, "%016llx", static_cast<unsigned long long>(h)); return b;
+}
 
 static std::string frame_digest() {
     GenSpec s; s.topology = "surface"; s.distance = 3; s.architecture = "tunable-coupler-cz"; s.f_hi = 5.9; s.f_lo = 5.2; s.g = 0.004;
@@ -72,8 +78,9 @@ static std::string frame_digest() {
             double hm = 0; for (const auto& v : M.herald_model.cond) for (const auto& ep : v) hm += ep.second;
             FrameRunOptions hd = h; hd.herald.derived = true;
             FrameRunOptions hs = hd; hs.stream = &S;
-            out += "hder=" + hex(hm) + "/" + std::to_string(run_memory_frame(M, 3000, 29 + unsigned(rounds), hd).logical_errors) + "/" +
-                   std::to_string(run_memory_frame(M, 3000, 29 + unsigned(rounds), hs).logical_errors) + " ";
+            ShotRecord hrec; FrameRunOptions hdr = hd; hdr.record = &hrec;                   // with the per-shot record
+            out += "hder=" + hex(hm) + "/" + std::to_string(run_memory_frame(M, 3000, 29 + unsigned(rounds), hdr).logical_errors) + "/" +
+                   std::to_string(run_memory_frame(M, 3000, 29 + unsigned(rounds), hs).logical_errors) + "/" + record_hex(hrec) + " ";
             {
                 auto nt = nm; nt.reset_removes_leakage = true; nt.dqlr = true; nt.dqlr_eff = 0.98; nt.dqlr_err = 5e-4; nt.dqlr_transfer = true;
                 auto Mt = prepare_memory(D, R, nt, rounds, basis);
@@ -84,10 +91,11 @@ static std::string frame_digest() {
             // operation profile of the streaming decoder (integer histograms merged across threads), with the pre-decoder
             {
                 UFCostModel cm; cm.fixed = 3; for (long& v : cm.per) v = 1;
-                const auto P = run_stream_profile(M, S, 3000, 23 + unsigned(rounds), true, {cm});
+                ShotRecord prec;
+                const auto P = run_stream_profile(M, S, 3000, 23 + unsigned(rounds), true, {cm}, &prec);
                 out += "prof=" + std::to_string(P.logical_errors) + "/" + std::to_string(P.windows_cleared) + "/" + hex(StreamProfile::mean(P.cycles_hist[0])) + "/" +
                        std::to_string(StreamProfile::quantile(P.round_hist[0], 0.999)) + "/" + std::to_string(StreamProfile::max(P.latency_hist[0])) + "/" +
-                       hex(StreamProfile::mean(P.stream_latency_hist[0])) + "/" + std::to_string(StreamProfile::max(P.stream_late_hist[0])) + " ";
+                       hex(StreamProfile::mean(P.stream_latency_hist[0])) + "/" + std::to_string(StreamProfile::max(P.stream_late_hist[0])) + "/" + record_hex(prec) + " ";
             }
             VetoSpec V; V.threshold = calibrate_veto(M, 3000, 31 + unsigned(rounds), 5e-3, V).threshold; V.on = true;   // impacts + veto
             FrameRunOptions iv; iv.impact.p_shot = 0.1; iv.impact.burst.radius = 1.5; iv.veto = V;

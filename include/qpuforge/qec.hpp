@@ -1048,6 +1048,22 @@ struct HeraldModel {
     bool empty() const { return cond.empty(); }
 };
 
+// Per-shot outcome of a Monte Carlo run, for paired comparisons. Runs with the same seed on the same circuit sample
+// the same syndromes, so their failures can be compared shot by shot. Runs on circuits that differ only in a few draws
+// (DQLR that dumps the leakage against DQLR that transfers it) share the random stream of each shot, and the syndrome
+// hash shows on which shots they saw the same detection events. Filled by shot index, so it does not depend on the
+// thread count.
+struct ShotRecord {
+    std::vector<std::uint8_t> failed;       // 1 where the decoder's prediction differed from the observable (veto ignored)
+    std::vector<std::uint64_t> syndrome;    // syndrome_hash of the shot's detection events and observable
+};
+// A 64-bit hash of a syndrome: the detection events (ascending detector indices) and the observable's flip.
+inline std::uint64_t syndrome_hash(const std::vector<int>& fired, std::uint8_t obs) {
+    std::uint64_t h = splitmix64_mix(0x3C6EF372FE94F82BULL ^ std::uint64_t(fired.size()));
+    for (int f : fired) h = splitmix64_mix(h ^ std::uint64_t(std::uint32_t(f)));
+    return splitmix64_mix(h ^ (obs ? 0xA54FF53A5F1D36F1ULL : 0x510E527FADE682D1ULL));
+}
+
 struct FrameRunOptions {
     const MatchingDecoder* decoder{nullptr};         // decode with this instead of the setup's own (model-mismatch studies)
     DecodeMethod method{DecodeMethod::Auto};
@@ -1055,6 +1071,7 @@ struct FrameRunOptions {
     HeraldSpec herald;
     ImpactSpec impact;
     VetoSpec veto;
+    ShotRecord* record{nullptr};                     // if set, filled with every shot's outcome and syndrome hash
 };
 
 inline double eps_from_PL(double PL, int R) { return PL < 0.5 ? 0.5 * (1 - std::pow(1 - 2 * PL, 1.0 / R)) : 0.5; }
@@ -1637,6 +1654,10 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
         for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) for (int c : M.exp.detectors[d]) dets_of[std::size_t(c)].push_back(int(d));
     }
     const long nblocks = shots > 0 ? (shots + kFrameBlock - 1) / kFrameBlock : 0;
+    if (opt.record) {
+        opt.record->failed.assign(std::size_t(std::max(shots, 0L)), 0);
+        opt.record->syndrome.assign(std::size_t(std::max(shots, 0L)), 0);
+    }
     std::vector<Tally> part(static_cast<std::size_t>(nblocks));
     std::vector<long> by_round(n_layers, 0);
 #pragma omp parallel
@@ -1784,6 +1805,10 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                     if (!vetoed) ++T_.errors_kept;
                     if (hit) { ++T_.errors_impacted; if (!vetoed) ++T_.errors_impacted_kept; }
                 }
+                if (opt.record) {                                // one element per shot: no two threads write the same one
+                    opt.record->failed[std::size_t(s)] = predicted != obs ? 1 : 0;
+                    opt.record->syndrome[std::size_t(s)] = syndrome_hash(fired, obs);
+                }
             }
         }
 #pragma omp critical(qpuforge_frame_rounds)
@@ -1841,7 +1866,9 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
 // stream of rounds, the decoder's queue carried from shot to shot. stream_latency_hist holds the latency of every
 // window of that stream, and stream_late_hist of the windows in the last quarter of each full block: if the two
 // differ, the queue is still growing after three quarters of the block. A block is a load model, not one long memory:
-// each shot still ends with its data readout and a window that commits everything.
+// each shot still ends with its data readout and a window that commits everything. If `record` is given, it is filled
+// with every shot's outcome and syndrome hash (ShotRecord), so that runs with and without the pre-decoder can be
+// compared shot by shot.
 struct StreamProfile {
     using Hist = std::map<long, long>;                         // value -> number of windows
     int window{0}, commit{0}, n_windows{0};
@@ -1872,9 +1899,10 @@ struct StreamProfile {
     }
 };
 inline StreamProfile run_stream_profile(const MemorySetup& M, const StreamingUnionFind& S, long shots, std::uint64_t seed, bool predecode,
-                                        const std::vector<UFCostModel>& models) {
+                                        const std::vector<UFCostModel>& models, ShotRecord* record = nullptr) {
     const auto& F = M.frame;
     StreamProfile P;
+    if (record) { record->failed.assign(std::size_t(std::max(shots, 0L)), 0); record->syndrome.assign(std::size_t(std::max(shots, 0L)), 0); }
     P.window = S.window(); P.commit = S.commit(); P.n_windows = S.n_windows(); P.shots = shots;
     P.count_hist.assign(UFOpCounts::kFields, {});
     P.cycles_hist.assign(models.size(), {}); P.round_hist.assign(models.size(), {}); P.latency_hist.assign(models.size(), {});
@@ -1913,7 +1941,9 @@ inline StreamProfile run_stream_profile(const MemorySetup& M, const StreamingUni
                     if (v) fired.push_back(int(d));
                 }
                 std::uint8_t obs = 0; for (int c : M.exp.observable) obs ^= flips[std::size_t(c)];
-                if (S.decode(fired, ws, so) != obs) ++T.logical_errors;
+                const bool failed = S.decode(fired, ws, so) != obs;
+                if (failed) ++T.logical_errors;
+                if (record) { record->failed[std::size_t(s)] = failed ? 1 : 0; record->syndrome[std::size_t(s)] = syndrome_hash(fired, obs); }
                 std::fill(busy.begin(), busy.end(), 0.0);
                 for (int i = 0; i < S.n_windows(); ++i) {
                     const UFOpCounts& c = ws.counts[std::size_t(i)];

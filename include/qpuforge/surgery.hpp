@@ -142,7 +142,9 @@ struct SurgeryExperiment {
     std::vector<int> detector_round;              // global round (total_rounds: the final data readout)
     std::vector<int> reference;                   // noiseless value of each classical bit: 0/1 deterministic, -1 random
     std::vector<SurgeryObservable> observables;
+    std::map<std::string, std::vector<int>> logical_bits;   // corrected output logicals of a protocol, whatever the inputs
     int total_rounds{0};
+    std::size_t prep_end{0};                      // index in circuit.gates of the first gate after the initial preparation
     std::vector<int> phase_first_round;
     // bookkeeping for the protocol builders
     std::map<std::pair<int, int>, int> face_bit;              // (face qubit, global round) -> classical bit
@@ -209,9 +211,9 @@ inline SurgeryExperiment build_surgery(const SurgerySchedule& Sd) {
         for (const auto& f : E.phase_faces[0]) used.insert(f.qubit);
         for (int q : used) C.reset(q);
         for (const auto& kv : cfg[0]) {
+            // patch data in the patch's input basis; gap qubits of a region merged from the start in the merge's gap basis
             const int p = patch_basis_of(kv.first);
-            if (p < 0) throw std::runtime_error("surgery: the first phase cannot contain gap qubits");
-            ds[std::size_t(kv.first)] = {true, Sd.init_basis[std::size_t(p)], 0, -1, -1};
+            ds[std::size_t(kv.first)] = {true, p >= 0 ? Sd.init_basis[std::size_t(p)] : kv.second, 0, -1, -1};
         }
         for (const auto& kv : cfg[0]) if (ds[std::size_t(kv.first)].basis == 'X') C.h(kv.first);
         for (int p = 0; p < np; ++p) {
@@ -224,6 +226,7 @@ inline SurgeryExperiment build_surgery(const SurgerySchedule& Sd) {
             }
         }
     }
+    E.prep_end = C.gates.size();
     int t = 0;   // time stamps: transition before round g at 2g, measurement of round g at 2g + 1
     int g = 0;
     for (int p = 0; p < P; ++p) {
@@ -384,13 +387,15 @@ inline std::vector<int> final_col(const SurgeryExperiment& E, int patch, int i) 
     for (int k = 0; k < L.d; ++k) v.push_back(E.data_bit.at({L.data_qubit(pt.i0 + i, pt.j0 + k), P}));
     return v;
 }
-// product of the faces of `type` that a phase measures for the first time (the seam of a merge): first-round bits
+// product of the seam faces of `type` in a phase (faces that belong to no patch's own d x d block): first-round bits
 inline std::vector<int> merge_product(const SurgeryExperiment& E, int phase, char type) {
-    std::set<int> before;
-    if (phase > 0) for (const auto& f : E.phase_faces[std::size_t(phase - 1)]) before.insert(f.qubit);
+    const auto& L = E.sched.lat;
+    std::set<int> own;
+    for (int p = 0; p < int(L.patches.size()); ++p) for (const auto& f : region_faces(L.patch_region(p), L.at)) own.insert(f.qubit);
     std::vector<int> v;
     for (const auto& f : E.phase_faces[std::size_t(phase)])
-        if (f.type == type && !before.count(f.qubit)) v.push_back(E.face_bit.at({f.qubit, E.phase_first_round[std::size_t(phase)]}));
+        if (f.type == type && !own.count(f.qubit)) v.push_back(E.face_bit.at({f.qubit, E.phase_first_round[std::size_t(phase)]}));
+    if (v.empty()) throw std::runtime_error("surgery: no seam faces of that type in this phase");
     return v;
 }
 // bits of the faces of `type` inside a patch's own d x d block, measured in the first round of a phase
@@ -410,7 +415,7 @@ inline char flip_of(char s) { return (s == '1' || s == '-') ? 1 : 0; }
 inline void check_state(char s) { if (s != '0' && s != '1' && s != '+' && s != '-') throw std::runtime_error("surgery: logical input must be 0, 1, + or -"); }
 } // namespace surgery_detail
 
-struct SurgeryRounds { int pre{1}, merge{0}, post{1}; };   // merge = 0: d rounds
+struct SurgeryRounds { int pre{1}, merge{0}, post{1}; };   // merge = 0: d rounds; pre = 0: merge from the first round
 
 // Logical parity measurement between two patches A and B. type 'Z': Z_A Z_B (A above B, ZZ merge); 'X': X_A X_B
 // (A left of B, XX merge). Inputs '0', '1', '+', '-'; each patch is read out in its input basis.
@@ -473,7 +478,8 @@ inline SurgeryExperiment surgery_parity(int d, char type, char in_a, char in_b, 
 //   X readout of both: "X_C" (= x_C + x_T, both in X), "X_T" (= x_T, T in X), and for a control in the X basis and a
 //                      Z-basis target "X_C X_T" (= x_C)
 // The labels are the logical operators after the CNOT with the frame correction applied.
-inline SurgeryExperiment surgery_cnot(int d, char in_c, char in_t, char readout = 0, SurgeryRounds rr = {}) {
+// require_observable = false: allow inputs with no deterministic observable (surgery_cnot_reference supplies its own).
+inline SurgeryExperiment surgery_cnot(int d, char in_c, char in_t, char readout = 0, SurgeryRounds rr = {}, bool require_observable = true) {
     using namespace surgery_detail;
     check_state(in_c); check_state(in_t);
     const int R = rr.merge > 0 ? rr.merge : d;
@@ -503,6 +509,7 @@ inline SurgeryExperiment surgery_cnot(int d, char in_c, char in_t, char readout 
         append(zt, final_row(E, 1, 0));
         zt.push_back(E.data_bit.at({S.lat.data_qubit(d, d + 1), px + 1}));
         append(zt, merge_product(E, pz, 'Z'));
+        E.logical_bits["Z_C"] = zc; E.logical_bits["Z_T"] = zt;
         if (bc == 'Z') E.observables.push_back({"Z_C", 'Z', zc, fc});
         if (bc == 'Z' && bt == 'Z') E.observables.push_back({"Z_T", 'Z', zt, fc ^ ft});
         if (bt == 'Z' && bc != 'Z') { std::vector<int> b = zc; append(b, zt); E.observables.push_back({"Z_C Z_T", 'Z', b, ft}); }
@@ -512,11 +519,12 @@ inline SurgeryExperiment surgery_cnot(int d, char in_c, char in_t, char readout 
         xc.push_back(E.data_bit.at({S.lat.data_qubit(0, d), px}));
         append(xc, patch_face_product(E, px, 1, 'X'));
         append(xc, merge_product(E, px, 'X'));
+        E.logical_bits["X_C"] = xc; E.logical_bits["X_T"] = xt;
         if (bc == 'X' && bt == 'X') E.observables.push_back({"X_C", 'X', xc, fc ^ ft});
         if (bt == 'X') E.observables.push_back({"X_T", 'X', xt, ft});
         if (bc == 'X' && bt != 'X') { std::vector<int> b = xc; append(b, xt); E.observables.push_back({"X_C X_T", 'X', b, fc}); }
     }
-    if (E.observables.empty()) throw std::runtime_error("surgery: no deterministic observable for these inputs and readout basis");
+    if (E.observables.empty() && require_observable) throw std::runtime_error("surgery: no deterministic observable for these inputs and readout basis");
     return E;
 }
 
@@ -530,6 +538,60 @@ inline SurgeryExperiment surgery_experiment(const std::string& op, int d, const 
     throw std::runtime_error("surgery: op must be zz, xx or cnot");
 }
 inline char surgery_decode_basis(const SurgeryExperiment& E) { return E.observables.at(0).type; }
+
+// Process check of the CNOT with two reference qubits (noiseless tableau only: the circuit has two qubits more than the
+// lattice). R_C and R_T start in |+> and are entangled with C and T right after the patches are prepared in `prep`:
+// a controlled logical X (prep 'Z', X_L on column 0) or controlled logical Z followed by H on the reference (prep 'X',
+// Z_L on C's bottom row and T's row 0, the rows the observables use). With the Bell pairs X_R X_L = Z_R Z_L = +1, a CNOT must map them to
+//   Z_RC Z_C = +1, Z_RT Z_C Z_T = +1 (Z readout)   and   X_RC X_C X_T = +1, X_RT X_T = +1 (X readout),
+// with Z_C, Z_T, X_C, X_T the corrected output logicals of surgery_cnot. Unlike fixed logical inputs this exercises
+// the frame assembly with every patch logical random.
+inline SurgeryExperiment surgery_cnot_reference(int d, char prep, char readout, SurgeryRounds rr = {}) {
+    using namespace surgery_detail;
+    if ((prep != 'Z' && prep != 'X') || (readout != 'Z' && readout != 'X')) throw std::runtime_error("surgery: prep and readout must be Z or X");
+    auto E = surgery_cnot(d, prep == 'Z' ? '0' : '+', prep == 'Z' ? '0' : '+', readout, rr, false);
+    const auto& L = E.sched.lat;
+    const int rc = E.circuit.n, rt = rc + 1;
+    E.circuit.n += 2;
+    std::vector<Gate> ent;
+    auto g1 = [&](int q, const char* nm) { Gate g; g.op = Op::U; g.q = {q}; g.u = nm[0] == 'h' ? gates::H() : gates::Z(); g.name = nm; ent.push_back(g); };
+    auto cz = [&](int a, int b) { Gate g; g.op = Op::CZ; g.q = {a, b}; g.name = "cz"; ent.push_back(g); };
+    for (int r : {rc, rt}) g1(r, "h");
+    const auto& pc = L.patches[0]; const auto& pt = L.patches[2];
+    for (int k = 0; k < d; ++k) {
+        if (prep == 'Z') {   // controlled X_L = H CZ H on each qubit of column 0
+            for (auto [r, q] : {std::make_pair(rc, L.data_qubit(pc.i0, pc.j0 + k)), std::make_pair(rt, L.data_qubit(pt.i0, pt.j0 + k))}) {
+                g1(q, "h"); cz(r, q); g1(q, "h");
+            }
+        } else {
+            cz(rc, L.data_qubit(pc.i0 + k, pc.j0 + d - 1));
+            cz(rt, L.data_qubit(pt.i0 + k, pt.j0));
+        }
+    }
+    if (prep == 'X') for (int r : {rc, rt}) g1(r, "h");   // CZ from |+> correlates X_R Z_L and Z_R X_L; H turns it into X_R X_L, Z_R Z_L
+    E.circuit.gates.insert(E.circuit.gates.begin() + std::ptrdiff_t(E.prep_end), ent.begin(), ent.end());
+    int cb = E.circuit.nclbits;
+    const int brc = cb++, brt = cb++;
+    for (int r : {rc, rt}) if (readout == 'X') E.circuit.h(r);
+    E.circuit.measure(rc, brc); E.circuit.measure(rt, brt);
+    E.reference.push_back(-1); E.reference.push_back(-1);
+    const auto& lb = E.logical_bits;
+    std::vector<SurgeryObservable> obs;
+    if (readout == 'Z') {
+        const auto& zc = lb.at("Z_C"); const auto& zt = lb.at("Z_T");
+        SurgeryObservable a{"Z_RC Z_C", 'Z', zc, 0}; a.bits.push_back(brc);
+        SurgeryObservable b{"Z_RT Z_C Z_T", 'Z', zc, 0}; append(b.bits, zt); b.bits.push_back(brt);
+        obs = {a, b};
+    } else {
+        const auto& xc = lb.at("X_C"); const auto& xt = lb.at("X_T");
+        SurgeryObservable a{"X_RC X_C X_T", 'X', xc, 0}; append(a.bits, xt); a.bits.push_back(brc);
+        SurgeryObservable b{"X_RT X_T", 'X', xt, 0}; b.bits.push_back(brt);
+        obs = {a, b};
+    }
+    E.observables = obs;
+    E.sched.name = "CNOT d=" + std::to_string(d) + " reference qubits, " + std::string(1, prep) + "-basis patches, " + std::string(1, readout) + " readout";
+    return E;
+}
 
 // A single patch: R rounds of memory in one basis (the surgery engine's memory experiment, for cross-checks).
 inline SurgeryExperiment surgery_memory(int d, int rounds, char basis) {
@@ -808,8 +870,13 @@ inline SurgerySetup prepare_surgery(const ChipDesign& D, const ChipReport& R, co
             if (E.sched.lat.sites[std::size_t(q)].data) { const int s = sim[std::size_t(D.index_of(q))]; if (s >= 0) M.is_data[std::size_t(s)] = 1; }
     }
     auto fk = surgery_fault_signatures(M);
-    for (auto& f : fk) {
-        M.dem.push_back(build_dem(f, int(M.view.detectors.size())));
+    for (std::size_t o = 0; o < fk.size(); ++o) {
+        M.dem.push_back(build_dem(fk[o], int(M.view.detectors.size())));
+        // an observable that a single fault can flip without any decoded detector is mis-typed or mis-assembled
+        if (M.dem.back().undetectable_logical > 0)
+            throw std::runtime_error("prepare_surgery: observable " + E.observables[std::size_t(M.obs[o])].name + " has " +
+                                     std::to_string(M.dem.back().undetectable_logical) + " undetectable single-fault flips with " +
+                                     std::string(1, basis) + "-type detectors");
         M.decoder.push_back(std::make_unique<MatchingDecoder>(M.dem.back()));
     }
     return M;

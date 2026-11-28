@@ -74,10 +74,18 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - CLI: `analyze --materials <sidecar.json> [--loss-tangent]` applies a sidecar, prints one line per quantity, then
   prints the device report. The chip JSON file is not changed. `--loss-tangent` without `--materials`, and an empty
   `--materials` value, are usage errors (exit 1), reported before any file is read.
+- CLI: `--materials <sidecar.json> [--loss-tangent]` is also accepted by `run`, `budget`, `fab`, `qec`, `cz`, `synth-chip`
+  and `hwgate`, through one shared loader, so a sidecar value reaches the emulators and the logical-error runs and is no
+  longer silently dropped by a sub-command that did not know the flag. `layout` and `gds` declare it only to refuse it
+  (a usage error, exit 1; they draw the chip from the chip JSON). When a sidecar changes `junction_gap_ueV`, the report line says that each qubit keeps its
+  `Rn_kOhm`, so `E_J` and `f01` scale with the gap.
 - Tests: the `materials` group (label `unit`, 25 checks), with sidecar fixtures in `tests/data/`, among them
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
-  guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
+  guards, plus `cli_materials_fab`, `cli_materials_run`, `cli_materials_budget`, `cli_materials_run_refused`,
+  `cli_materials_layout_refused`, `cli_materials_gds_refused`, `cli_materials_qec`, `cli_materials_cz_missing_chip`,
+  `cli_materials_hwgate_missing_chip` and `cli_loss_tangent_alone` for the other sub-commands. `test_qpuforge` is built with
+  `QPUFORGE_TEST_DATA`, the path of `tests/data`.
 - 500 validation checks in all, summed over the per-group ctest runs (`ctest -LE smoke`): 346 on `main` before the decoding work, 24 from it, 48 from the fabrication-readiness work (418 on `main`), and 82 from lattice surgery. The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
   `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.

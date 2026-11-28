@@ -182,6 +182,15 @@ add_test(NAME cli_exit_status COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpufo
          -DOUT=${CLI_OUT}_exit_status_synth.json
          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_exit_status.cmake)
 set_tests_properties(cli_exit_status PROPERTIES LABELS unit)
+# usage on request (exit 0, stdout): the pass-regex tests cannot see the exit status, so a script checks it
+foreach(m long:cli_help short:cli_help_short word:cli_help_word command:cli_help_command)
+  string(REPLACE ":" ";" mp ${m})
+  list(GET mp 0 mode)
+  list(GET mp 1 tname)
+  add_test(NAME ${tname} COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpuforge_cli> -DMODE=${mode}
+           -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_help.cmake WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(${tname} PROPERTIES LABELS unit)
+endforeach()
 # CLI guards for `analyze --materials` (not validation checks), on the committed Alpha-1 v1.1 design: a sidecar with
 # values is applied before the device report, atomforge's placeholder sidecar changes nothing, the loss tangent needs
 # --loss-tangent, a chip design given as the sidecar is refused, and the usage text lists the flags.

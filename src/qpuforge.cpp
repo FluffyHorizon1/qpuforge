@@ -83,9 +83,15 @@ static const UsageBlock kUsageCommands[] = {
     {"new", "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gamma1|gen0 [--distance D]   named designs\n"},
     {"new", "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"},
     {"", "  qpuforge --version | -V                           print the version and exit (first argument only)\n"},
+    {"", "  qpuforge --help | -h | help                       print this usage and exit 0; qpuforge <command> --help prints one command's\n"
+         "                                                    usage (stdout, exit 0)\n"},
 };
 
 static const UsageBlock kUsageNotes[] = {
+    {"run budget fab qec cz synth-chip hwgate",
+     "  --materials <sidecar.json> [--loss-tangent] is also accepted by run, budget, fab, qec, cz, synth-chip and hwgate (as for\n"
+     "                analyze; not layout or gds, which refuse it); the sidecar is applied in memory, the chip JSON file is not changed\n"},
+    {"layout gds", "  --materials and --loss-tangent are refused here: the layout follows the chip JSON, so apply the sidecar values to a copy first\n"},
     {"run budget", "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"},
     {"run qec", "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage (all: every source)\n"},
     {"qec cz synth-chip hwgate surgery", "  qec/cz/synth-chip/hwgate/surgery on a chip with a physical coupler calibrate CZs first (--cache file reuses them)\n"},
@@ -551,11 +557,14 @@ static void print_materials(const std::string& path, const MaterialsSidecar& S, 
     }
 }
 
-static int cmd_analyze(const Args& a) {
+// Load a chip design and, when the command line has --materials <sidecar.json> [--loss-tangent], apply the forge.materials.v0
+// sidecar to it in memory first (one line per quantity: applied or skipped). The chip JSON file is never changed. Every
+// sub-command that computes from the design calls this, so that --materials is never silently ignored.
+static ChipDesign load_design_cli(const Args& a, const std::string& path) {
     const std::string mat = a.text("--materials");
     if (a.has("--materials") && mat.empty()) throw UsageError("--materials needs a sidecar file");
     if (a.flag("--loss-tangent") && mat.empty()) throw UsageError("--loss-tangent needs --materials <sidecar.json>");
-    auto D = load_design(a.pos(0));
+    auto D = load_design(path);
     if (!mat.empty()) {
         MaterialsApplyOptions o;
         o.use_loss_tangent = a.flag("--loss-tangent");
@@ -563,6 +572,19 @@ static int cmd_analyze(const Args& a) {
         const auto M = apply_materials(S, D, o);
         print_materials(mat, S, M);
     }
+    return D;
+}
+
+// layout and gds draw the chip from the chip JSON; a sidecar would change the frequency targets they synthesise to. Both
+// declare the options so that the refusal explains itself instead of calling them unknown.
+static void refuse_materials(const Args& a, const char* cmd) {
+    if (a.has("--materials") || a.flag("--loss-tangent"))
+        throw UsageError(std::string("--materials is not supported by `") + cmd +
+                         "`: the layout follows the chip JSON (apply the sidecar values to a copy of the chip JSON first)");
+}
+
+static int cmd_analyze(const Args& a) {
+    const auto D = load_design_cli(a, a.pos(0));
     print_report(D, analyze(D));
     return 0;
 }
@@ -576,7 +598,7 @@ static RunOptions run_opts(const Args& a) {   // --shots is read by run only: bu
 
 static int cmd_run(const Args& a) {
     const auto spec = parse_circuit(a.pos(1));
-    const auto D = load_design(a.pos(0));
+    const auto D = load_design_cli(a, a.pos(0));
     const auto R = analyze(D);
     const auto G = chip_graph(D, R);
     bool native = false;
@@ -616,7 +638,7 @@ static int cmd_run(const Args& a) {
 
 static int cmd_budget(const Args& a) {
     const auto spec = parse_circuit(a.pos(1));
-    const auto D = load_design(a.pos(0));
+    const auto D = load_design_cli(a, a.pos(0));
     const auto R = analyze(D);
     const auto G = chip_graph(D, R);
     bool native = false;
@@ -643,7 +665,7 @@ static int cmd_budget(const Args& a) {
 }
 
 static int cmd_fab(const Args& a) {
-    const auto D = load_design(a.pos(0));
+    const auto D = load_design_cli(a, a.pos(0));
     const int N = int(a.integer("--samples", 200));
     const auto F = fab_monte_carlo(D, N, unsigned(a.seed("--seed", 1)));
     auto stats = [](std::vector<double> v) { std::sort(v.begin(), v.end()); return std::array<double, 3>{v[v.size() / 10], v[v.size() / 2], v[v.size() * 9 / 10]}; };
@@ -658,6 +680,7 @@ static int cmd_fab(const Args& a) {
 }
 
 static int cmd_layout(const Args& a) {
+    refuse_materials(a, "layout");
     const auto D = load_design(a.pos(0));
     write_layout_svg(D, analyze(D), a.pos(1));
     std::printf("wrote %s\n", a.pos(1).c_str());
@@ -665,7 +688,7 @@ static int cmd_layout(const Args& a) {
 }
 
 static int cmd_cz(const Args& a) {
-    auto D = load_design(a.pos(0));
+    auto D = load_design_cli(a, a.pos(0));
     D.coupler.physical = true;
     D.coupler.g_qc_MHz = a.real("--g-qc", D.coupler.g_qc_MHz);
     D.coupler.f_on_GHz = a.real("--f-on", D.coupler.f_on_GHz);
@@ -688,6 +711,7 @@ static int cmd_cz(const Args& a) {
 
 static int cmd_gds(const Args& a) {
     using namespace layout;
+    refuse_materials(a, "gds");
     auto D = load_design(a.pos(0));
     auto R = analyze(D);
     const std::string cells_path = a.text("--cells");
@@ -763,7 +787,7 @@ static int cmd_qec(const Args& a) {
     if (a.integer("--commit", 3) >= a.integer("--window", 6))
         throw UsageError("--commit (" + std::to_string(a.integer("--commit", 3)) + ") must be smaller than --window (" +
                          std::to_string(a.integer("--window", 6)) + ")");
-    auto D = load_design(a.pos(0));
+    auto D = load_design_cli(a, a.pos(0));
     if (const auto v = a.text("--leakage-removal"); !v.empty()) {
         D.leakage.reset_removes_leakage = v == "lrr" || v == "lrr+dqlr";
         D.leakage.dqlr = v == "dqlr" || v == "lrr+dqlr";
@@ -908,7 +932,7 @@ static ChipReport calibrated_report(const ChipDesign& D, const Args& a) {
 }
 
 static int cmd_synth(const Args& a) {
-    const auto D = load_design(a.pos(0));
+    const auto D = load_design_cli(a, a.pos(0));
     const auto R = calibrated_report(D, a);
     SynthOptions o;
     o.seed = unsigned(a.seed("--seed", 1));
@@ -923,7 +947,7 @@ static int cmd_synth(const Args& a) {
 }
 
 static int cmd_hwgate(const Args& a) {
-    const auto D = load_design(a.pos(0));
+    const auto D = load_design_cli(a, a.pos(0));
     const auto R = calibrated_report(D, a);
     const std::string& data = a.pos(1);
     std::ifstream f(data);
@@ -1006,6 +1030,14 @@ static int cmd_surgery(const Args& a) {
 // listed, so the table and the cmd_* functions above cannot drift apart unnoticed.
 static const char* const kNoiseSources = "T1|Tphi|thermal|zz|exchange|control|readout|reset|leakage|all";
 
+// --materials <sidecar.json> [--loss-tangent]: read by every command that computes from the chip design, declared (and refused)
+// by layout and gds
+static std::vector<Option> with_materials(std::vector<Option> o) {
+    o.push_back(text("--materials"));
+    o.push_back(flag("--loss-tangent"));
+    return o;
+}
+
 static const std::vector<Command>& commands() {
     static const std::vector<Command> table = {
         {"new", cmd_new, {"<chip.json>"},
@@ -1017,11 +1049,11 @@ static const std::vector<Command>& commands() {
           choice("--preset", "alpha1|alpha1v11|beta1|gamma1|gen0"), integer("--distance", 3)}},
         {"analyze", cmd_analyze, {"<chip.json>"}, {text("--materials"), flag("--loss-tangent")}},
         {"run", cmd_run, {"<chip.json>", "<circuit>"},
-         {integer("--traj", 1), integer("--shots", 0), seed("--seed"), choice_list("--off", kNoiseSources), integer("--top", 0)}},
-        {"budget", cmd_budget, {"<chip.json>", "<circuit>"}, {integer("--traj", 1), seed("--seed")}},
-        {"fab", cmd_fab, {"<chip.json>"}, {integer("--samples", 1), seed("--seed")}},
+         with_materials({integer("--traj", 1), integer("--shots", 0), seed("--seed"), choice_list("--off", kNoiseSources), integer("--top", 0)})},
+        {"budget", cmd_budget, {"<chip.json>", "<circuit>"}, with_materials({integer("--traj", 1), seed("--seed")})},
+        {"fab", cmd_fab, {"<chip.json>"}, with_materials({integer("--samples", 1), seed("--seed")})},
         {"qec", cmd_qec, {"<chip.json>"},
-         {int_list("--rounds", 1), integer("--shots", 1, std::numeric_limits<long>::max()), seed("--seed"),
+         with_materials({int_list("--rounds", 1), integer("--shots", 1, std::numeric_limits<long>::max()), seed("--seed"),
           choice("--basis", "Z|X|both|z|x"), integer("--statevector", 0), choice_list("--off", kNoiseSources),
           choice("--decoder", "exact|uf|union-find|uf-stream|legacy|greedy"), integer("--window", 2), integer("--commit", 1),
           choice("--leakage-removal", "lrr|dqlr|lrr+dqlr|none"),
@@ -1029,16 +1061,17 @@ static const std::vector<Command>& commands() {
           real("--herald-factor", 0, 1), choice("--herald-rule", "footprint|detector"),
           flag("--bursts"), real("--burst-rate", 0), real("--burst-tau-ms", 0), real("--burst-t1-us"), real("--burst-tphi-us"),
           flag("--veto"), integer("--veto-window", 1), real("--veto-radius", 0), real("--veto-false", 0, 1),
-          real("--impact-p", 0, 1), real("--burst-radius", 0)}},
+          real("--impact-p", 0, 1), real("--burst-radius", 0)})},
         {"synth-chip", cmd_synth, {"<chip.json>", "<data.json>"},
-         {seed("--seed"), integer("--shots", 1, std::numeric_limits<long>::max()), int_list("--rounds", 1), flag("--z-only"),
-          real("--hidden-dephasing-us"), text("--cache")}},
+         with_materials({seed("--seed"), integer("--shots", 1, std::numeric_limits<long>::max()), int_list("--rounds", 1), flag("--z-only"),
+                         real("--hidden-dephasing-us"), text("--cache")})},
         {"hwgate", cmd_hwgate, {"<chip.json>", "<data.json>"},
-         {choice("--phase", "alpha|beta"), integer("--shots", 1, std::numeric_limits<long>::max()),
-          seed("--seed", std::numeric_limits<std::uint64_t>::max()), text("--out"), text("--cache")}},
-        {"layout", cmd_layout, {"<chip.json>", "<out.svg>"}, {}},
-        {"cz", cmd_cz, {"<chip.json>"}, {text("--out"), text("--cache"), real("--g-qc"), real("--f-on"), real("--rise")}},
-        {"gds", cmd_gds, {"<chip.json>", "<out.gds>"}, {text("--cells"), flag("--synthesize"), text("--from"), text("--cell")}},
+         with_materials({choice("--phase", "alpha|beta"), integer("--shots", 1, std::numeric_limits<long>::max()),
+                         seed("--seed", std::numeric_limits<std::uint64_t>::max()), text("--out"), text("--cache")})},
+        {"layout", cmd_layout, {"<chip.json>", "<out.svg>"}, {text("--materials"), flag("--loss-tangent")}},   // refused
+        {"cz", cmd_cz, {"<chip.json>"}, with_materials({text("--out"), text("--cache"), real("--g-qc"), real("--f-on"), real("--rise")})},
+        {"gds", cmd_gds, {"<chip.json>", "<out.gds>"},
+         {text("--cells"), flag("--synthesize"), text("--from"), text("--cell"), text("--materials"), flag("--loss-tangent")}},   // refused
         {"surgery", cmd_surgery, {},
          {choice("--op", "zz|xx|cnot"), int_list("--d", 3), text("--input"), choice("--readout", "Z|X"),
           choice("--chip", "beta1|alpha1_v11"), integer("--shots", 0, 1000000000L),
@@ -1052,6 +1085,14 @@ int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 1; }
     const std::string cmd = argv[1];
     if (cmd == "--version" || cmd == "-V") { std::printf("qpuforge %s\n", QPUFORGE_VERSION); return 0; }
+    if (cmd == "--help" || cmd == "-h" || cmd == "help") {   // usage on request: stdout, exit 0
+        if (cmd == "help" && argc > 2) {                     // `qpuforge help <command>`
+            const std::string which = argv[2];
+            for (const auto& k : commands()) if (which == k.name) { usage(stdout, k.name); return 0; }
+        }
+        usage();
+        return 0;
+    }
     const Command* c = nullptr;
     for (const auto& k : commands()) if (cmd == k.name) c = &k;
     if (!c) {
@@ -1063,6 +1104,14 @@ int main(int argc, char** argv) {
                      s.empty() ? "" : (" (did you mean '" + s + "'?)").c_str());
         usage(stderr);
         return 1;
+    }
+    for (int i = 2; i < argc; ++i) {   // `<command> --help` / `-h` (not as the value of an option that takes one)
+        const std::string t = argv[i];
+        if (t != "--help" && t != "-h") continue;
+        const Option* prev = i > 2 ? c->find(argv[i - 1]) : nullptr;
+        if (prev && prev->kind != Kind::Flag) continue;
+        usage(stdout, c->name);
+        return 0;
     }
     try {
         return c->run(Args::parse(*c, argc, argv));

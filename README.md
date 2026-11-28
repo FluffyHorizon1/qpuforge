@@ -170,7 +170,11 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 * Layout: unit square plate capacitance vs the accepted value 0.3667874·4πε0·a (−0.04 %). CPW capacitance per length vs
   conformal mapping (−1.3 % on the design mesh, −0.6 % refined). Overlapping conductors are rejected. The AF-17 chip
   passes the placement and island-spacing checks, all 17 resonators sit at their quarter-wave lengths, and the GDSII stream parses back record by record.
-  A synthetic layer exercises the merged-etch width/space DRC; the AF-17 first-cut layout is not clean on that check (34 width + 202 space violations at 4 µm).
+  A synthetic layer exercises the merged-etch width/space DRC; the ground-sliver clean-up and its connectivity guard, the
+  metal-connectivity map, the bus knob and the shorted staircase end have their own checks (`layout_geometry`). AF-17,
+  BF-49 and GF-97, assembled from the committed cells, pass the placement checks, meet the extraction targets and re-null
+  the parked exchange; their only DRC markers are the ground necks the guard keeps (4 on AF-17, none on the others), and
+  their connectivity report is printed (`layout_presets`). The masks are not fabrication-ready: see CHANGELOG, Known issues.
   `tools/gds_preview.py` is an independent Python GDSII reader and renderer.
 * Matching: the blossom matcher agrees with brute force on 600 random graphs (complete and sparse, even and odd). In
   the decoder it agrees with the exact dynamic programme on 2,075 defect sets (weights to 3e-14, same logical
@@ -226,11 +230,11 @@ The tunable coupler wins clearly. With fixed coupling, faster gates and always-o
 
 | Design | Code distance | Logical error per round | Notes |
 |---|---|---|---|
-| Alpha-1 v1.1 (AF-17) | 3 | **0.374 %** / 0.370 % | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 248 µs = 3.3× best T1 |
-| Alpha-1 v1.1 physics | 5 | 0.107 % (Z) | Λ(3→5) = 3.5 ± 0.2, from a fit over 5–15 rounds |
-| Beta-1 rev C (BF-49) | 3 | 0.0777 % / 0.0744 % | |
-| Beta-1 rev C (BF-49) | 5 | **0.0157 %** / 0.0165 % | Λ(3→5) = 5.0 ± 0.4 (Z), 4.5 ± 0.4 (X); logical lifetime 4.7 ms = 30× best T1 |
-| Gamma-1 (GF-97) | 7 | **0.0036 %** / 0.0035 % | Λ(5→7) = 4.5 ± 0.5 (Z), 4.8 ± 0.6 (X); logical lifetime 21 ms = 133× best T1; impact floor 3.7e-08 per round |
+| Alpha-1 v1.1 (AF-17) | 3 | **0.377 %** / 0.360 % | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 246 µs = 3.3× best T1 |
+| Alpha-1 v1.1 physics | 5 | 0.123 % (Z) | Λ(3→5) = 2.9 ± 0.2, from a fit over 5–15 rounds |
+| Beta-1 rev C (BF-49) | 3 | 0.0772 % / 0.0718 % | |
+| Beta-1 rev C (BF-49) | 5 | **0.0147 %** / 0.0128 % | Λ(3→5) = 5.3 ± 0.5 (Z), 5.6 ± 0.6 (X); logical lifetime 5.0 ms = 32× best T1 |
+| Gamma-1 (GF-97) | 7 | **0.0032 %** / 0.0026 % | Λ(5→7) = 4.3 ± 0.6 (Z), 5.5 ± 0.7 (X); logical lifetime 26 ms = 163× best T1; impact floor 3.7e-08 per round |
 
 Every Λ is a matched-model best case: the decoder is given the noise model that generated the errors. The ± values
 are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators (a fit over 5–20 rounds, and one

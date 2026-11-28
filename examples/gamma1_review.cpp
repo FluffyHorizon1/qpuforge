@@ -215,9 +215,9 @@ int main(int argc, char** argv) {
              out["impacts"]["unmitigated"].get("floor_over_eps_d7", 1.0) < 0.1 && out["impacts"]["gap_engineered"].get("floor_over_eps_d7", 1.0) < 0.1);
         crit("stability", "detection rate flat over " + std::to_string(RL) + " rounds with the leakage-removing reset (drift < 5%)", std::abs(out["long_run_d7"]["lrr"].get("drift", 1.0)) < 0.05);
         crit("yield", "trimmed fabrication yield >= 80% collision-free", out["fab_yield_d7"]["spread_0.5"].get("collision_free", 0.0) >= 0.8 * out["fab_yield_d7"]["spread_0.5"].get("samples", 100.0));
-        // As for Beta-1: placement / island-spacing checks and circuit targets are gated here; mask-level width/space DRC
-        // (layout.drc) is reported and is a fabrication-release criterion.
-        crit("drc", "first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated)", lay.found && lay.placement_clean);
+        // As for Beta-1: placement / island-spacing checks and circuit targets are gated; the mask DRC and the metal
+        // connectivity check are reported and must be clean before tape-out.
+        crit("drc", "layout passes placement and island-spacing checks (mask DRC and connectivity reported, not gated)", lay.found && lay.placement_clean);
         crit("layout", "extracted E_C within 3%, couplings and readout capacitance within 6%; parked exchange re-nullable",
              lay.found && lay.within_tolerance && lay.renull_ok);
         out.set("exit_criteria", ej);

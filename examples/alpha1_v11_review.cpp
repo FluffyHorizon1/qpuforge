@@ -64,20 +64,24 @@ int main(int argc, char** argv) {
     std::puts("1. Pulse-level CZ calibration (physical tunable couplers, 3-knob calibration per pair)");
     auto R11 = analyze(V11);
     const auto cal = calibrate_chip_cz(V11, R11, true, g_opt.cache);
+    double cz_coh_max = 0, cz_leak_max = 0, cz_zz_max = 0;      // per-pair maxima for the gate (§8)
     {
         double tmin = 1e9, tmax = 0, tm = 0, coh = 0, lk = 0, lkmax = 0, ctrl = 0, tot = 0, zz = 0, fl = 0;
         for (const auto& c : cal) {
             tmin = std::min(tmin, c.t_cz_ns); tmax = std::max(tmax, c.t_cz_ns); tm += c.t_cz_ns; coh += c.err_coherent; lk += c.leakage;
             lkmax = std::max(lkmax, c.leakage); ctrl += c.err_ctrl; tot += c.err_total; zz += std::abs(c.zz_idle_kHz); fl += c.err_flux_local + c.err_flux_quasistatic;
+            cz_coh_max = std::max(cz_coh_max, c.err_coherent); cz_zz_max = std::max(cz_zz_max, std::abs(c.zz_idle_kHz));
         }
+        cz_leak_max = lkmax;
         const double n = double(cal.size());
         std::printf("   %zu pairs: t_cz %.1f-%.1f ns (mean %.1f; v1.0 abstract model 23.3 ns)\n", cal.size(), tmin, tmax, tm / n);
-        std::printf("   coherent pulse error %.1e, leakage %.1e per CZ (max %.1e), flux-noise error %.1e, residual idle ZZ %.1f kHz\n", coh / n, lk / n, lkmax, fl / n, zz / n);
+        std::printf("   coherent pulse error %.1e (max %.1e), leakage %.1e per CZ (max %.1e), flux-noise error %.1e, residual idle ZZ %.1f kHz (max %.1f)\n",
+                    coh / n, cz_coh_max, lk / n, lkmax, fl / n, zz / n, cz_zz_max);
         std::printf("   control error handed to the emulator %.2e (incl. %.0e residual allowance); total CZ error incl. decoherence %.2e\n",
                     ctrl / n, V11.coupler.residual_ctrl_err, tot / n);
         Json c = Json::object();
         c.set("pairs", int(cal.size())); c.set("t_cz_min_ns", tmin); c.set("t_cz_max_ns", tmax); c.set("t_cz_mean_ns", tm / n);
-        c.set("err_coherent_mean", coh / n); c.set("leakage_mean", lk / n); c.set("leakage_max", lkmax); c.set("err_flux_mean", fl / n);
+        c.set("err_coherent_mean", coh / n); c.set("err_coherent_max", cz_coh_max); c.set("zz_idle_abs_max_kHz", cz_zz_max); c.set("leakage_mean", lk / n); c.set("leakage_max", lkmax); c.set("err_flux_mean", fl / n);
         c.set("zz_idle_abs_mean_kHz", zz / n); c.set("err_ctrl_mean", ctrl / n); c.set("err_total_mean", tot / n);
         c.set("per_pair", cz_calibration_json(cal));
         out.set("cz_calibration", c);
@@ -167,6 +171,7 @@ int main(int argc, char** argv) {
 
     // ------------------------------------------------------------------ 7. layout
     std::puts("\n7. Physical layout (designs/alpha1-v11/layout_cells.json, AF17_v11.gds)");
+    bool lay_found = false, lay_placement = false, lay_tol = false, lay_renull = false;
     {
         std::ifstream f("designs/alpha1-v11/layout_cells.json");
         if (f) {
@@ -186,15 +191,42 @@ int main(int argc, char** argv) {
                         P.g_r_MHz, P.g_r_target_MHz);
             std::printf("   re-null: couplers parked at %.3f GHz (%.0f MHz below sweet spot, df/dPhi %.2f GHz/Phi0) -> residual gap %.3f MHz, ZZ %+.2f kHz\n",
                         P.park_fc_GHz, (V11.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
-            std::printf("   chip %.1f x %.1f mm, %zu etch polygons\n   DRC: %s\n", L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), layout::drc_summary(L).c_str());
+            std::printf("   chip %.1f x %.1f mm, %zu etch polygons\n   DRC: %s\n   %s (reported, not gated)\n", L.outline.w() / 1e3, L.outline.h() / 1e3,
+                        L.etch.size(), layout::drc_summary(L).c_str(), layout::connectivity_summary(L).c_str());
+            const auto T = layout::targets_from_design(V11, R11);
+            auto rel = [](double a, double t) { return a / t - 1; };
+            const double ec_err = std::max({std::abs(rel(m.EC_m, T.EC_m)), std::abs(rel(m.EC_d, T.EC_d)), std::abs(rel(m.EC_c, T.EC_c))});
+            const double g_err = std::max({std::abs(rel(m.G_mc, T.G_mc)), std::abs(rel(m.G_cd, T.G_cd)), std::abs(rel(m.G_md, T.G_md))});
+            const double cr_err = rel(m.C_qr_fF, T.C_qr_fF);
+            std::printf("   extracted vs target: E_C within %.1f%%, couplings within %.1f%%, qubit-readout capacitance %+.1f%% (%.2f fF, target %.2f)\n",
+                        100 * ec_err, 100 * g_err, 100 * cr_err, m.C_qr_fF, T.C_qr_fF);
             Json lj2 = Json::object();
             lj2.set("alpha_measure_MHz", P.alpha_m * 1e3); lj2.set("alpha_data_MHz", P.alpha_d * 1e3); lj2.set("alpha_coupler_MHz", P.alpha_c * 1e3);
             lj2.set("g_qc_MHz", P.g_qc_MHz); lj2.set("g12_MHz", P.g12_MHz); lj2.set("g12_null_MHz", P.g12_null_MHz);
             lj2.set("residual_gap_MHz", P.residual_gap_MHz); lj2.set("spectator_transfer", P.spectator_LZ); lj2.set("zz_park_kHz", P.zz_park_kHz);
             lj2.set("renull_park_fc_GHz", P.park_fc_GHz); lj2.set("renull_gap_MHz", P.park_gap_MHz); lj2.set("renull_zz_kHz", P.park_zz_kHz);
-            lj2.set("readout_g_MHz", P.g_r_MHz); lj2.set("readout_g_design_MHz", P.g_r_target_MHz); lj2.set("drc_clean", L.drc_clean()); lj2.set("drc", layout::drc_json(L));
+            lj2.set("readout_g_MHz", P.g_r_MHz); lj2.set("readout_g_design_MHz", P.g_r_target_MHz); lj2.set("drc_clean", L.drc_clean()); lj2.set("drc", layout::drc_json(L)); lj2.set("connectivity", layout::connectivity_json(L));
+            lj2.set("max_EC_err", ec_err); lj2.set("max_coupling_err", g_err); lj2.set("readout_C_err", cr_err);
+            lj2.set("within_tolerance", ec_err <= 0.03 && g_err <= 0.06 && std::abs(cr_err) <= 0.06); lj2.set("renull_ok", std::abs(P.park_gap_MHz) < 0.05);
+            lay_found = true; lay_placement = L.problems.empty(); lay_tol = ec_err <= 0.03 && g_err <= 0.06; lay_renull = std::abs(P.park_gap_MHz) < 0.05;
             out.set("layout", lj2);
         } else std::puts("   (no layout_cells.json yet: run `qpuforge gds ... --cells designs/alpha1-v11/layout_cells.json`)");
+    }
+
+    // ------------------------------------------------------------------ 8. gate
+    // The Alpha simulation gate of ROADMAP.md, computed from the numbers above. The fabrication Monte Carlo criterion
+    // (>= 90% collision-free at 2% junction spread) is evaluated by the Alpha-1 v1.0 review on the same frequency plan.
+    std::puts("\n8. Alpha simulation gate (ROADMAP.md)");
+    {
+        Json ej = Json::object();
+        auto crit = [&](const char* key, const std::string& text, bool ok) { std::printf("   [%s] %s\n", ok ? "PASS" : "FAIL", text.c_str()); ej.set(key, ok); };
+        crit("eps_d3", "distance-3 logical error per round (memory-Z, 5-25 rounds) <= 0.6%", h11.eps <= 0.006);
+        crit("lifetime", "logical lifetime > 2x best physical T1", h11.round_ns / 1e3 / h11.eps > 2 * best_T1);
+        crit("cz", "every pair: CZ coherent error <= 5e-4 and leakage <= 2e-4 per gate", cz_coh_max <= 5e-4 && cz_leak_max <= 2e-4);
+        crit("zz", "every pair: idle ZZ at the coupler park point <= 10 kHz", cz_zz_max <= 10.0);
+        crit("drc", "layout passes placement and island-spacing checks (mask DRC and connectivity reported, not gated)", lay_found && lay_placement);
+        crit("layout", "extracted E_C within 3%, couplings within 6%; parked exchange re-nullable", lay_found && lay_tol && lay_renull);
+        out.set("exit_criteria", ej);
     }
 
     const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();

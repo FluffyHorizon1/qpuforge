@@ -3,6 +3,7 @@
 second implementation.
 
 Usage: flux_check.py <window.json> [--h UM] [--lk-ph PH] [--margin F] [--zone UM] [--tol T] [--maxit N] [--floating]
+                     [--max-diff PH]
 
 <window.json> comes from `layout_gates flux <chip> <cells.json> <owner> <line> --dump <window.json>`: the apertures of
 the solve (the etch with straps and pad cuts taken out), their kinds (bounded holes and the line's two gaps; dumps of
@@ -27,7 +28,9 @@ its charge instead of evenly in angle. The tool also prints the line's net flux 
 bounded hole), which sets how much the split of the return between the two ways round would matter if that etch were
 held.
 
-Needs numpy only. Prints both results for M and M_cm and their difference; exit status 0, or 2 on a usage error.
+Needs numpy only. Prints both results for M and M_cm and their difference. Exit status 0; 1 with --max-diff when M or
+M_cm differs from flux_coupling's by more than PH (a test: the dump must come from a grid solve at the same cell);
+2 on a usage error.
 """
 import argparse
 import json
@@ -290,6 +293,7 @@ def main():
     ap.add_argument('--maxit', type=int, default=6000)
     ap.add_argument('--floating', action='store_true', help="treat every aperture as a bounded hole (zero net flux), none held at the window edge (for dumps "
                     "of the earlier model, which held the apertures the window clips)")
+    ap.add_argument('--max-diff', type=float, default=None, help="exit 1 when M or M_cm differs from the dump's result by more than this (pH)")
     ap.add_argument('--zone', type=float, default=40.0, help="the branch rule: weight the owner's etch beyond the island's bounding box grown by this (um) with "
                     "the value where it leaves (default 40, as flux_coupling; 0: no branch rule)")
     a = ap.parse_args()
@@ -313,7 +317,8 @@ def main():
           f"M {s['M']:.4f} pH, M_cm {s['M_cm']:.4f} pH (signed {s['M_cm_signed']:+.4f}); {s['iterations']} iterations, residual {s['residual']:.1e}, {s['seconds']:.0f} s")
     if a.lk_ph == 0:
         print(f"    largest |B_z| in the film {s['film_bz']:.3g} T against {s['max_bz']:.3g} T in the apertures (per A)")
-    print(f"  difference (this tool - flux_coupling): M {s['M'] - mom['M_pH']:+.4f} pH ({100 * (s['M'] / mom['M_pH'] - 1):+.1f}%), M_cm {s['M_cm_signed'] - mom['M_cm_signed_pH']:+.4f} pH")
+    dm, dcm = s['M'] - mom['M_pH'], s['M_cm_signed'] - mom['M_cm_signed_pH']
+    print(f"  difference (this tool - flux_coupling): M {dm:+.4f} pH ({100 * (s['M'] / mom['M_pH'] - 1):+.1f}%), M_cm {dcm:+.4f} pH")
     kind = 0 if a.floating else int(d['kind'][int(d['own_moat'])])
     print(f"  the owner's etch is {'held (it reaches the window edge)' if kind == 1 else 'a bounded hole'}; the line's net flux through it (loop included) {s['net']:+.4f} pH: "
           f"moving the split of the return between the two ways round from 1/2 by delta (the loop at the matching share) changes M_cm by {-s['net']:+.4f} delta pH")
@@ -323,6 +328,9 @@ def main():
         print(f"  reciprocity with the island's own charge (control window, 1.5 um panels): charge to ground {r['ground']:.1f} fF, to other conductors {r['other']:.1f} fF "
               f"of {r['owner']:.1f} fF; by quarter turns from the SQUID {100 * q[0]:.0f} / {100 * q[1]:.0f} / {100 * q[2]:.0f} / {100 * q[3]:.0f} %")
         print(f"    M_cm with that charge in place of the even spread: {r['M_cm_signed']:+.4f} pH (ansatz {s['M_cm_signed']:+.4f} pH, {100 * (r['M_cm_signed'] / s['M_cm_signed'] - 1):+.1f}%)")
+    if a.max_diff is not None and max(abs(dm), abs(dcm)) > a.max_diff:
+        print(f"flux_check.py: the two solves differ by {max(abs(dm), abs(dcm)):.2g} pH (allowed {a.max_diff:g})", file=sys.stderr)
+        return 1
     return 0
 
 

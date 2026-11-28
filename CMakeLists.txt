@@ -350,11 +350,22 @@ foreach(t ${QPUFORGE_TESTS})
   set_tests_properties(${name} PROPERTIES LABELS ${label} FAIL_REGULAR_EXPRESSION "FAIL ")
 endforeach()
 # The full mask gates of BF-49 and GF-97 from the committed cell files (tests/layout_gates.cpp: DRC, connectivity, ground
-# bumps, the line budget with crosstalk on the fine meshes). Too slow for every CI job: layout_presets gates the line
-# budget on AF-17 only, and these run with the nightly smoke tests.
+# bumps, the line budget with its crosstalk solves). Too slow for every CI job: layout_presets gates the line budget on
+# AF-17 only, and these run with the nightly smoke tests.
 add_test(NAME layout_gates_bf49 COMMAND layout_gates gates beta1 ${CMAKE_CURRENT_SOURCE_DIR}/designs/beta1/layout_cells.json)
 add_test(NAME layout_gates_gf97 COMMAND layout_gates gates gamma1 ${CMAKE_CURRENT_SOURCE_DIR}/designs/beta1/layout_cells.json)
 set_tests_properties(layout_gates_bf49 layout_gates_gf97 PROPERTIES LABELS smoke TIMEOUT 1800)
+# The flux solve against tools/flux_check.py (numpy) on an AF-17 window: registered only where python3 imports numpy.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  execute_process(COMMAND ${Python3_EXECUTABLE} -c "import numpy" RESULT_VARIABLE QPUFORGE_NO_NUMPY OUTPUT_QUIET ERROR_QUIET)
+  if(QPUFORGE_NO_NUMPY EQUAL 0)
+    add_test(NAME flux_against_numpy COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:layout_gates> -DPYTHON=${Python3_EXECUTABLE}
+             -DTOOL=${CMAKE_CURRENT_SOURCE_DIR}/tools/flux_check.py -DCELLS=${CMAKE_CURRENT_SOURCE_DIR}/tests/data/layout/af17_dev_cells_combined.json
+             -DOUT=${CMAKE_CURRENT_BINARY_DIR}/flux_against_numpy_window.json -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_flux_against_numpy.cmake)
+    set_tests_properties(flux_against_numpy PROPERTIES LABELS smoke TIMEOUT 900)
+  endif()
+endif()
 # End-to-end smoke runs of the review programs: 200 shots, outputs in the build tree, committed files untouched.
 # They reuse results/cz_cache.json (copied); with a stale or missing cache they re-calibrate (a few minutes).
 foreach(name alpha1_v11_review beta1_review gamma1_review surgery_study flux_distortion_study)

@@ -334,14 +334,16 @@ inline std::pair<CZPulse, CZResult> optimize_cz(const CZSystem& S, double fluxc_
 // chosen so that the residual |11>-|20> coupling with the coupler parked vanishes: the qubits are then exchange-free
 // at idle, and a measure qubit sweeping past a spectator's |11>-|20> point while its other couplers are parked sees
 // (almost) no avoided crossing.
+// The pair system for a given direct coupling g12 (GHz), coupler parked at its sweet spot.
+inline CZSystem pair_system(double f_hi, double a_hi, double f_lo, double a_lo, const CouplerElement& ce, double g12) {
+    const double g = ce.g_qc_MHz * 1e-3;
+    auto S = CZSystem::make(f_hi, a_hi, f_lo, a_lo, ce.f_max_GHz, ce.alpha_GHz, g, g, g12, ce.f_max_GHz);
+    S.fluxc_idle = 0.0;
+    return S;
+}
 inline CZSystem design_pair_system(double f_hi, double a_hi, double f_lo, double a_lo, const CouplerElement& ce, double* g12_out = nullptr,
                                    double* gap_out = nullptr) {
-    const double g = ce.g_qc_MHz * 1e-3;
-    auto build = [&](double g12) {
-        auto S = CZSystem::make(f_hi, a_hi, f_lo, a_lo, ce.f_max_GHz, ce.alpha_GHz, g, g, g12, ce.f_max_GHz);
-        S.fluxc_idle = 0.0;
-        return S;
-    };
+    auto build = [&](double g12) { return pair_system(f_hi, a_hi, f_lo, a_lo, ce, g12); };
     auto gap = [&](double g12) { return cz_avoided_crossing(build(g12), 0.0).second; };
     // coarse scan then golden section on the V-shaped |gap|(g12)
     double best = 0, bg = 1e9;

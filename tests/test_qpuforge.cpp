@@ -668,6 +668,172 @@ static void test_pulse_cz() {
     }
 }
 
+static void test_flux_line() {
+    std::puts("[flux line] line response vs closed forms, predistortion, the CZ on a given drive, pulse history (fluxline.hpp)");
+    // (a) partial fractions of a cascade with a low-pass against a step-by-step integration of the sections in sequence
+    {
+        FluxLine L; L.tails = {{0.02, 30}, {-0.01, 400}}; L.rise_ns = 1.0;
+        const auto P = L.parallel();
+        double dc = P.c0;
+        for (double r : P.r) dc += r;
+        const double h = 5e-3, pl = std::log(9.0) / L.rise_ns;
+        double wl = 0, w1 = 0, w2 = 0, worst = 0;
+        for (int n = 0; n < 400000; ++n) {              // 2 us in 5 ps steps: low-pass, then each section on the output before it
+            wl += (1 - wl) * -std::expm1(-pl * h);
+            const double y1 = wl + 0.02 * (wl - w1); w1 += (wl - w1) * -std::expm1(-h / 30.0);
+            const double y2 = y1 - 0.01 * (y1 - w2); w2 += (y1 - w2) * -std::expm1(-h / 400.0);
+            if (n % 4000 == 0) worst = std::max(worst, std::abs(y2 - L.step((n + 1) * h)));
+        }
+        // a section followed by its analytic inverse (-a / (1 + a), (1 + a) tau) is the identity
+        FluxLine I; I.tails = {{0.03, 50}, {-0.03 / 1.03, 1.03 * 50}};
+        double dev = 0;
+        for (double t : {0.0, 1.0, 10.0, 50.0, 200.0, 5000.0}) dev = std::max(dev, std::abs(I.step(t) - 1));
+        std::printf("  two sections and a low-pass: DC gain - 1 = %.1e, step response vs sequential integration %.1e; section x inverse: |step - 1| < %.1e\n", dc - 1, worst, dev + 1e-16);
+        CHECK(std::abs(dc - 1) < 1e-12, "DC gain %.15f", dc);
+        CHECK(worst < 5e-6, "cascade step response off by %.2e", worst);
+        CHECK(dev < 1e-12, "section followed by its inverse deviates by %.2e", dev);
+        bool threw = false;
+        try { FluxLine B; B.tails = {{0.01, 20}, {0.02, 20}}; (void)B.parallel(); } catch (const std::invalid_argument&) { threw = true; }
+        CHECK(threw, "two sections with one time constant must be refused");
+    }
+    // (b) the running filter: integral of the step response in one piece and in uneven pieces vs the closed form
+    {
+        FluxLine L; L.tails = {{-0.04, 80}};
+        const double T = 300, exact = T - 0.04 * 80 * (1 - std::exp(-T / 80));
+        FluxLineFilter one(L), many(L);
+        const double i1 = one.advance(1.0, T);
+        double i2 = 0;
+        for (double h : {0.3, 11.0, 0.05, 97.65, 41.0, 150.0}) i2 += many.advance(1.0, h);
+        std::printf("  integral of a -4 %% / 80 ns step response over 300 ns: closed form %.9f, one step %+.1e, six steps %+.1e\n", exact, i1 - exact, i2 - exact);
+        CHECK(std::abs(i1 - exact) < 1e-10 && std::abs(i2 - exact) < 1e-10, "filter integral %.3e / %.3e", i1 - exact, i2 - exact);
+        CHECK(std::abs(one.value(1.0) - L.step(T)) < 1e-12 && std::abs(many.value(1.0) - L.step(T)) < 1e-12, "filter state after 300 ns");
+    }
+    // (c) pulses through a line: area (unit DC gain), superposition and the idle shortcut, delay
+    {
+        FluxChannel ch; ch.line.tails = {{0.02, 50}};
+        const FluxAwg awg{};
+        std::vector<double> e;
+        for (int k = 0; k <= 2400; ++k) e.push_back(k * 1.0);
+        const FluxPulse p1{10.0, 1.0, 7, 26}, p2{60.0, -0.7, 7, 21};
+        const auto y1 = flux_line_output(ch, awg, {p1}, e), y2 = flux_line_output(ch, awg, {p2}, e), y12 = flux_line_output(ch, awg, {p1, p2}, e);
+        double area = 0, sup = 0;
+        for (std::size_t i = 0; i < y1.size(); ++i) { area += y1[i]; sup = std::max(sup, std::abs(y12[i] - y1[i] - y2[i])); }
+        FluxChannel late = ch; late.line.delay_ns = 0.37;
+        std::vector<double> es = e;
+        for (auto& t : es) t += 0.37;
+        const auto yd = flux_line_output(late, awg, {p1}, es);
+        double dd = 0;
+        for (std::size_t i = 0; i < y1.size(); ++i) dd = std::max(dd, std::abs(yd[i] - y1[i]));
+        std::printf("  pulse on a +2 %% / 50 ns line: delivered area %.10f ns (programmed %.1f), flat top %.5f, 20 ns after the pulse %+.5f; two pulses vs sum %.1e; delayed line %.1e\n",
+                    area, 26.0 + 7.0, y1[30], y1[70], sup, dd);
+        CHECK(std::abs(area - 33.0) < 1e-9, "area through the line %.12f", area);
+        CHECK(y1[30] > 1.005 && y1[30] < 1.02 && y1[70] < -0.002 && y1[70] > -0.02, "overshoot on the flat top and undershoot after the pulse: %.5f, %.5f", y1[30], y1[70]);
+        CHECK(sup < 1e-13, "superposition violated by %.2e", sup);
+        CHECK(dd < 1e-12, "delay is not a pure shift: %.2e", dd);
+        bool threw = false;
+        try { (void)flux_line_output(ch, awg, {p1, FluxPulse{30.0, 1.0, 7, 26}}, e); } catch (const std::invalid_argument&) { threw = true; }
+        CHECK(threw, "overlapping pulses must be refused");
+    }
+    // (d) predistortion at 1 GS/s: exact for one section; two sections; a 10 % amplitude misfit leaves 10 % of the tail; DAC
+    {
+        FluxAwg awg; awg.sample_ns = 1.0;
+        std::vector<double> e;
+        for (int k = 0; k <= 600; ++k) e.push_back(k * 1.0);
+        const std::vector<FluxPulse> train{{10.0, 0.2, 7, 26}};
+        const auto ideal = flux_line_output(FluxChannel{}, awg, train, e);
+        auto worst = [&](const FluxChannel& c) { const auto y = flux_line_output(c, awg, train, e); double w = 0; for (std::size_t i = 0; i < y.size(); ++i) w = std::max(w, std::abs(y[i] - ideal[i])); return w; };
+        FluxChannel one; one.line.tails = {{0.02, 300}}; one.correction = one.line.tails;
+        FluxChannel two; two.line.tails = {{-0.03, 20}, {0.02, 300}}; two.correction = two.line.tails;
+        FluxChannel raw = one; raw.correction.clear();
+        FluxChannel off = one; off.correction[0].a *= 0.9;
+        const double w1 = worst(one), w2 = worst(two), wr = worst(raw), wo = worst(off);
+        std::printf("  predistortion, 1 GS/s, worst sample average vs the programme (step 0.2): one section %.1e, two sections %.1e, none %.1e, amplitude fitted 10 %% low %.1e\n", w1, w2, wr, wo);
+        CHECK(w1 < 1e-14, "exact single-section predistortion leaves %.2e", w1);
+        CHECK(w2 < 2e-5 * 0.2, "two-section predistortion leaves %.2e", w2);
+        CHECK(wo > 0.07 * wr && wo < 0.13 * wr, "10 %% amplitude misfit leaves %.2e of %.2e", wo, wr);
+        FluxAwg dac = awg; dac.bits = 8; dac.full_scale = 1.0;
+        const auto yq = flux_line_output(FluxChannel{}, dac, train, e);
+        double grid = 0, err = 0;
+        for (std::size_t i = 0; i < yq.size(); ++i) { grid = std::max(grid, std::abs(yq[i] * 256 - std::round(yq[i] * 256))); err = std::max(err, std::abs(yq[i] - ideal[i])); }
+        CHECK(grid < 1e-9 && err <= 0.5 / 256 + 1e-12 && err > 1e-4, "8-bit DAC: off the code grid by %.1e, error %.2e", grid, err);
+    }
+    // (e) the CZ on a drive. The calibrated 5.99/5.29 GHz pair of the committed CZ cache (model version 4): the checks
+    // compare simulations of this pulse with one another, so they do not need it to stay the optimum.
+    CouplerElement ce; ce.physical = true;
+    CZCalibration cal; cal.f_mover = 5.99; cal.f_target = 5.29; cal.g12_MHz = 9.80913517582;
+    const CZSystem S = cz_system_of(cal, -0.22, -0.22, ce);
+    CZPulse P; P.flux1_int = 0.177195160734; P.fluxc_on = 0.323639047416; P.t_rise = 7; P.t_flat = 26.1037246895;
+    const auto r0 = simulate_cz(S, P, CZModel::dt_ns);
+    {
+        const auto rd = simulate_cz_drive(S, cz_ideal_drive(S, P));
+        FluxSetup F;
+        const auto rg = simulate_cz_drive(S, cz_gate_drive(S, P, F, cz_nominal_command(S, P)));
+        std::printf("  simulate_cz 1-F %.4e, leakage %.2e; the same steps as a drive: dF %.1e, dphase %.1e rad; line model with ideal lines (%zu steps): dF %.1e\n", 1 - r0.fidelity, r0.leakage,
+                    std::abs(rd.fidelity - r0.fidelity), std::abs(rd.cphase - r0.cphase), cz_gate_edges(P, F).size() - 1, std::abs(rg.fidelity - r0.fidelity));
+        CHECK(1 - r0.fidelity < 1e-3 && r0.leakage < 1e-3, "the reference pulse is no longer a CZ: 1-F %.2e", 1 - r0.fidelity);
+        CHECK(std::abs(rd.fidelity - r0.fidelity) < 1e-13 && std::abs(rd.leakage - r0.leakage) < 1e-13 && std::abs(rd.cphase - r0.cphase) < 1e-9, "ideal drive differs from simulate_cz");
+        CHECK(std::abs(rg.fidelity - r0.fidelity) < 3e-6, "ideal lines through the line model: dF %.2e", rg.fidelity - r0.fidelity);
+        CHECK(std::abs(cz_fidelity_in_frame(rg, cz_frame(rg)) - rg.fidelity) < 1e-13, "fidelity in the gate's own frame");
+    }
+    // (f) a tail far slower than the gate only rescales the pulse, and the amplitude calibration removes it
+    {
+        FluxSetup F, I; F.pad_ns = 0; I.pad_ns = 0;
+        F.mover.line.tails = {{0.01, 1e9}}; F.coupler.line.tails = {{0.01, 1e9}};
+        CZCommand up = cz_nominal_command(S, P); up.amp_mover *= 1.01; up.amp_coupler *= 1.01;
+        const auto slow = simulate_cz_drive(S, cz_gate_drive(S, P, F, cz_nominal_command(S, P))), scaled = simulate_cz_drive(S, cz_gate_drive(S, P, I, up));
+        const auto fixed = simulate_cz_drive(S, cz_gate_drive(S, P, F, cz_matched_command(S, P, F))), ref = simulate_cz_drive(S, cz_gate_drive(S, P, I, cz_nominal_command(S, P)));
+        const double sc = flux_amplitude_scale(F.mover, F.awg, P.t_rise, P.t_flat);
+        std::printf("  +1 %% tail of 1 s: 1-F %.3e as programmed (pulse scaled by 1.01 on ideal lines: %.3e); amplitude scale %.6f, then 1-F %.4e (ideal lines %.4e)\n",
+                    1 - slow.fidelity, 1 - scaled.fidelity, sc, 1 - fixed.fidelity, 1 - ref.fidelity);
+        CHECK(1 - slow.fidelity > 10 * (1 - ref.fidelity), "a 1 %% amplitude error must show: %.2e", 1 - slow.fidelity);
+        CHECK(std::abs(slow.fidelity - scaled.fidelity) < 1e-7, "slow tail vs scaled pulse: %.3e", slow.fidelity - scaled.fidelity);
+        CHECK(std::abs(sc - 1 / 1.01) < 1e-5, "amplitude scale %.7f", sc);
+        CHECK(std::abs(fixed.fidelity - ref.fidelity) < 1e-7, "amplitude calibration leaves %.2e", fixed.fidelity - ref.fidelity);
+    }
+    // (g) history: the same gate right after another pulse on a +0.3 % / 300 ns line. The flux offset against an
+    // independent quadrature of the tail; the shift of the mover's phase against the frequency shift of the bare transmon
+    {
+        FluxSetup F; F.pad_ns = 0;
+        F.mover.line.tails = {{0.003, 300}}; F.coupler.line.tails = {{0.003, 300}};
+        const CZCommand cmd = cz_matched_command(S, P, F);
+        const double T = P.duration(), t2 = std::ceil(T / 0.05) * 0.05;
+        const auto Wa = cz_gate_drive(S, P, F, cmd);
+        const auto Wh = cz_train_drive(S, P, F, t2, {{0.0, cmd.amp_mover, P.t_rise, P.t_flat}, {t2, cmd.amp_mover, P.t_rise, P.t_flat}}, {{t2, cmd.amp_coupler, P.t_rise, P.t_flat}});
+        double off = 0, quad = 0, dur = 0, phase_pred = 0;
+        for (std::size_t s = 0; s < Wa.h.size(); ++s) { off += (Wh.f1[s] - Wa.f1[s]) * Wa.h[s]; dur += Wa.h[s]; phase_pred -= 2 * PI * (S.q1.f01(Wh.f1[s]) - S.q1.f01(Wa.f1[s])) * Wa.h[s]; }
+        off /= dur;
+        // after a pulse x(t) that has ended, a section's output is -a times its low-pass state: -a / tau * integral of x(s) exp(-(t - s) / tau) ds
+        const int nq = 4000;
+        for (int k = 0; k < nq; ++k) {
+            const double sk = (k + 0.5) * T / nq, x = cmd.amp_mover * cz_pulse_shape(sk, P.t_rise, P.t_flat);
+            quad += -0.003 / 300 * x * (T / nq) * 300 * (std::exp(-(t2 - sk) / 300) - std::exp(-(t2 + dur - sk) / 300)) / dur;      // mean over the second gate
+        }
+        const auto ra = simulate_cz_drive(S, Wa), rh = simulate_cz_drive(S, Wh);
+        const CZFrame fa = cz_frame(ra), fh = cz_frame(rh);
+        const double fixed = (1 - cz_fidelity_in_frame(rh, fa)) - (1 - ra.fidelity), free = (1 - rh.fidelity) - (1 - ra.fidelity);
+        const double dth = std::remainder(fh.th_mover - fa.th_mover, 2 * PI);
+        std::printf("  second of two pulses on a +0.3 %% / 300 ns line: mean mover flux offset %+.3e Phi0 (quadrature %+.3e), mover phase %+.4f rad (bare transmon %+.4f),\n"
+                    "    added error %.2e with the first gate's virtual Z, %.2e with its own\n", off, quad, dth, phase_pred, fixed, free);
+        CHECK(std::abs(off - quad) < 2e-3 * std::abs(quad), "history offset %.4e vs quadrature %.4e", off, quad);
+        CHECK(off < 0 && std::abs(off) > 1e-4 * cmd.amp_mover && std::abs(off) < 3e-3 * cmd.amp_mover, "offset %.3e out of range", off);
+        CHECK(std::abs(dth - phase_pred) < 0.1 * std::abs(phase_pred), "mover phase shift %.4f vs %.4f", dth, phase_pred);
+        CHECK(fixed > 3 * free && free > 0 && fixed > 1e-5, "fixed-frame error %.2e should exceed the free-frame error %.2e", fixed, free);
+    }
+    // (h) CZ start times of a compiled program: three time slices, the second without a CZ
+    {
+        auto cz = [](int a, int b) { Gate g; g.op = Op::CZ; g.q = {a, b}; g.name = "cz"; return g; };
+        Gate rz; rz.op = Op::RZ; rz.q = {2}; rz.theta = 0.3; rz.name = "rz";
+        Compiled prog;
+        Moment m1; m1.ops = {cz(0, 1)}; m1.duration_ns = 40.0;
+        Moment m2; m2.ops = {rz}; m2.duration_ns = 0.4;
+        Moment m3; m3.ops = {cz(2, 1), cz(0, 3)}; m3.duration_ns = 44.5;
+        prog.moments = {m1, m2, m3};
+        const auto st = cz_starts(prog);
+        CHECK(st.size() == 3 && st[0].t_ns == 0.0 && st[0].a == 0 && st[0].b == 1 && std::abs(st[1].t_ns - 40.4) < 1e-12 && st[1].a == 1 && st[1].b == 2 &&
+              std::abs(st[2].t_ns - 40.4) < 1e-12 && st[2].a == 0 && st[2].b == 3, "CZ start times of a three-slice program");
+    }
+}
+
 static void test_leakage_frame() {
     std::puts("[leakage] frame model: inert when off, Markov steady state, leakage-removing reset, DQLR");
     const auto D = surface_chip(3); const auto R = analyze(D);
@@ -2387,6 +2553,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"frame_vs_statevector", test_frame_vs_statevector},
     {"eigensolver", test_eigensolver},
     {"pulse_cz", test_pulse_cz},
+    {"flux_line", test_flux_line},
     {"leakage_frame", test_leakage_frame},
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},

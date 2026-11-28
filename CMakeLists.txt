@@ -89,6 +89,25 @@ set_tests_properties(cli_materials_loss_tangent PROPERTIES FAIL_REGULAR_EXPRESSI
 set_tests_properties(cli_materials_refused PROPERTIES PASS_REGULAR_EXPRESSION "error: .*alpha1_v11.json: materials sidecar: schema must be")
 set_tests_properties(cli_usage_materials PROPERTIES PASS_REGULAR_EXPRESSION "analyze <chip.json> \\[--materials <sidecar.json> \\[--loss-tangent\\]\\]")
 set_tests_properties(cli_materials cli_materials_placeholder cli_materials_loss_tangent cli_materials_refused cli_usage_materials PROPERTIES LABELS unit)
+# CLI guards for `surgery` (not validation checks): --shots 0 runs the noiseless tableau check only (seconds, no Monte Carlo);
+# malformed or misplaced values are errors (exit 2, ignored by a pass regex) and the usage text documents the exit statuses.
+add_test(NAME cli_surgery_zz COMMAND qpuforge_cli surgery --op zz --d 3 --shots 0)
+add_test(NAME cli_surgery_cnot COMMAND qpuforge_cli surgery --op cnot --d 3 --input 00 --shots 0)
+add_test(NAME cli_surgery_bad_shots COMMAND qpuforge_cli surgery --shots 1e5)
+add_test(NAME cli_surgery_bad_seed COMMAND qpuforge_cli surgery --shots 0 --seed -1)
+add_test(NAME cli_surgery_bad_distance COMMAND qpuforge_cli surgery --d 4 --shots 0)
+add_test(NAME cli_surgery_bad_readout COMMAND qpuforge_cli surgery --op zz --readout Z --shots 0)
+add_test(NAME cli_usage_exit_status COMMAND qpuforge_cli)
+set_tests_properties(cli_surgery_zz PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:" PASS_REGULAR_EXPRESSION
+  "ZZ measurement d=3 \\|00>.*noiseless tableau check, 4 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)")
+set_tests_properties(cli_surgery_cnot PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:" PASS_REGULAR_EXPRESSION
+  "noiseless tableau check, 4 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)")
+set_tests_properties(cli_surgery_bad_shots PROPERTIES PASS_REGULAR_EXPRESSION "error: --shots: '1e5' is not an integer")
+set_tests_properties(cli_surgery_bad_seed PROPERTIES PASS_REGULAR_EXPRESSION "error: --seed: '-1' is not a non-negative integer")
+set_tests_properties(cli_surgery_bad_distance PROPERTIES PASS_REGULAR_EXPRESSION "error: --d: ")
+set_tests_properties(cli_surgery_bad_readout PROPERTIES PASS_REGULAR_EXPRESSION "error: --readout applies to --op cnot only")
+set_tests_properties(cli_usage_exit_status PROPERTIES PASS_REGULAR_EXPRESSION "exit status: 0 done; 1 usage error;.*3 hwgate: gate not passed, surgery: the noiseless tableau check failed")
+set_tests_properties(cli_surgery_zz cli_surgery_cnot cli_surgery_bad_shots cli_surgery_bad_seed cli_surgery_bad_distance cli_surgery_bad_readout cli_usage_exit_status PROPERTIES LABELS unit)
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)

@@ -58,7 +58,10 @@ static void usage() {
         "\n"
         "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"
         "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage\n"
-        "  qec/cz/synth-chip/hwgate on a chip with a physical coupler calibrate CZs first (--cache file reuses them)");
+        "  qec/cz/synth-chip/hwgate on a chip with a physical coupler calibrate CZs first (--cache file reuses them)\n"
+        "\n"
+        "  exit status: 0 done; 1 usage error; 2 error while running (gds: layout not DRC-clean);\n"
+        "               3 hwgate: gate not passed, surgery: the noiseless tableau check failed");
 }
 
 static bool has_flag(int argc, char** argv, const char* key) {

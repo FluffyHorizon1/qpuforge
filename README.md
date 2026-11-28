@@ -124,6 +124,10 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 `--Q`, `--plan 2|4|8`, `--stagger-MHz`, `--feedlines`, `--kappa-MHz`, `--chi-MHz`, `--purcell`, `--readout-ns`, `--reset-ns`,
 `--reset-err`, `--active-reset`, `--err2q`, `--residual-zz-kHz`. Designs are plain JSON, so you can edit any qubit or coupler by hand.
 
+Exit status: 0 done; 1 usage error (no or unknown command, too few arguments); 2 error while running (also `gds`: layout not
+DRC-clean); 3 `hwgate`: gate not passed, and `surgery`: the noiseless tableau check of detectors and observables failed (the
+message says `FAILED`; no logical error rates are meaningful then).
+
 ## Physics and emulation model
 
 | Layer | What is computed | How |

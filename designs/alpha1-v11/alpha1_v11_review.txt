@@ -61,4 +61,4 @@ CZ calibration: 16 unique frequency combinations for 24 pairs (0 simulated, 16 c
    [PASS] metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane
    [PASS] extracted E_C within 3%, couplings within 6%; parked exchange re-nullable
 
-review complete in 1588 s -> designs/alpha1-v11/alpha1_v11_review.json
+review complete in 1518 s -> designs/alpha1-v11/alpha1_v11_review.json

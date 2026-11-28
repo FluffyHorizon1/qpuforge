@@ -5,9 +5,9 @@ the commands below to reproduce them.
 
 | Output | Program and arguments | Source | Compiler | OpenMP threads | Finished (UTC) | Runtime |
 |---|---|---|---|---|---|---|
-| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` (`.txt` = stdout and stderr) | `56ba3e4` (clean tree; the JSON's `source_commit` reads `ea63b9f`: see Source stamp below) | g++ 13.3.0 | 4 (informational) | 2026-11-28T06:17:05Z | 1588 s (three reviews in parallel on 4 cores) |
-| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T06:29:27Z | 2330 s (in parallel) |
-| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T06:28:44Z | 2287 s (in parallel) |
+| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` (`.txt` = stdout and stderr) | `ae466624dfdd53b5e88a42095c7066f12a439fcc` (clean tree, build directory configured at that commit) | g++ 13.3.0 | 4 (informational) | 2026-11-28T06:57:18Z | 1518 s (three reviews in parallel on 4 cores) |
+| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T07:09:56Z | 2277 s (in parallel) |
+| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T07:08:45Z | 2205 s (in parallel) |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | `fill_spec.py` and templates as committed with them | — | — | — | — |
 | `results/design_study.{csv,txt}` | `design_study > results/design_study.txt` from the repository root (default: 300 trajectories; the program writes the CSV itself) | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27 (time not recorded) | 31 s |
 | `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 415 checks, 0 failed) | `ea63b9f` (`main` 5495bce merged into `scs-bot/fab-readiness`; the reviews' tree plus #20, whose default decoding path is unchanged) | g++ 13.3.0 | 4 (informational) | 2026-11-28T03:38:01Z | 926 s |
@@ -23,15 +23,11 @@ the commands below to reproduce them.
 | `results/decoder_sweeps.{json,txt}` | `decoder_sweeps` (`OMP_NUM_THREADS=4 ./build/decoder_sweeps`) | `5e69544f153985be9ae2b042b467f762f06f85d2` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:30:44Z | 57 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
-  The three reviews were regenerated from the clean tree `56ba3e4` (PR #28), whose review and layout code is unchanged
-  in the later commits of that PR (documentation, `fill_spec.py` and generated outputs only).
-  `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
+  The three reviews were regenerated from the clean tree `ae46662` (PR #28) with a build directory configured at that
+  commit: each review JSON says `source_commit: ae46662…`, `source_tree_dirty: false`. Its review and layout code is the
+  code of `56ba3e4`, where an earlier run of the same three reviews gave the same output except for the machine-dependent
+  fields. `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
   `results/test_output.txt` was not regenerated for PR #28 (its check total is set on `main`).
-- **Source stamp.** CMake stamps `QPUFORGE_GIT_SHA` / `QPUFORGE_GIT_DIRTY` at configure time, not at build time. The
-  build directory used for PR #28 was configured at `ea63b9f` and then rebuilt (not reconfigured) at `56ba3e4`, so the
-  three review JSONs say `source_commit: ea63b9f`, `source_tree_dirty: false`, although the binaries were compiled from
-  `56ba3e4`. The review text output (control-line budget, connectivity with ground straps, the `connectivity` gate)
-  exists only in `56ba3e4` and later. Reconfigure before a rerun (`cmake -B build ...`) to get a correct stamp.
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.

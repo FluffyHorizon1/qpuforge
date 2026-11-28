@@ -7,7 +7,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 | **Status** | Rev C. Simulation review complete (10 of 10 simulation-gate criteria pass). Layout (GDSII) is DRC- and connectivity-clean in the model (2D LVS-lite connectivity with modelled airbridges; airbridges, EM and inductance not verified); control-line T1 budget **not met** (flux line); foundry DRC not yet run (§6). |
 | **Purpose** | Show that the logical error falls with code size: a distance-5 rotated surface code on 49 qubits |
 | **Builds on** | Alpha-1 v1.1 (AF-17): same architecture and frequency plan; cells re-synthesised for the stronger readout coupling |
-| **Tooling** | qpuforge v0.4: `beta1_review` (2330 s, 100,000 shots per point) |
+| **Tooling** | qpuforge v0.4: `beta1_review` (2277 s, 100,000 shots per point) |
 
 All performance numbers are **simulation results**. The assumptions are in §8.
 

@@ -38,7 +38,7 @@
     "round_ns_d5": 734.016262876,
     "logical_lifetime_d5_ms": 4.9949294079,
     "mean_defects_d5_20_rounds": 7.8354,
-    "decode_us_per_round_d5": 0.84863859,
+    "decode_us_per_round_d5": 0.849443777,
     "d7_method": "one 9-round run, eps from P_L; d=5 at 9 rounds by the same estimate for Lambda(5->7)"
   },
   "alpha1_v11_reference": {"eps_d3": 0.00361691605197, "eps_d5": 0.0011936121507, "Lambda": 3.0302272391},
@@ -172,13 +172,13 @@
     "layout": true
   },
   "shots": 100000,
-  "runtime_s": 2329.81845674,
+  "runtime_s": 2277.09037293,
   "provenance": {
-    "source_commit": "ea63b9f358796eff399915d82346e90737cac216",
+    "source_commit": "ae466624dfdd53b5e88a42095c7066f12a439fcc",
     "source_tree_dirty": false,
     "compiler": "g++ 13.3.0",
     "openmp_threads": 4,
-    "date_utc": "2026-11-28T06:29:27Z",
+    "date_utc": "2026-11-28T07:09:56Z",
     "seeds": "frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7",
     "cz_model_version": 4,
     "cz_cache": "results/cz_cache.json",

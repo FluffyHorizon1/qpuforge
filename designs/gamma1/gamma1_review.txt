@@ -9,10 +9,10 @@ CZ calibration: 16 unique frequency combinations for 168 pairs (0 simulated, 16 
    Lambda(3->5): Z 6.17, X 5.75;  Lambda(5->7): Z 4.30, X 5.47;  d=7 logical lifetime 25.6 ms (163x best physical T1)
 
 3. Decoding (exact minimum-weight matching: DP up to 8 defects, blossom beyond)
-   d=7, 14 rounds: 11.5 defects per shot (max 37), 1.532% of shots above 22; software decode 2.51 us per round on one core (round 0.75 us)
+   d=7, 14 rounds: 11.5 defects per shot (max 37), 1.532% of shots above 22; software decode 2.54 us per round on one core (round 0.75 us)
    d=7, 40 rounds (4000 shots, same syndromes): 31.9 defects per shot, 90.0% above 22
-     exact matching          P_L 0.00075 (3 failures), decode 7.7 us per round
-     greedy above 22 defects P_L 0.08050 (322 failures), decode 884.8 us per round
+     exact matching          P_L 0.00075 (3 failures), decode 7.5 us per round
+     greedy above 22 defects P_L 0.08050 (322 failures), decode 838.7 us per round
 
 4. High-energy impacts (correlated error bursts; the decoder keeps its quiet-chip priors)
    no mitigation: T1 burst, 25 ms recovery (memory-Z)
@@ -69,4 +69,4 @@ CZ calibration: 16 unique frequency combinations for 168 pairs (0 simulated, 16 
    [PASS] metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane
    [PASS] extracted E_C within 3%, couplings and readout capacitance within 6%; parked exchange re-nullable
 
-review complete in 2287 s -> designs/gamma1/gamma1_review.json
+review complete in 2205 s -> designs/gamma1/gamma1_review.json

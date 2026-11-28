@@ -886,13 +886,13 @@
     "layout": true
   },
   "shots": 100000,
-  "runtime_s": 1587.57537704,
+  "runtime_s": 1518.47440948,
   "provenance": {
-    "source_commit": "ea63b9f358796eff399915d82346e90737cac216",
+    "source_commit": "ae466624dfdd53b5e88a42095c7066f12a439fcc",
     "source_tree_dirty": false,
     "compiler": "g++ 13.3.0",
     "openmp_threads": 4,
-    "date_utc": "2026-11-28T06:17:05Z",
+    "date_utc": "2026-11-28T06:57:18Z",
     "seeds": "frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5)",
     "cz_model_version": 4,
     "cz_cache": "results/cz_cache.json",

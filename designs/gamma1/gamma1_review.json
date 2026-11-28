@@ -62,7 +62,7 @@
     "mean_defects_d7": 11.52028,
     "max_defects_d7": 37,
     "frac_over_22_d7": 0.015325,
-    "decode_us_per_round_d7": 2.50800170321,
+    "decode_us_per_round_d7": 2.53591005286,
     "round_us_d7": 0.746236910518,
     "long_run": {
       "rounds": 40,
@@ -73,8 +73,8 @@
       "P_L_legacy": 0.0805,
       "failures_exact": 3,
       "failures_legacy": 322,
-      "decode_us_per_round_exact": 7.6681429625,
-      "decode_us_per_round_legacy": 884.778192063
+      "decode_us_per_round_exact": 7.49254914375,
+      "decode_us_per_round_legacy": 838.654838931
     }
   },
   "impacts": {
@@ -251,13 +251,13 @@
     "layout": true
   },
   "shots": 100000,
-  "runtime_s": 2286.95718046,
+  "runtime_s": 2205.43456048,
   "provenance": {
-    "source_commit": "ea63b9f358796eff399915d82346e90737cac216",
+    "source_commit": "ae466624dfdd53b5e88a42095c7066f12a439fcc",
     "source_tree_dirty": false,
     "compiler": "g++ 13.3.0",
     "openmp_threads": 4,
-    "date_utc": "2026-11-28T06:28:44Z",
+    "date_utc": "2026-11-28T07:08:45Z",
     "seeds": "frame Monte Carlo seeds 11 + rounds (distance scaling; memory-X adds 7919), 77 (decoder comparison), 505 (impacts), 21 + rounds (long runs); fab Monte Carlo seed 7",
     "cz_model_version": 4,
     "cz_cache": "results/cz_cache.json",

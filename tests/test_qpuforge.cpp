@@ -3,6 +3,9 @@
 #include "qpuforge/layout.hpp"
 #include "qpuforge/gds.hpp"
 #include "qpuforge/fem.hpp"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -2357,6 +2360,50 @@ static void test_layout_checks() {
         CHECK(Fn.M_pH > 0.3 && Fn.I_half_mA < 5 && Fc.M_pH < 0.02 * Fn.M_pH && Fc.M_cm_pH > 0.2, "loop beside the axis %.3f pH, on the axis %.4f pH (M_cm %.3f pH)", Fn.M_pH, Fc.M_pH, Fc.M_cm_pH);
         CHECK(Ff.M_pH < 0.2 * Fn.M_pH && Ff.I_half_mA > kMaxHalfFluxQuantum_mA, "a short far from the loop: M %.4f pH, I(Phi0/2) %.2f mA (gate %.0f mA)", Ff.M_pH, Ff.I_half_mA, kMaxHalfFluxQuantum_mA);
         CHECK(Fo.M_pH == 0 && Fo.I_half_mA > 1e6, "an open flux line couples %.3g pH", Fo.M_pH);
+        // the grid solver (the line budget's) against the method of moments on the same three cases, on 0.5 um panels
+        // and 0.5 um cells, in the same window; its independence from the thread count; the FFT it uses against the
+        // direct transform. The window here is the whole chip: the moments take the film to go on beyond it, the grid
+        // repeats the window with a film margin, here 0.25 of the window (with the default 0.1 the weak case moves 3.6%).
+        double worst_m = 0, worst_cm = 0;
+        FluxGrid g05{0.5}; g05.margin_frac = 0.25;
+        for (const auto& [ye, lx] : std::vector<std::pair<double, double>>{{206, 330}, {140, 330}, {206, 300}}) {
+            const ChipLayout Lc = make(ye, lx, true);
+            const auto A = flux_coupling(Lc, 1, MeshOptions{0.5, 40.0, 1.6}, 150), G = flux_coupling(Lc, 1, g05, 150);
+            std::printf("  grid against moments, short at y %.0f, loop at x %.0f: M %.4f / %.4f pH, M_cm %+.4f / %+.4f pH (%d cells, %d iterations, %.1f s)\n", ye, lx, G.M_pH,
+                        A.M_pH, G.M_cm_signed_pH, A.M_cm_signed_pH, G.panels, G.iterations, G.seconds);
+            if (A.M_pH > 0.01) worst_m = std::max(worst_m, std::abs(G.M_pH / A.M_pH - 1));
+            // M_cm's sign is taken relative to the loop's flux: on the axis (M = 0) it is arbitrary, the size is compared
+            worst_cm = std::max(worst_cm, A.M_pH > 0.01 ? std::abs(G.M_cm_signed_pH / A.M_cm_signed_pH - 1) : std::abs(G.M_cm_pH / A.M_cm_pH - 1));
+        }
+        CHECK(worst_m < 0.06 && worst_cm < 0.03, "grid against moments: M within %.1f%%, M_cm within %.1f%% (expected 6%%, 3%%)", 100 * worst_m, 100 * worst_cm);
+#ifdef _OPENMP
+        {
+            const int nt = omp_get_max_threads();
+            omp_set_num_threads(1);
+            const auto G1 = flux_coupling(make(206, 330, true), 1, FluxGrid{1.0});
+            omp_set_num_threads(nt);
+            const auto Gn = flux_coupling(make(206, 330, true), 1, FluxGrid{1.0});
+            CHECK(G1.M_pH == Gn.M_pH && G1.M_cm_signed_pH == Gn.M_cm_signed_pH && G1.iterations == Gn.iterations,
+                  "grid solve differs between 1 and %d threads: M %.17g / %.17g, M_cm %.17g / %.17g", nt, G1.M_pH, Gn.M_pH, G1.M_cm_signed_pH, Gn.M_cm_signed_pH);
+        }
+#endif
+        double worst_fft = 0;
+        for (int nn : {2, 3, 4, 5, 6, 8, 12, 15, 30, 60, 100, 240}) {
+            std::vector<detail::C2> x(std::size_t(nn) * 3), y(x.size()), ref(x.size());
+            for (std::size_t i = 0; i < x.size(); ++i) x[i] = {std::sin(0.7 * double(i) + 0.3), std::cos(1.3 * double(i))};
+            for (int q = 0; q < 3; ++q) for (int k = 0; k < nn; ++k) {
+                double re = 0, im = 0;
+                for (int t = 0; t < nn; ++t) {
+                    const double ang = -2 * PI * double(t) * k / nn;
+                    const detail::C2 v = x[std::size_t(q) + 3 * std::size_t(t)];
+                    re += v.re * std::cos(ang) - v.im * std::sin(ang); im += v.re * std::sin(ang) + v.im * std::cos(ang);
+                }
+                ref[std::size_t(q) + 3 * std::size_t(k)] = {re, im};
+            }
+            detail::fft_interleaved(detail::FftPlan(nn), x.data(), y.data(), 3);
+            for (std::size_t i = 0; i < x.size(); ++i) worst_fft = std::max(worst_fft, std::hypot(x[i].re - ref[i].re, x[i].im - ref[i].im));
+        }
+        CHECK(worst_fft < 1e-11, "FFT against the direct transform: error %.2e", worst_fft);
     }
     {   // (6) control-line window. Q1 (a cross-free square island) with a coupler pad C1-2 beside it and its XY line:
         // (a) ending outside the qubit's cut-out behind 64 um of ground, (b) ending inside the cut-out, (c) as (a) but
@@ -2469,15 +2516,64 @@ static void test_layout_checks() {
             CHECK(X.island("XY" + std::to_string(cp.a)) >= 0 && X.island("A" + std::to_string(cp.a)) >= 0 && X.bumps.size() == L.bumps.size() + 2 && X.drc_clean() && X.conn.clean() && rt.separate_xy &&
                   !cells_from_json(cells_json(cs, LayoutMetrics{}, LayoutTargets{})).separate_xy, "separate XY mode: lines %d, %zu signal bumps", X.island("XY" + std::to_string(cp.a)), X.bumps.size());
         }
-        const MeshOptions mo{2.5, 50.0, 2.0};
-        const auto Fq = flux_coupling(L, cp.a, mo), Fc = flux_coupling(L, "C" + tag, "FC" + tag, mo);
+        const FluxGrid fg{1.0};
+        const auto Fq = flux_coupling(L, cp.a, fg, 150), Fc = flux_coupling(L, "C" + tag, "FC" + tag, fg, 150);
         CellSet eq = cs; eq.meas.slot_up = eq.meas.slot_down = eq.data.slot_up = eq.data.slot_down = 18;
-        const auto Fe = flux_coupling(assemble_chip(D, eq), cp.a, mo);
+        FluxWindow fwe;
+        const auto Fe = flux_coupling(assemble_chip(D, eq), qn, "FQ" + std::to_string(cp.a), fg, 150, 0, 0, &fwe);
         std::printf("  launcher: qubit M %.2f pH, I(Phi0/2) %.2f mA, M_cm %.3f pH (%.3f pH with an 18/18 um slot); coupler M %.2f pH, I(Phi0/2) %.2f mA, M_cm %.3f pH\n", Fq.M_pH,
                     Fq.I_half_mA, Fq.M_cm_pH, Fe.M_cm_pH, Fc.M_pH, Fc.I_half_mA, Fc.M_cm_pH);
         CHECK(Fq.ok && Fc.ok && Fe.ok, "flux coupling did not run: %s %s", Fq.note.c_str(), Fc.note.c_str());
         CHECK(Fq.M_pH > 1.0 && Fq.I_half_mA < kMaxHalfFluxQuantum_mA && Fc.M_pH > 0.8 && Fc.I_half_mA < kMaxHalfFluxQuantum_mA, "launcher: qubit %.2f pH, coupler %.2f pH", Fq.M_pH, Fc.M_pH);
-        CHECK(Fe.M_cm_pH > 2 * Fq.M_cm_pH && Fe.M_cm_pH > 0.5, "collar slot balance: M_cm %.3f pH with %g/%g um arms, %.3f pH with equal arms", Fq.M_cm_pH, cs.meas.slot_up, cs.meas.slot_down, Fe.M_cm_pH);
+        CHECK(Fe.M_cm_pH > 3 * Fq.M_cm_pH && Fe.M_cm_pH > 0.3, "collar slot balance: M_cm %.3f pH with %g/%g um arms, %.3f pH with equal arms", Fq.M_cm_pH, cs.meas.slot_up, cs.meas.slot_down, Fe.M_cm_pH);
+        {   // the window's cells of the owner's etch give M_cm again, and M_cm by reciprocity with a charge spread evenly in
+            // angle (one equal charge at each of 720 angles, placed on the etch cell of that angle) is the even spread's
+            double again = 0;
+            for (std::size_t k = 0; k < fwe.cell_x.size(); ++k) again += fwe.cell_flux_pH[k] * (fwe.cell_theta[fwe.cell_source[k]] / (2 * PI) - 0.5);
+            again *= fwe.loop_sign;
+            std::vector<std::pair<double, std::size_t>> by_angle;
+            for (std::size_t k = 0; k < fwe.cell_x.size(); ++k) if (fwe.cell_source[k] == k) by_angle.push_back({fwe.cell_theta[k], k});
+            std::sort(by_angle.begin(), by_angle.end());
+            std::vector<double> ex, ey, eqc;
+            for (int m = 0; m < 720 && !by_angle.empty(); ++m) {
+                const double t = 2 * PI * (m + 0.5) / 720;
+                auto it = std::lower_bound(by_angle.begin(), by_angle.end(), std::make_pair(t, std::size_t(0)));
+                if (it == by_angle.end()) --it;
+                if (it != by_angle.begin() && std::abs((it - 1)->first - t) < std::abs(it->first - t)) --it;
+                ex.push_back(fwe.cell_x[it->second]); ey.push_back(fwe.cell_y[it->second]); eqc.push_back(1.0);
+            }
+            const double even = flux_cm_by_charge(fwe, ex, ey, eqc);
+            const double one_side = flux_cm_by_charge(fwe, {ex[0]}, {ey[0]}, {1.0});
+            std::printf("  M_cm from the window's cells %+.4f pH (solve %+.4f pH); by reciprocity with an even charge %+.4f pH, with all of it beside the SQUID %+.4f pH\n", again,
+                        Fe.M_cm_signed_pH, even, one_side);
+            CHECK(fwe.cell_x.size() > 1000 && std::abs(again - Fe.M_cm_signed_pH) < 1e-9 * (1 + std::abs(again)) && std::abs(even - Fe.M_cm_signed_pH) < 0.02 * std::abs(Fe.M_cm_signed_pH) &&
+                  std::abs(one_side - Fe.M_cm_signed_pH) > 0.1 * std::abs(Fe.M_cm_signed_pH),
+                  "reciprocity: cells %+.4f, even charge %+.4f, one-sided charge %+.4f pH against %+.4f pH", again, even, one_side, Fe.M_cm_signed_pH);
+        }
+        // the two rules of the flux model. (a) Every aperture is a bounded hole (zero net flux), and the window holds the
+        // owner's whole etch: its cut-out and its readout resonator's gaps, joined at the claw, which reach some 700 um
+        // beyond the window of the line and the island. The result does not depend on how far the window reaches. It
+        // did when the window clipped that etch (M_cm -0.139 / -0.108 pH at margins 150 / 300 um) and when the
+        // apertures clipped by the window were held at the potential of infinity.
+        FluxWindow fw;
+        const auto Fw = flux_coupling(L, qn, "FQ" + std::to_string(cp.a), fg, 300, 0, 0, &fw);
+        bool whole = fw.own_moat >= 0;
+        for (std::size_t k = 0; k < fw.pieces.size(); ++k) {
+            const Rect& r = fw.pieces[k];
+            if (fw.aperture[k] == fw.own_moat && (r.x0 <= fw.window.x0 + 1e-6 || r.y0 <= fw.window.y0 + 1e-6 || r.x1 >= fw.window.x1 - 1e-6 || r.y1 >= fw.window.y1 - 1e-6)) whole = false;
+        }
+        std::printf("  window: M_cm %+.4f pH with a 150 um margin, %+.4f pH with 300 um; M %.4f / %.4f pH; the owner's etch %s the window edge\n", Fq.M_cm_signed_pH, Fw.M_cm_signed_pH,
+                    Fq.M_pH, Fw.M_pH, whole ? "clear of" : "reaches");
+        CHECK(whole && std::abs(Fq.M_cm_signed_pH - Fw.M_cm_signed_pH) < 0.01 && std::abs(Fw.M_pH / Fq.M_pH - 1) < 0.02, "the window moves M_cm by %.4f pH (owner's etch whole: %d)",
+              Fw.M_cm_signed_pH - Fq.M_cm_signed_pH, int(whole));
+        // (b) the branch rule: along the resonator's gaps, beyond kFluxZone_um outside the island, M_cm weights the flux
+        // as where the branch leaves the zone. Without it (the polar angle about the island everywhere) M_cm is another
+        // number; the zone's size (20 or 60 um) hardly matters. On 2 um cells: the rule is a weighting, the same at any cell.
+        auto zoned = [&](double z) { FluxGrid g{2.0}; g.zone_um = z; return flux_coupling(L, cp.a, g, 150).M_cm_signed_pH; };
+        const double z40 = zoned(kFluxZone_um), z20 = zoned(20), z60 = zoned(60), zinf = zoned(1e6);
+        std::printf("  branch rule (2 um cells): M_cm %+.4f pH with the zone at %.0f um, %+.4f / %+.4f pH at 20 / 60 um, %+.4f pH without the rule\n", z40, kFluxZone_um, z20, z60, zinf);
+        CHECK(std::abs(zinf - z40) > 0.1 && std::abs(z20 - z40) < 0.02 && std::abs(z60 - z40) < 0.02, "branch rule: %+.4f pH with it, %+.4f pH without; zone 20 / 60 um: %+.4f / %+.4f pH",
+              z40, zinf, z20, z60);
     }
     {   // (10) line_budget_evaluate on synthetic cells: every qubit is checked at its own f01 (the capacitive flux-line
         // limit goes as f^-4, so evaluating it at one frequency for all is wrong), the common mode carries the shared
@@ -2619,7 +2715,7 @@ static void test_layout_presets() {
         CHECK(foot_on_island == 0 && span_over_qubit == 0, "%s straps: %d with a foot on island metal, %d over a qubit or a junction region", c.name, foot_on_island, span_over_qubit);
         CHECK(L.conn.bumps_ok(), "%s ground bumps: fewest on a plaquette %d, farthest SQUID ground from a bump %.0f um, signal bumps without one %d, rule violations %d", c.name,
               L.conn.min_plaquette_bumps, L.conn.max_squid_bump_dist_um, L.conn.signal_bumps_without_ground, L.conn.bump_rule_violations);
-        // control-line gate (windows on the coarse mesh, flux solves on kFluxMesh): drive and flux-line T1 limits, drive
+        // control-line gate (windows on the coarse mesh, flux solves on kFluxGrid, crosstalk on kFluxCrossMesh): drive and flux-line T1 limits, drive
         // crosstalk, drive power, I(Phi0/2). AF-17 only: the solves cost minutes per chip, and BF-49 / GF-97 use the same
         // launcher and cells; their full budget runs in the smoke set (layout_gates_bf49, layout_gates_gf97) and the reviews.
         if (std::string(c.name) != "AF-17") { CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);

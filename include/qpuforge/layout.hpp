@@ -2093,9 +2093,340 @@ struct FluxCoupling {
     struct Other { std::string owner; double M_pH; };
     std::vector<Other> others;                        // other SQUID loops in the window
     double worst_other_ratio{0}; std::string worst_other;
-    int apertures{0}, panels{0}; double seconds{0};
+    int apertures{0}, panels{0}; double seconds{0};           // panels: the method of moments' panels, or the grid's cells
+    int iterations{0}; double residual{0};                    // the grid solve's conjugate gradients
     Rect window;
 };
+// ---------------------------------------------------------------- thin-film field on a grid (stream function, FFT)
+// flux_coupling can solve the film by the method of moments (Babinet duality, graded panels) or, by default, for its
+// stream function g on a uniform grid: the sheet current is curl(g z), g is constant in each aperture (one unknown per
+// aperture; the line's two gaps 1 A apart), and the film's magnetic energy (mu0/4) sum |k| |g(k)|^2 is minimised by
+// conjugate gradients, with FFTs on a periodic grid that extends the window with film by margin_frac of its larger side
+// (0.1: on AF-17 with a 300 um window margin, 0.25 moves M_cm by 0.0003 pH), and the inverse of the free film's
+// operator (1 / |k|) as preconditioner. The normal field B_z = (mu0/2) |k| g threads the
+// apertures. Every output value is formed in a fixed order whatever the thread count. tools/flux_check.py is the same
+// method in numpy (the two agree to the last printed digit).
+// The owner's etch beyond its cut-out: further than kFluxZone_um outside the owner's metal (its bounding box), its
+// branches (the readout resonator's gaps, joined to it at the claw) carry no current of the qubit across them, and
+// M_cm weights them as where they leave that zone. FluxGrid::zone_um changes it for a grid solve (a sensitivity check;
+// larger than the chip: no branch rule, the polar angle everywhere).
+inline constexpr double kFluxZone_um = 40.0;
+struct FluxGrid { double cell_um{0.5}; double margin_frac{0.1}; double tol{1e-8}; int maxit{300}; double zone_um{kFluxZone_um}; };
+namespace detail {
+struct C2 { double re, im; };
+inline C2 cmul(C2 a, C2 b) { return {a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re}; }
+inline int fft_size(int n) {                                 // smallest m >= n whose prime factors are 2, 3 and 5
+    for (int m = std::max(n, 2);; ++m) { int k = m; for (int p : {2, 3, 5}) while (k % p == 0) k /= p; if (k == 1) return m; }
+}
+struct FftPlan {                                             // complex FFT of length n = 2^a 3^b 5^c, forward: exp(-2 pi i jk / n)
+    int n{0};
+    std::vector<int> radix;
+    std::vector<C2> w;                                       // w[t] = exp(-2 pi i t / n)
+    explicit FftPlan(int n_) : n(n_) {
+        int k = n;
+        for (int r : {4, 2, 3, 5}) while (k % r == 0) { radix.push_back(r); k /= r; }
+        if (k != 1) throw std::runtime_error("FftPlan: length with a prime factor above 5");
+        w.resize(std::size_t(n));
+        for (int t = 0; t < n; ++t) w[std::size_t(t)] = {std::cos(2 * PI * t / n), -std::sin(2 * PI * t / n)};
+    }
+};
+// forward FFT in place of `count` interleaved sequences of length P.n (element t of sequence q at x[q + count t]),
+// Stockham's self-sorting algorithm with y as the second buffer
+inline void fft_interleaved(const FftPlan& P, C2* x, C2* y, std::size_t count) {
+    const int n = P.n;
+    int len = n;
+    std::size_t s = count;
+    C2* src = x; C2* dst = y;
+    const double c3 = std::sqrt(3.0) / 2;
+    for (const int r : P.radix) {
+        const int m = len / r, step = n / len, rr = n / r;
+#pragma omp parallel for schedule(static) if (std::size_t(m) * s >= 16384)
+        for (int p = 0; p < m; ++p) {
+            C2 tw[5];
+            for (int k = 0; k < r; ++k) tw[k] = P.w[std::size_t(p) * std::size_t(k) * std::size_t(step)];
+            const std::size_t i0 = s * std::size_t(p), di = s * std::size_t(m), o0 = s * std::size_t(r) * std::size_t(p);
+            if (r == 2) {
+                for (std::size_t q = 0; q < s; ++q) {
+                    const C2 a0 = src[i0 + q], a1 = src[i0 + di + q];
+                    dst[o0 + q] = {a0.re + a1.re, a0.im + a1.im};
+                    dst[o0 + s + q] = cmul({a0.re - a1.re, a0.im - a1.im}, tw[1]);
+                }
+            } else if (r == 4) {
+                for (std::size_t q = 0; q < s; ++q) {
+                    const C2 a0 = src[i0 + q], a1 = src[i0 + di + q], a2 = src[i0 + 2 * di + q], a3 = src[i0 + 3 * di + q];
+                    const C2 t0{a0.re + a2.re, a0.im + a2.im}, t1{a0.re - a2.re, a0.im - a2.im}, t2{a1.re + a3.re, a1.im + a3.im}, t3{a1.re - a3.re, a1.im - a3.im};
+                    dst[o0 + q] = {t0.re + t2.re, t0.im + t2.im};
+                    dst[o0 + s + q] = cmul({t1.re + t3.im, t1.im - t3.re}, tw[1]);
+                    dst[o0 + 2 * s + q] = cmul({t0.re - t2.re, t0.im - t2.im}, tw[2]);
+                    dst[o0 + 3 * s + q] = cmul({t1.re - t3.im, t1.im + t3.re}, tw[3]);
+                }
+            } else if (r == 3) {
+                for (std::size_t q = 0; q < s; ++q) {
+                    const C2 a0 = src[i0 + q], a1 = src[i0 + di + q], a2 = src[i0 + 2 * di + q];
+                    const C2 t{a1.re + a2.re, a1.im + a2.im}, d{a1.re - a2.re, a1.im - a2.im}, c{a0.re - 0.5 * t.re, a0.im - 0.5 * t.im};
+                    dst[o0 + q] = {a0.re + t.re, a0.im + t.im};
+                    dst[o0 + s + q] = cmul({c.re + c3 * d.im, c.im - c3 * d.re}, tw[1]);
+                    dst[o0 + 2 * s + q] = cmul({c.re - c3 * d.im, c.im + c3 * d.re}, tw[2]);
+                }
+            } else {
+                C2 om[5][5];
+                for (int j = 0; j < r; ++j) for (int k = 0; k < r; ++k) om[j][k] = P.w[std::size_t((j * k) % r) * std::size_t(rr)];
+                for (std::size_t q = 0; q < s; ++q) {
+                    C2 a[5];
+                    for (int j = 0; j < r; ++j) a[j] = src[i0 + std::size_t(j) * di + q];
+                    for (int k = 0; k < r; ++k) {
+                        C2 sum = a[0];
+                        for (int j = 1; j < r; ++j) { const C2 t = cmul(a[j], om[j][k]); sum.re += t.re; sum.im += t.im; }
+                        dst[o0 + std::size_t(k) * s + q] = k == 0 ? sum : cmul(sum, tw[k]);
+                    }
+                }
+            }
+        }
+        len = m; s *= std::size_t(r); std::swap(src, dst);
+    }
+    if (src != x) std::copy(src, src + std::size_t(n) * count, x);
+}
+struct Fft2 {                                                // ny x nx (row-major) forward and inverse transforms
+    int nx, ny;
+    FftPlan px, py;
+    std::vector<C2> work;
+    Fft2(int nx_, int ny_) : nx(nx_), ny(ny_), px(nx_), py(ny_), work(std::size_t(nx_) * std::size_t(ny_)) {}
+    void forward(std::vector<C2>& a) {
+#pragma omp parallel
+        {
+            std::vector<C2> buf(static_cast<std::size_t>(nx));
+#pragma omp for schedule(static)
+            for (int j = 0; j < ny; ++j) fft_interleaved(px, &a[std::size_t(j) * std::size_t(nx)], buf.data(), 1);
+        }
+        fft_interleaved(py, a.data(), work.data(), std::size_t(nx));
+    }
+    void inverse(std::vector<C2>& a) {
+        const std::size_t N = a.size();
+#pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < N; ++i) a[i].im = -a[i].im;
+        forward(a);
+        const double sc = 1.0 / double(N);
+#pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < N; ++i) { a[i].re *= sc; a[i].im = -a[i].im * sc; }
+    }
+};
+inline double det_dot(const std::vector<double>& a, const std::vector<double>& b) {   // fixed blocks: the same sum for any thread count
+    const std::size_t n = a.size(), B = std::size_t(1) << 14, nb = (n + B - 1) / B;
+    std::vector<double> part(nb, 0.0);
+#pragma omp parallel for schedule(static)
+    for (std::size_t k = 0; k < nb; ++k) {
+        double t = 0;
+        const std::size_t e = std::min(n, (k + 1) * B);
+        for (std::size_t i = k * B; i < e; ++i) t += a[i] * b[i];
+        part[k] = t;
+    }
+    double t = 0;
+    for (double v : part) t += v;
+    return t;
+}
+inline void grid_cells(double lo, double hi, double origin, double h, int n, int& i0, int& i1) {   // cells whose centres lie in [lo, hi)
+    i0 = std::max(0, int(std::ceil((lo - origin) / h - 0.5 - 1e-9)));
+    i1 = std::min(n, int(std::ceil((hi - origin) / h - 0.5 - 1e-9)));
+}
+// The grid solve of flux_coupling: the line's 1 A stream function, then the normal field. Returns the field (tesla per
+// ampere) on the grid and the grid's geometry; `cells` lists, per aperture index, the cells it covers.
+struct GridField { int nx{0}, ny{0}; double x0{0}, y0{0}, h{0}; std::vector<double> B; std::vector<int> lab; int iterations{0}; double residual{0}; };
+inline GridField grid_field(const Rect& W, const Rect& loop, const std::vector<Rect>& E, const std::vector<int>& comp, int n_ap, int ga, int gb, bool fa, bool fb,
+                            const FluxGrid& G) {
+    GridField R;
+    const double h = G.cell_um, m = G.margin_frac * std::max(W.w(), W.h());
+    const double gx0 = loop.x0 - h * std::ceil((loop.x0 - (W.x0 - m)) / h), gy0 = loop.y0 - h * std::ceil((loop.y0 - (W.y0 - m)) / h);   // aligned to the loop
+    const int nx = fft_size(int(std::ceil((W.x1 + m - gx0) / h))), ny = fft_size(int(std::ceil((W.y1 + m - gy0) / h)));
+    const std::size_t N = std::size_t(nx) * std::size_t(ny);
+    R.nx = nx; R.ny = ny; R.x0 = gx0; R.y0 = gy0; R.h = h;
+    R.lab.assign(N, -1);
+    for (std::size_t k = 0; k < E.size(); ++k) {
+        int i0, i1, j0, j1;
+        grid_cells(E[k].x0, E[k].x1, gx0, h, nx, i0, i1); grid_cells(E[k].y0, E[k].y1, gy0, h, ny, j0, j1);
+        for (int j = j0; j < j1; ++j) std::fill(R.lab.begin() + std::ptrdiff_t(std::size_t(j) * nx + std::size_t(i0)), R.lab.begin() + std::ptrdiff_t(std::size_t(j) * nx + std::size_t(std::max(i0, i1))), comp[k]);
+    }
+    // unknowns: every film cell; one per aperture other than the gaps; one offset for the gaps when both float. An
+    // aperture with no cell (a sliver the window cuts off, narrower than a cell) has no unknown.
+    std::vector<std::size_t> cells_of(std::size_t(n_ap), 0);
+    for (const int a : R.lab) if (a >= 0) ++cells_of[std::size_t(a)];
+    std::vector<int> dof(std::size_t(n_ap), -1);
+    int nd = 0;
+    for (int a = 0; a < n_ap; ++a) if (a != ga && a != gb && cells_of[std::size_t(a)] > 0) dof[std::size_t(a)] = nd++;
+    if (fa && fb) dof[std::size_t(ga)] = dof[std::size_t(gb)] = nd++;
+    std::vector<double> g0(N, 0.0);
+    std::vector<std::size_t> film, apc; std::vector<int> apd;
+    for (std::size_t i = 0; i < N; ++i) {
+        const int a = R.lab[i];
+        if (a < 0) { film.push_back(i); continue; }
+        if (a == ga) g0[i] = fa && fb ? 0.5 : (fa ? 1.0 : 0.0);
+        else if (a == gb) g0[i] = fa && fb ? -0.5 : (fb ? -1.0 : 0.0);
+        if (dof[std::size_t(a)] >= 0) { apc.push_back(i); apd.push_back(dof[std::size_t(a)]); }
+    }
+    const std::size_t nf = film.size(), nu = nf + std::size_t(nd);
+    std::vector<double> K(N), Kinv(N);
+    auto freq = [](int i, int n, double hh) { return 2 * PI * double(i < (n + 1) / 2 ? i : i - n) / (double(n) * hh); };
+    double kmin = 1e300;
+    for (int j = 0; j < ny; ++j) for (int i = 0; i < nx; ++i) {
+        const double v = std::hypot(freq(i, nx, h), freq(j, ny, h));
+        K[std::size_t(j) * nx + std::size_t(i)] = v;
+        if (v > 0) kmin = std::min(kmin, v);
+    }
+    for (std::size_t i = 0; i < N; ++i) Kinv[i] = 1.0 / (K[i] > 0 ? K[i] : kmin);
+    Fft2 F(nx, ny);
+    std::vector<C2> a(N);
+    auto apply = [&](const std::vector<double>& g, const std::vector<double>& sym, std::vector<double>& out) {   // out = IFFT(sym FFT(g))
+#pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < N; ++i) a[i] = {g[i], 0.0};
+        F.forward(a);
+#pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < N; ++i) { a[i].re *= sym[i]; a[i].im *= sym[i]; }
+        F.inverse(a);
+#pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < N; ++i) out[i] = a[i].re;
+    };
+    std::vector<double> ncell(nu, 1.0);
+    for (int d : apd) ncell[nf + std::size_t(d)] += 1;
+    for (int d = 0; d < nd; ++d) ncell[nf + std::size_t(d)] -= 1;
+    std::vector<double> gbuf(N), obuf(N);
+    auto expand = [&](const std::vector<double>& u, std::vector<double>& g, bool average) {
+        std::fill(g.begin(), g.end(), 0.0);
+        for (std::size_t k = 0; k < nf; ++k) g[film[k]] = u[k];
+        for (std::size_t k = 0; k < apc.size(); ++k) { const std::size_t d = nf + std::size_t(apd[k]); g[apc[k]] = average ? u[d] / ncell[d] : u[d]; }
+    };
+    auto gather = [&](const std::vector<double>& v, std::vector<double>& out, bool average) {
+        for (std::size_t k = 0; k < nf; ++k) out[k] = v[film[k]];
+        for (int d = 0; d < nd; ++d) out[nf + std::size_t(d)] = 0;
+        for (std::size_t k = 0; k < apc.size(); ++k) out[nf + std::size_t(apd[k])] += v[apc[k]];
+        if (average) for (int d = 0; d < nd; ++d) out[nf + std::size_t(d)] /= ncell[nf + std::size_t(d)];
+    };
+    // A u = b, A = P^T |k| P on the unknowns, b = -P^T |k| g0 (units drop out: M and M_cm are formed from B below)
+    std::vector<double> b(nu), u(nu, 0.0), r(nu), z(nu), p(nu), Ap(nu);
+    apply(g0, K, obuf); gather(obuf, b, false);
+    for (auto& v : b) v = -v;
+    auto precondition = [&](const std::vector<double>& rv, std::vector<double>& zv) { expand(rv, gbuf, true); apply(gbuf, Kinv, obuf); gather(obuf, zv, true); };
+    r = b;
+    precondition(r, z);
+    p = z;
+    double rz = det_dot(r, z);
+    const double bn = std::sqrt(det_dot(b, b));
+    int it = 0; double res = bn > 0 ? 1 : 0;
+    for (it = 1; it <= G.maxit && bn > 0; ++it) {
+        expand(p, gbuf, false); apply(gbuf, K, obuf); gather(obuf, Ap, false);
+        const double alpha = rz / det_dot(p, Ap);
+#pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < nu; ++i) { u[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; }
+        res = std::sqrt(det_dot(r, r)) / bn;
+        if (res < G.tol) break;
+        precondition(r, z);
+        const double rz2 = det_dot(r, z), beta = rz2 / rz;
+        rz = rz2;
+#pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < nu; ++i) p[i] = z[i] + beta * p[i];
+    }
+    R.iterations = std::min(it, G.maxit); R.residual = res;
+    expand(u, gbuf, false);
+    for (std::size_t i = 0; i < N; ++i) gbuf[i] += g0[i];
+    R.B.assign(N, 0.0);
+    apply(gbuf, K, R.B);
+    const double scale = (4e-7 * PI / 2) * 1e6;               // B_z (tesla) for g in amperes and |k| in 1/um
+    for (auto& v : R.B) v *= scale;
+    return R;
+}
+// The bounding box of the aperture that holds (x, y) on the whole chip: the connected etch with the ground straps'
+// spans and `cuts` taken out (as flux_coupling cuts its apertures). An empty box when no etch holds the point.
+inline Rect aperture_extent(const ChipLayout& L, const std::vector<Rect>& cuts, double x, double y) {
+    std::vector<Rect> E;
+    for (const auto& r : L.etch) {
+        std::vector<Rect> pcs{r};
+        auto cut = [&](const Rect& c) {
+            if (!c.intersects(r)) return;
+            std::vector<Rect> nx; for (const auto& pc : pcs) { auto sb = subtract(pc, c); nx.insert(nx.end(), sb.begin(), sb.end()); }
+            pcs.swap(nx);
+        };
+        for (const auto& st : L.straps) cut(st.span);
+        for (const auto& c : cuts) cut(c);
+        for (const auto& pc : pcs) if (pc.w() > 1e-6 && pc.h() > 1e-6) E.push_back(pc);
+    }
+    const std::vector<int> comp = rect_components(E);
+    int a = -1;
+    for (std::size_t i = 0; i < E.size() && a < 0; ++i) if (E[i].contains(x, y)) a = comp[i];
+    if (a < 0) return Rect{x, y, x, y};
+    Rect bb{1e300, 1e300, -1e300, -1e300};
+    for (std::size_t i = 0; i < E.size(); ++i)
+        if (comp[i] == a) bb = {std::min(bb.x0, E[i].x0), std::min(bb.y0, E[i].y0), std::max(bb.x1, E[i].x1), std::max(bb.y1, E[i].y1)};
+    return bb;
+}
+// The angle of flux_coupling's M_cm weight at many points at once: the polar angle about (qx, qy) of the ground metal
+// nearest each point (16 rays, 0.5 um steps, up to 80 um), ground being the window less `etch` and `island`, found on a
+// 0.1 um raster; less theta0, in [0, 2 pi).
+inline std::vector<double> ring_angles(const Rect& W, const std::vector<Rect>& etch, const std::vector<Rect>& island, double qx, double qy, double theta0,
+                                       const std::vector<double>& px, const std::vector<double>& py) {
+    const std::size_t n = px.size();
+    std::vector<double> th(n, 0.0);
+    if (n == 0) return th;
+    const double lx = std::max(*std::min_element(px.begin(), px.end()) - 81, W.x0), hx = std::min(*std::max_element(px.begin(), px.end()) + 81, W.x1);
+    const double ly = std::max(*std::min_element(py.begin(), py.end()) - 81, W.y0), hy = std::min(*std::max_element(py.begin(), py.end()) + 81, W.y1);
+    const double r = 0.1;
+    const int nx = int(std::ceil((hx - lx) / r)) + 1, ny = int(std::ceil((hy - ly) / r)) + 1;
+    std::vector<char> ground(std::size_t(nx) * std::size_t(ny), 1);
+    for (const auto* v : {&etch, &island})
+        for (const auto& e : *v) {
+            int i0, i1, j0, j1;
+            grid_cells(e.x0, e.x1, lx, r, nx, i0, i1); grid_cells(e.y0, e.y1, ly, r, ny, j0, j1);
+            for (int j = j0; j < j1; ++j) std::fill(ground.begin() + std::ptrdiff_t(std::size_t(j) * nx + std::size_t(i0)), ground.begin() + std::ptrdiff_t(std::size_t(j) * nx + std::size_t(std::max(i0, i1))), 0);
+        }
+    auto is_ground = [&](double x, double y) {
+        if (x < W.x0 || x > W.x1 || y < W.y0 || y > W.y1) return false;
+        const long i = long(std::floor((x - lx) / r)), j = long(std::floor((y - ly) / r));
+        return i >= 0 && i < nx && j >= 0 && j < ny && ground[std::size_t(j) * std::size_t(nx) + std::size_t(i)] != 0;
+    };
+#pragma omp parallel for schedule(static)
+    for (std::size_t k = 0; k < n; ++k) {
+        double best = 1e300, bx = px[k], by = py[k];
+        for (int d = 0; d < 16; ++d) {
+            const double ux = std::cos(2 * PI * d / 16), uy = std::sin(2 * PI * d / 16);
+            for (double t = 0.5; t < std::min(best, 80.0); t += 0.5)
+                if (is_ground(px[k] + t * ux, py[k] + t * uy)) { best = t; bx = px[k] + t * ux; by = py[k] + t * uy; break; }
+        }
+        double a = std::atan2(by - qy, bx - qx) - theta0;
+        while (a < 0) a += 2 * PI;
+        while (a >= 2 * PI) a -= 2 * PI;
+        th[k] = a;
+    }
+    return th;
+}
+// The branch rule of M_cm: points of the owner's etch outside `zone` take the weight of the nearest point inside it
+// within `edge` of its boundary (where the branch leaves the zone). branch_sources gives, for each point, the point
+// whose weight it takes (itself inside the zone).
+inline std::vector<std::size_t> branch_sources(const Rect& zone, double edge, const std::vector<double>& px, const std::vector<double>& py) {
+    std::vector<std::size_t> src(px.size()), in, out;
+    for (std::size_t k = 0; k < px.size(); ++k) {
+        src[k] = k;
+        if (!zone.contains(px[k], py[k])) out.push_back(k);
+        else if (px[k] - zone.x0 < edge || zone.x1 - px[k] < edge || py[k] - zone.y0 < edge || zone.y1 - py[k] < edge) in.push_back(k);
+    }
+    if (in.empty() || out.empty()) return src;
+#pragma omp parallel for schedule(static)
+    for (std::size_t m = 0; m < out.size(); ++m) {
+        const std::size_t k = out[m];
+        double best = 1e300; std::size_t bj = in[0];
+        for (std::size_t j : in) { const double d = (px[j] - px[k]) * (px[j] - px[k]) + (py[j] - py[k]) * (py[j] - py[k]); if (d < best) { best = d; bj = j; } }
+        src[k] = bj;
+    }
+    return src;
+}
+inline void branch_weights(const Rect& zone, double edge, const std::vector<double>& px, const std::vector<double>& py, std::vector<double>& w) {
+    const std::vector<std::size_t> src = branch_sources(zone, edge, px, py);
+    const std::vector<double> w0 = w;
+    for (std::size_t k = 0; k < w.size(); ++k) w[k] = w0[src[k]];
+}
+} // namespace detail
+inline const FluxGrid kFluxGrid{0.5};
+// The margin of a grid solve's window around the line, the loop, the owner and the owner's whole etch: the other
+// apertures (bounded holes too, clipped by the window) move M_cm by less as the window grows. On AF-17 (1 um cells)
+// from 300 to 500 um: Q8 0.609 -> 0.601 pH, Q5 0.621 -> 0.615 pH, C5-1 0.2006 -> 0.2006 pH, FQ5 on Q2 0.077 -> 0.082 pH.
+inline constexpr double kFluxMargin_um = 300.0;
+
 // The window of a flux_coupling solve, for an independent check of it (tools/flux_check.py solves the same thin film
 // by another method): the apertures as solved (etch pieces with straps and pad cuts taken out, and the aperture each
 // belongs to), their kinds, the line's two gaps, the loop, the owner's etch, and what the angle of a point around the
@@ -2107,9 +2438,15 @@ struct FluxWindow {
     int gap_a{-1}, gap_b{-1}, own_moat{-1};
     double qx{0}, qy{0}, theta0{0};
     std::vector<Rect> etch, island;
+    // a grid solve only: the owner's etch cell by cell (the loop's cells left out): centre, flux for 1 A in the line
+    // (pH), the angle theta that weights it in M_cm, and the cell whose weight it takes (the branch rule; itself in the
+    // zone); the sign of the loop's flux. M_cm_signed = loop_sign * sum flux * (theta[source] / 2 pi - 1/2).
+    std::vector<double> cell_x, cell_y, cell_flux_pH, cell_theta;
+    std::vector<std::size_t> cell_source;
+    double loop_sign{1};
 };
-inline FluxCoupling flux_coupling(const ChipLayout& L, const std::string& owner, const std::string& flux_line, const MeshOptions& mo, double margin = 150, double reach = 0,
-                                  double local_um = 0, FluxWindow* fw = nullptr) {
+inline FluxCoupling flux_coupling_impl(const ChipLayout& L, const std::string& owner, const std::string& flux_line, const MeshOptions* mo, const FluxGrid* grid,
+                                       double margin, double reach, double local_um, FluxWindow* fw) {
     FluxCoupling F;
     const int iq = L.island(owner), line_island = L.island(flux_line);
     if (iq < 0 || line_island < 0) { F.note = "no island " + owner + " or flux line " + flux_line; return F; }
@@ -2146,7 +2483,13 @@ inline FluxCoupling flux_coupling(const ChipLayout& L, const std::string& owner,
         }
         ext.insert(ext.end(), pad_rects.begin(), pad_rects.end());
     }
+    // the owner's whole etch: the aperture that holds its loop is a bounded hole (zero net flux) over all of its extent,
+    // which goes on past the cut-out along the readout resonator's gaps (joined to it at the claw) up to the straps
+    // across them. The window holds all of it: clipped by the window, the condition would hold on the part inside only
+    // and the result would move with the window.
+    ext.push_back(detail::aperture_extent(L, pads, loop.cx(), loop.cy()));
     Rect W = bbox_of(ext).grow(margin);
+    const bool at_edge = W.x0 < L.outline.x0 || W.y0 < L.outline.y0 || W.x1 > L.outline.x1 || W.y1 > L.outline.y1;
     W = {std::max(W.x0, L.outline.x0), std::max(W.y0, L.outline.y0), std::min(W.x1, L.outline.x1), std::min(W.y1, L.outline.y1)};
     F.window = W;
     // apertures: the etch in the window
@@ -2174,11 +2517,11 @@ inline FluxCoupling flux_coupling(const ChipLayout& L, const std::string& owner,
     const std::vector<int> comp = detail::rect_components(E, &n);
     F.apertures = n;
     auto aperture_at = [&](double x, double y) { for (std::size_t i = 0; i < E.size(); ++i) if (E[i].contains(x, y)) return comp[i]; return -1; };
-    enum { Floating = 0, Held = 1, Gap = 2 };
+    // every aperture is a bounded hole (zero net flux), also where the window clips it: on the chip no hole is open to
+    // infinity, and holding a clipped one at the potential of infinity makes the result depend on the window (the
+    // qubit's own etch is clipped where it joins its readout line's gaps)
+    enum { Floating = 0, Gap = 2 };
     std::vector<int> type(std::size_t(n), Floating);
-    const double eb = 1e-6;
-    for (std::size_t i = 0; i < E.size(); ++i)
-        if (E[i].x0 <= W.x0 + eb || E[i].y0 <= W.y0 + eb || E[i].x1 >= W.x1 - eb || E[i].y1 >= W.y1 - eb) type[std::size_t(comp[i])] = Held;
     std::vector<char> has_loop(std::size_t(n), 0);
     for (const auto& j : L.jj) { const int a = aperture_at(j.cx(), j.cy()); if (a >= 0) has_loop[std::size_t(a)] = 1; }
     // the line's gap apertures: the etch bordering its metal
@@ -2202,46 +2545,15 @@ inline FluxCoupling flux_coupling(const ChipLayout& L, const std::string& owner,
     if (gaps.size() > 2) F.note = "more than two apertures border the flux line; the two with most contact are taken as its gaps";
     const int ga = gaps[0].second, gb = gaps[1].second;
     for (int g : {ga, gb}) if (!has_loop[std::size_t(g)]) type[std::size_t(g)] = Gap;
-    std::vector<Conductor> cs(static_cast<std::size_t>(n));
-    for (int k = 0; k < n; ++k) cs[std::size_t(k)].name = "a" + std::to_string(k);
-    for (std::size_t i = 0; i < E.size(); ++i) cs[std::size_t(comp[i])].rects.push_back(E[i]);
-    PanelSolution sol;
-    const CapacitanceMatrix C = extract_capacitance(cs, 1.0, mo, &sol);
-    F.panels = C.panels; F.seconds = C.seconds;
-    // potentials for 1 A in the centre conductor
-    std::vector<double> A(std::size_t(n) * n, 0.0), b(std::size_t(n), 0.0);
-    auto row_charge = [&](int row, int k) { for (int j = 0; j < n; ++j) A[std::size_t(row) * n + j] += C.at(k, j); };
-    for (int k = 0; k < n; ++k) {
-        if (k == ga || k == gb) continue;
-        if (type[std::size_t(k)] == Held) A[std::size_t(k) * n + k] = 1; else row_charge(k, k);
-    }
     const bool fa = type[std::size_t(ga)] == Gap, fb = type[std::size_t(gb)] == Gap;
-    if (fa && fb) {
-        A[std::size_t(ga) * n + ga] = 1; A[std::size_t(ga) * n + gb] = -1; b[std::size_t(ga)] = 0.5;
-        row_charge(gb, ga); row_charge(gb, gb);
-    } else {                                           // a gap that is part of the held etch network: psi = 0 there
-        A[std::size_t(ga) * n + ga] = 1; b[std::size_t(ga)] = fa ? 0.5 : 0.0;
-        A[std::size_t(gb) * n + gb] = 1; b[std::size_t(gb)] = fb ? -0.5 : 0.0;
-        if (!fa && !fb) { F.ok = true; F.note = "both gaps of the flux line open into the etch around the qubit: no current path"; return F; }
-    }
-    const std::vector<double> V = detail::solve_dense(A, b, n);
-    const std::vector<double> q = sol.charge(V);
-    const double K = dual_flux_pH_per_fF();
-    auto loop_flux = [&](const Rect& lp) {
-        double s = 0;
-        for (std::size_t p = 0; p < sol.panels.size(); ++p) {
-            Rect o; if (!detail::clip_rect(sol.panels[p].r, lp, o)) continue;
-            s += q[p] * o.area() / sol.panels[p].r.area();
-        }
-        return K * s;
-    };
-    F.M_pH = std::abs(loop_flux(loop));
+    if (!fa && !fb) { F.ok = true; F.note = "both gaps of the flux line open into the etch around the qubit: no current path"; return F; }
     const Rect qb = bbox_of(L.islands[std::size_t(iq)].second);
     const double qx = qb.cx(), qy = qb.cy();
     const int own_moat = aperture_at(loop.cx(), loop.cy());      // the etch around the owner, up to the nearest straps across it
     // position of a point of that etch around the island: the polar angle, about the island's centre, of the nearest
     // ground metal (the outer edge of the island's cut-out is star-shaped about the centre; the island's own outline,
-    // with its T-bars and fingers, is not)
+    // with its T-bars and fingers, is not). Beyond the zone round the owner, along branches of its etch (its readout
+    // line's gaps), no current of the qubit crosses: there the weight is the one where the branch leaves the zone.
     std::vector<Rect> etch_w;
     for (const auto& r : L.etch) { Rect o; if (detail::clip_rect(r, W, o)) etch_w.push_back(o); }
     const auto& own_rects = L.islands[std::size_t(iq)].second;
@@ -2265,30 +2577,148 @@ inline FluxCoupling flux_coupling(const ChipLayout& L, const std::string& owner,
         fw->window = W; fw->loop = loop; fw->pieces = E; fw->aperture = comp; fw->kind = type; fw->gap_a = ga; fw->gap_b = gb; fw->own_moat = own_moat;
         fw->qx = qx; fw->qy = qy; fw->theta0 = th0; fw->etch = etch_w; fw->island = own_rects;
     }
-    double cm = 0;
-    for (std::size_t p = 0; p < sol.panels.size(); ++p) {
-        if (sol.panels[p].cond != own_moat || type[std::size_t(own_moat)] == Gap) continue;
-        double th = ring_angle(sol.panels[p].r.cx(), sol.panels[p].r.cy()) - th0;
-        while (th < 0) th += 2 * PI;
-        while (th >= 2 * PI) th -= 2 * PI;
-        // the loop itself lies astride the SQUID: its flux counts half to each side, i.e. not at all
-        Rect o; const double outside = detail::clip_rect(sol.panels[p].r, loop, o) ? 1 - o.area() / sol.panels[p].r.area() : 1.0;
-        cm += q[p] * outside * (th / (2 * PI) - 0.5);
+    const Rect zone = qb.grow(grid ? grid->zone_um : kFluxZone_um);
+    double phi = 0, cm = 0;                                       // loop flux and weighted flux in the owner's etch, pH for 1 A
+    std::vector<std::pair<std::size_t, double>> other_flux;       // other junction regions in the window: index, flux (pH)
+    const auto t0 = std::chrono::steady_clock::now();
+    if (grid) {
+        const detail::GridField G = detail::grid_field(W, loop, E, comp, n, ga, gb, fa, fb, *grid);
+        F.panels = G.nx * G.ny;
+        const double cell = G.h * 1e-6 * G.h * 1e-6 * 1e12;      // m^2, and Wb -> pH for 1 A
+        auto rect_flux = [&](const Rect& r) {
+            int i0, i1, j0, j1;
+            detail::grid_cells(r.x0, r.x1, G.x0, G.h, G.nx, i0, i1); detail::grid_cells(r.y0, r.y1, G.y0, G.h, G.ny, j0, j1);
+            double t = 0;
+            for (int j = j0; j < j1; ++j) for (int i = i0; i < i1; ++i) t += G.B[std::size_t(j) * std::size_t(G.nx) + std::size_t(i)];
+            return t * cell;
+        };
+        phi = rect_flux(loop);
+        int li0, li1, lj0, lj1;
+        detail::grid_cells(loop.x0, loop.x1, G.x0, G.h, G.nx, li0, li1); detail::grid_cells(loop.y0, loop.y1, G.y0, G.h, G.ny, lj0, lj1);
+        std::vector<double> px, py, bz;
+        for (int j = 0; j < G.ny; ++j) for (int i = 0; i < G.nx; ++i) {
+            const std::size_t c = std::size_t(j) * std::size_t(G.nx) + std::size_t(i);
+            if (G.lab[c] != own_moat || (i >= li0 && i < li1 && j >= lj0 && j < lj1)) continue;   // the loop counts half to each side: not at all
+            px.push_back(G.x0 + (i + 0.5) * G.h); py.push_back(G.y0 + (j + 0.5) * G.h); bz.push_back(G.B[c]);
+        }
+        const std::vector<double> th = detail::ring_angles(W, etch_w, own_rects, qx, qy, th0, px, py);
+        const std::vector<std::size_t> src = detail::branch_sources(zone, 3 * G.h, px, py);
+        for (std::size_t k = 0; k < th.size(); ++k) cm += bz[k] * (th[src[k]] / (2 * PI) - 0.5);
+        cm *= cell;
+        if (fw) {
+            fw->cell_x = px; fw->cell_y = py; fw->cell_theta = th; fw->cell_source = src; fw->loop_sign = phi < 0 ? -1 : 1;
+            fw->cell_flux_pH.resize(bz.size());
+            for (std::size_t k = 0; k < bz.size(); ++k) fw->cell_flux_pH[k] = bz[k] * cell;
+        }
+        for (std::size_t k = 0; k < L.jj.size(); ++k) if (int(k) != own && W.covers(L.jj[k])) other_flux.push_back({k, rect_flux(L.jj[k])});
+        F.iterations = G.iterations; F.residual = G.residual;
+    } else {
+        std::vector<Conductor> cs(static_cast<std::size_t>(n));
+        for (int k = 0; k < n; ++k) cs[std::size_t(k)].name = "a" + std::to_string(k);
+        for (std::size_t i = 0; i < E.size(); ++i) cs[std::size_t(comp[i])].rects.push_back(E[i]);
+        PanelSolution sol;
+        const CapacitanceMatrix C = extract_capacitance(cs, 1.0, *mo, &sol);
+        F.panels = C.panels;
+        // potentials for 1 A in the centre conductor: every aperture uncharged, the gaps 1/2 apart (or a gap that is
+        // part of the etch around the qubit at the potential of infinity)
+        std::vector<double> A(std::size_t(n) * n, 0.0), b(std::size_t(n), 0.0);
+        auto row_charge = [&](int row, int k) { for (int j = 0; j < n; ++j) A[std::size_t(row) * n + j] += C.at(k, j); };
+        for (int k = 0; k < n; ++k) if (k != ga && k != gb) row_charge(k, k);
+        if (fa && fb) {
+            A[std::size_t(ga) * n + ga] = 1; A[std::size_t(ga) * n + gb] = -1; b[std::size_t(ga)] = 0.5;
+            row_charge(gb, ga); row_charge(gb, gb);
+        } else {
+            A[std::size_t(ga) * n + ga] = 1; b[std::size_t(ga)] = fa ? 0.5 : 0.0;
+            A[std::size_t(gb) * n + gb] = 1; b[std::size_t(gb)] = fb ? -0.5 : 0.0;
+        }
+        const std::vector<double> V = detail::solve_dense(A, b, n);
+        const std::vector<double> q = sol.charge(V);
+        const double K = dual_flux_pH_per_fF();
+        auto loop_flux = [&](const Rect& lp) {
+            double t = 0;
+            for (std::size_t p = 0; p < sol.panels.size(); ++p) {
+                Rect o; if (!detail::clip_rect(sol.panels[p].r, lp, o)) continue;
+                t += q[p] * o.area() / sol.panels[p].r.area();
+            }
+            return K * t;
+        };
+        phi = loop_flux(loop);
+        std::vector<double> px, py, qw, w;
+        for (std::size_t p = 0; p < sol.panels.size(); ++p) {
+            if (sol.panels[p].cond != own_moat || type[std::size_t(own_moat)] == Gap) continue;
+            double th = ring_angle(sol.panels[p].r.cx(), sol.panels[p].r.cy()) - th0;
+            while (th < 0) th += 2 * PI;
+            while (th >= 2 * PI) th -= 2 * PI;
+            // the loop itself lies astride the SQUID: its flux counts half to each side, i.e. not at all
+            Rect o; const double outside = detail::clip_rect(sol.panels[p].r, loop, o) ? 1 - o.area() / sol.panels[p].r.area() : 1.0;
+            px.push_back(sol.panels[p].r.cx()); py.push_back(sol.panels[p].r.cy()); qw.push_back(q[p] * outside); w.push_back(th / (2 * PI) - 0.5);
+        }
+        detail::branch_weights(zone, 5.0, px, py, w);
+        for (std::size_t k = 0; k < w.size(); ++k) cm += qw[k] * w[k];
+        cm *= K;
+        for (std::size_t k = 0; k < L.jj.size(); ++k) if (int(k) != own && W.covers(L.jj[k])) other_flux.push_back({k, loop_flux(L.jj[k])});
     }
-    F.M_cm_pH = std::abs(K * cm); F.M_cm_signed_pH = K * cm * (loop_flux(loop) < 0 ? -1 : 1);   // sign relative to the loop's flux
+    F.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    F.M_pH = std::abs(phi);
+    F.M_cm_pH = std::abs(cm); F.M_cm_signed_pH = cm * (phi < 0 ? -1 : 1);   // sign relative to the loop's flux
     F.I_half_mA = F.M_pH > 0 ? phys::Phi0 / 2 / (F.M_pH * 1e-12) * 1e3 : 1e300;
-    for (std::size_t k = 0; k < L.jj.size(); ++k) {
-        if (int(k) == own || !W.covers(L.jj[k])) continue;
+    for (const auto& [k, fl] : other_flux) {
         const int o = k < L.jj_owner.size() ? L.jj_owner[k] : -1;
-        FluxCoupling::Other x; x.owner = o >= 0 ? L.islands[std::size_t(o)].first : "?"; x.M_pH = std::abs(loop_flux(L.jj[k]));
+        FluxCoupling::Other x; x.owner = o >= 0 ? L.islands[std::size_t(o)].first : "?"; x.M_pH = std::abs(fl);
         if (F.M_pH > 0 && x.M_pH / F.M_pH > F.worst_other_ratio) { F.worst_other_ratio = x.M_pH / F.M_pH; F.worst_other = x.owner; }
         F.others.push_back(x);
     }
+    // on an assembled chip the outline is 1100 um beyond everything and no window reaches it
+    if (at_edge) F.note += std::string(F.note.empty() ? "" : "; ") + "the window reaches the chip's edge: the film is taken to go on beyond it";
     F.ok = true;
     return F;
 }
+// flux_coupling by the method of moments on `mo` (Babinet duality), or on a grid (the default solver of the line budget)
+inline FluxCoupling flux_coupling(const ChipLayout& L, const std::string& owner, const std::string& flux_line, const MeshOptions& mo, double margin = 150, double reach = 0,
+                                  double local_um = 0, FluxWindow* fw = nullptr) {
+    return flux_coupling_impl(L, owner, flux_line, &mo, nullptr, margin, reach, local_um, fw);
+}
+inline FluxCoupling flux_coupling(const ChipLayout& L, const std::string& owner, const std::string& flux_line, const FluxGrid& grid, double margin = kFluxMargin_um, double reach = 0,
+                                  double local_um = 0, FluxWindow* fw = nullptr) {
+    return flux_coupling_impl(L, owner, flux_line, nullptr, &grid, margin, reach, local_um, fw);
+}
+inline FluxCoupling flux_coupling(const ChipLayout& L, int qubit_id, const FluxGrid& grid, double margin = kFluxMargin_um, double reach = 0) {
+    return flux_coupling(L, "Q" + std::to_string(qubit_id), "FQ" + std::to_string(qubit_id), grid, margin, reach);
+}
 inline FluxCoupling flux_coupling(const ChipLayout& L, int qubit_id, const MeshOptions& mo, double margin = 150, double reach = 0) {
     return flux_coupling(L, "Q" + std::to_string(qubit_id), "FQ" + std::to_string(qubit_id), mo, margin, reach);
+}
+// M_cm by reciprocity with the island's own charge: a check of the even spread that M_cm assumes (layout_gates reports
+// it; the gates use the even spread). The displacement current of the qubit's charge mode leaves the island at each
+// angle in proportion to the island's charge there, so a point of the owner's etch at angle theta weighs F(theta) - 1/2,
+// with F the fraction of the charge between the SQUID and theta (the panels' angles found as M_cm finds them; linear
+// between panels, 0 before the first and 1 after the last), in place of theta / 2 pi - 1/2. From a grid solve's window
+// and the charge of the island's panels (centres x, y and charges q, e.g. from control_window's PanelSolution). The
+// sign is M_cm_signed_pH's.
+inline double flux_cm_by_charge(const FluxWindow& fw, const std::vector<double>& x, const std::vector<double>& y, const std::vector<double>& q) {
+    if (fw.cell_x.empty() || x.empty() || x.size() != y.size() || x.size() != q.size()) return 0;
+    const std::vector<double> th = detail::ring_angles(fw.window, fw.etch, fw.island, fw.qx, fw.qy, fw.theta0, x, y);
+    std::vector<std::size_t> order(th.size());
+    for (std::size_t k = 0; k < order.size(); ++k) order[k] = k;
+    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return th[a] < th[b] || (th[a] == th[b] && a < b); });
+    std::vector<double> ts, cum;
+    double total = 0;
+    for (std::size_t k : order) total += q[k];
+    if (total == 0) return 0;
+    double run = 0;
+    for (std::size_t k : order) { run += q[k]; ts.push_back(th[k]); cum.push_back(run / total); }
+    auto F = [&](double t) {
+        if (t < ts.front()) return 0.0;
+        if (t > ts.back()) return 1.0;
+        const std::size_t i = std::size_t(std::upper_bound(ts.begin(), ts.end(), t) - ts.begin());
+        if (i == 0) return cum.front();
+        if (i >= ts.size()) return cum.back();
+        const double t0 = ts[i - 1], t1 = ts[i];
+        return t1 > t0 ? cum[i - 1] + (cum[i] - cum[i - 1]) * (t - t0) / (t1 - t0) : cum[i];
+    };
+    double cm = 0;
+    for (std::size_t k = 0; k < fw.cell_x.size(); ++k) cm += fw.cell_flux_pH[k] * (F(fw.cell_theta[fw.cell_source[k]]) - 0.5);
+    return cm * fw.loop_sign;
 }
 
 // ---------------------------------------------------------------- control lines, from a window of the assembled mask
@@ -2434,9 +2864,11 @@ inline ControlWindow control_window(const ChipLayout& L, int qubit_id, const Mes
 // I(Phi0/2) at most kMaxHalfFluxQuantum_mA.
 inline constexpr double kLineT1Margin = 10.0, kAssumedSquidAsymmetry = 0.1, kMaxDriveCrosstalk = 0.1, kMaxDrivePower_dBm = -55.0,
                         kMaxHalfFluxQuantum_mA = 2.0, kRabiMHz = 25.0;
-// The flux-coupling solve is small (a few thousand panels): it always runs on this mesh; the solves between a line
-// and a neighbour's SQUID (two clusters of etch, far apart) on the coarser one.
-inline const MeshOptions kFluxMesh{1.5, 50.0, 1.6}, kFluxCrossMesh{2.5, 50.0, 2.0};
+// The flux couplings of the representative lines are solved on the grid cell and on twice it; a gate cannot rest on a
+// mesh that is still moving: M_cm may change by at most kMaxFluxMeshChange_pH, M by kMaxFluxMeshChangeRel.
+inline constexpr double kMaxFluxMeshChange_pH = 0.05, kMaxFluxMeshChangeRel = 0.05;
+// The crosstalk solves (a line and a neighbour's SQUID: two clusters of etch, far apart) by the method of moments.
+inline const MeshOptions kFluxCrossMesh{2.5, 50.0, 2.0};
 inline double line_T1_us(double C_sigma_fF, double C_c_fF, double f_GHz, double Z0 = 50) {
     const double w = 2 * PI * f_GHz * 1e9;
     return C_c_fF != 0 ? C_sigma_fF * 1e-15 / (w * w * C_c_fF * 1e-15 * C_c_fF * 1e-15 * Z0) * 1e6 : 1e300;
@@ -2538,8 +2970,11 @@ struct LineBudget {
     // shared return through the ground bumps (see bump_return_pH): the largest term over the qubits, the fewest bumps
     // on a qubit's plaquette, and the coupler's term
     double max_M_bump_pH{0}, M_bump_coupler_pH{0}; int min_bumps{-1};
+    // mesh check of the flux solves: the largest change of M_cm (pH) and of M (relative) from twice the cell to the cell
+    double flux_cell_um{0}, flux_mesh_change_pH{0}, flux_mesh_change_rel{0};
+    bool flux_mesh_ok() const { return flux_mesh_change_pH <= kMaxFluxMeshChange_pH && flux_mesh_change_rel <= kMaxFluxMeshChangeRel; }
     bool drive_ok() const { return min_ratio_drive >= kLineT1Margin && (!separate_xy || ratio_coupler >= kLineT1Margin) && crosstalk_evaluated && max_drive_crosstalk <= kMaxDriveCrosstalk && drive_power_dBm <= kMaxDrivePower_dBm; }
-    bool flux_ok() const { return min_ratio_flux_cap >= kLineT1Margin && min_ratio_flux_loop >= kLineT1Margin && min_ratio_flux_cm >= kLineT1Margin && (separate_xy || ratio_coupler >= kLineT1Margin) && max_I_half_mA <= kMaxHalfFluxQuantum_mA; }
+    bool flux_ok() const { return min_ratio_flux_cap >= kLineT1Margin && min_ratio_flux_loop >= kLineT1Margin && min_ratio_flux_cm >= kLineT1Margin && (separate_xy || ratio_coupler >= kLineT1Margin) && max_I_half_mA <= kMaxHalfFluxQuantum_mA && flux_mesh_ok(); }
     bool ok() const { return evaluated && drive_ok() && flux_ok(); }
 };
 namespace detail {
@@ -2559,6 +2994,7 @@ inline void line_budget_evaluate(LineBudget& B, const ChipDesign& D, const ChipR
         E.note = B.note; E.separate_xy = B.separate_xy; E.meas = B.meas; E.data = B.data; E.coupler = B.coupler; E.coupler_flux = B.coupler_flux;
         E.f_coupler_GHz = B.f_coupler_GHz; E.Z0 = B.Z0; E.bump_pH = B.bump_pH; E.bump_own_fraction = B.bump_own_fraction;
         E.bump_neighbour_fraction = B.bump_neighbour_fraction; E.solved = B.solved; E.crosstalk_solved = B.crosstalk_solved;
+        E.flux_cell_um = B.flux_cell_um; E.flux_mesh_change_pH = B.flux_mesh_change_pH; E.flux_mesh_change_rel = B.flux_mesh_change_rel;
         E.cross = std::move(B.cross); E.cross_neighbours = std::move(B.cross_neighbours);
         for (LineCell* c : {&E.meas, &E.data}) { c->flux.others.clear(); c->flux.worst_other.clear(); c->flux.worst_other_ratio = 0; }
         B = std::move(E);
@@ -2669,10 +3105,16 @@ inline void line_budget_evaluate(LineBudget& B, const ChipDesign& D, const ChipR
     }
     B.crosstalk_evaluated = true;
 }
-// mo: the mesh of the control windows (capacitance); flux_mo: the mesh of the flux-coupling solves.
+// mo: the mesh of the control windows (capacitance); flux: the grid of the flux-coupling solves (each also solved on
+// twice the cell, for the mesh check).
 inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const ChipLayout& L, const LayoutMetrics& m, double f_coupler_GHz,
-                              const MeshOptions& mo, double Z0 = 50, const MeshOptions& flux_mo = kFluxMesh) {
-    LineBudget B; B.f_coupler_GHz = f_coupler_GHz; B.Z0 = Z0;
+                              const MeshOptions& mo, double Z0 = 50, const FluxGrid& flux = kFluxGrid) {
+    LineBudget B; B.f_coupler_GHz = f_coupler_GHz; B.Z0 = Z0; B.flux_cell_um = flux.cell_um;
+    auto mesh_check = [&](const FluxCoupling& fine, const FluxCoupling& c2) {
+        if (!fine.ok || !c2.ok) return;
+        B.flux_mesh_change_pH = std::max(B.flux_mesh_change_pH, std::abs(fine.M_cm_signed_pH - c2.M_cm_signed_pH));
+        if (fine.M_pH > 0) B.flux_mesh_change_rel = std::max(B.flux_mesh_change_rel, std::abs(c2.M_pH / fine.M_pH - 1));
+    };
     // representative qubits
     Rect bb{1e300, 1e300, -1e300, -1e300};
     for (const auto& q : D.qubits) { bb.x0 = std::min(bb.x0, q.x_um); bb.y0 = std::min(bb.y0, q.y_um); bb.x1 = std::max(bb.x1, q.x_um); bb.y1 = std::max(bb.y1, q.y_um); }
@@ -2692,8 +3134,10 @@ inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const Ch
         if (c.qubit < 0) { B.note = "no qubit of one role"; return false; }
         c.win = control_window(L, c.qubit, mo);
         if (!c.win.ok) { B.note = c.win.note; return false; }
-        c.flux = flux_coupling(L, c.qubit, flux_mo);
+        c.flux = flux_coupling(L, c.qubit, flux);
         if (!c.flux.ok) { B.note = c.flux.note; return false; }
+        FluxGrid coarse = flux; coarse.cell_um *= 2;
+        mesh_check(c.flux, flux_coupling(L, c.qubit, coarse));
         const std::string qn = "Q" + std::to_string(c.qubit), xn = "XY" + std::to_string(c.qubit);
         c.separate_xy = c.win.has(xn);
         c.C_sigma_fF = meas ? m.C_sigma_m : m.C_sigma_d;
@@ -2711,7 +3155,11 @@ inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const Ch
     B.separate_xy = B.meas.separate_xy || B.data.separate_xy;
     // representative coupler: one of the measure qubit's
     for (const auto& c : D.couplings) if (c.a == B.meas.qubit || c.b == B.meas.qubit) { B.coupler = std::to_string(c.a) + "-" + std::to_string(c.b); break; }
-    if (!B.coupler.empty()) B.coupler_flux = flux_coupling(L, "C" + B.coupler, "FC" + B.coupler, flux_mo);
+    if (!B.coupler.empty()) {
+        B.coupler_flux = flux_coupling(L, "C" + B.coupler, "FC" + B.coupler, flux);
+        FluxGrid coarse = flux; coarse.cell_um *= 2;
+        mesh_check(B.coupler_flux, flux_coupling(L, "C" + B.coupler, "FC" + B.coupler, coarse));
+    }
     B.solved = true;
     line_budget_evaluate(B, D, R, L, m);
     return B;
@@ -2786,16 +3234,21 @@ inline std::string line_budget_summary(const LineBudget& B) {
                   B.separate_xy ? "" : (std::string("; coupler through its own flux line (M_cm ") + std::to_string(B.coupler_flux.M_cm_pH).substr(0, 5) + " pH) " +
                                         std::to_string(std::min(B.min_T1_coupler_us / 1e3, 1e9)).substr(0, 6) + " ms = " + std::to_string(x(B.ratio_coupler)).substr(0, 5) + "x the longest qubit T1").c_str(),
                   kLineT1Margin);
-    char e[400];
+    char e[700];
     std::snprintf(e, sizeof e, "\n    shared return through the ground bumps (%.1f pH per bump assumed, fewest on a qubit's metal %d): up to %.3f pH added to M_cm "
-                  "of a qubit, %.3f pH for the coupler; included in the common-mode T1 limits, the drive power and the drive crosstalk (worst signs)",
-                  B.bump_pH, B.min_bumps, B.max_M_bump_pH, B.M_bump_coupler_pH);
+                  "of a qubit, %.3f pH for the coupler; included in the common-mode T1 limits, the drive power and the drive crosstalk (worst signs)\n"
+                  "    flux solves on a %.2f um grid, in a window %.0f um around the line and the owner's whole etch; from twice that cell M_cm moves by up to %.3f pH "
+                  "(limit %.2f) and M by up to %.1f%% (limit %.0f%%): %s",
+                  B.bump_pH, B.min_bumps, B.max_M_bump_pH, B.M_bump_coupler_pH, B.flux_cell_um, kFluxMargin_um, B.flux_mesh_change_pH, kMaxFluxMeshChange_pH,
+                  100 * B.flux_mesh_change_rel, 100 * kMaxFluxMeshChangeRel, B.flux_mesh_ok() ? "converged" : "NOT converged");
     return std::string(b) + e;
 }
 inline Json line_budget_json(const LineBudget& B) {
     Json j = Json::object();
     j.set("bump_inductance_assumed_pH", B.bump_pH); j.set("min_ground_bumps_on_qubit_metal", B.min_bumps);
     j.set("max_M_bump_return_pH", B.max_M_bump_pH); j.set("M_bump_return_coupler_pH", B.M_bump_coupler_pH);
+    j.set("flux_grid_cell_um", B.flux_cell_um); j.set("flux_window_margin_um", kFluxMargin_um); j.set("flux_mesh_change_M_cm_pH", B.flux_mesh_change_pH); j.set("flux_mesh_change_M_rel", B.flux_mesh_change_rel);
+    j.set("flux_mesh_converged", B.flux_mesh_ok());
     j.set("evaluated", B.evaluated); j.set("ok", B.ok());
     if (!B.evaluated) { j.set("note", B.note); return j; }
     auto fin = [](double v) { return std::min(v, 1e12); };

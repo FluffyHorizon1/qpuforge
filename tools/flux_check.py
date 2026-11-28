@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
-"""Independent check of flux_coupling (include/qpuforge/layout.hpp): the same thin superconducting film, solved by
-another method.
+"""Independent check of flux_coupling (include/qpuforge/layout.hpp): the same thin superconducting film, solved by a
+second implementation.
 
-Usage: flux_check.py <window.json> [--h UM] [--lk-ph PH] [--margin F] [--tol T] [--maxit N]
+Usage: flux_check.py <window.json> [--h UM] [--lk-ph PH] [--margin F] [--zone UM] [--tol T] [--maxit N] [--floating]
 
 <window.json> comes from `layout_gates flux <chip> <cells.json> <owner> <line> --dump <window.json>`: the apertures of
-the solve (the etch with straps and pad cuts taken out), their kinds (floating, held at the window edge, the line's
-two gaps), the SQUID loop, the owner's etch, the reference of the angle that weights M_cm, and the method-of-moments
-result.
+the solve (the etch with straps and pad cuts taken out), their kinds (bounded holes and the line's two gaps; dumps of
+the earlier model also hold apertures at the window edge), the SQUID loop, the owner's etch, the reference of the angle
+that weights M_cm, and flux_coupling's result (by its grid solver, or by its method of moments with --moments).
 
-flux_coupling solves the film by Babinet duality: the apertures are the conductors of an electrostatic problem, solved
-by a method of moments on graded rectangular panels. This tool solves the film itself. The sheet current is
-K = curl(g z) for a stream function g on a uniform grid of square cells of side h (aligned to the SQUID loop's corner,
-so that the launcher's edges, at whole and half micrometres from the loop, fall on cell edges). g is constant in each aperture: zero in the held ones, one unknown
-in each floating one, and 1 A apart in the line's two gaps (with one unknown offset when both float). The film fills
-the window and a margin around it (--margin, a fraction of the window's larger side), on a periodic grid. The energy
+The sheet current is K = curl(g z) for a stream function g on a uniform grid of square cells of side h (aligned to the
+SQUID loop's corner, so that the launcher's edges, at whole and half micrometres from the loop, fall on cell edges). g
+is constant in each aperture: one unknown in each bounded hole (zero net flux), zero in any held one, and 1 A apart in
+the line's two gaps (with one unknown offset when both float). The film fills the window and a margin around it
+(--margin, a fraction of the window's larger side, default 0.1 as flux_coupling's grid), on a periodic grid. The energy
 is the magnetic energy of a sheet in free space, (mu0/4) sum |k| |g(k)|^2, evaluated with FFTs, plus with --lk-ph the
 kinetic energy (L_k/2) sum |grad g|^2 of a sheet inductance L_k per square (default 0: a perfect thin film, as
-flux_coupling assumes). Preconditioned conjugate gradients minimise it. The normal field B_z = (mu0/2) |k| g vanishes
-in the film (L_k = 0) and threads the apertures: the flux in the loop gives M; the flux in the owner's etch weighted by
-(theta / 2 pi - 1/2) gives M_cm, theta as flux_coupling defines it (the polar angle, about the island's centre, of the
-ground metal nearest each point, along 16 rays in 0.5 um steps up to 80 um; found here on a 0.1 um raster).
+flux_coupling assumes). Conjugate gradients with a Jacobi preconditioner minimise it (flux_coupling's grid solver uses
+1/|k|; the two share no code). The normal field B_z = (mu0/2) |k| g vanishes in the film (L_k = 0) and threads the
+apertures: the flux in the loop gives M; the flux in the owner's etch weighted by (theta / 2 pi - 1/2) gives M_cm,
+theta as flux_coupling defines it (the polar angle, about the island's centre, of the ground metal nearest each point,
+along 16 rays in 0.5 um steps up to 80 um; found here on a 0.1 um raster), with the branch rule (--zone).
 When the dump holds the owner's charge distribution (island_charge, from the control window's extraction), M_cm is
 also given by reciprocity with that charge: the displacement current leaving the island at each angle in proportion to
-its charge instead of evenly in angle. The tool also prints the line's net flux through the owner's etch, which sets
-how much the split of the return between the two ways round matters when that etch is held (reaches the window edge).
+its charge instead of evenly in angle. The tool also prints the line's net flux through the owner's etch (zero for a
+bounded hole), which sets how much the split of the return between the two ways round would matter if that etch were
+held.
 
-Needs numpy only. Prints the two methods' M and M_cm and their difference; exit status 0, or 2 on a usage error.
+Needs numpy only. Prints both results for M and M_cm and their difference; exit status 0, or 2 on a usage error.
 """
 import argparse
 import json
@@ -134,10 +135,11 @@ def solve(d, h, lk_ph, margin, tol, maxit, log, floating=False, zone=0.0):
     dof_of_ap = {}
     nap = len(kind)
     nd = 0
+    present = set(np.unique(lab[lab >= 0]).tolist())         # an aperture with no cell (a sliver the window cuts off) has no unknown
     for a in range(nap):
         if a in (ga, gb):
             continue
-        if kind[a] == 0:
+        if kind[a] == 0 and a in present:
             dof_of_ap[a] = nd
             nd += 1
     if fa and fb:
@@ -283,11 +285,13 @@ def main():
     ap.add_argument('window', help="window dump from layout_gates flux ... --dump")
     ap.add_argument('--h', type=float, default=1.0, help="cell size in um (default 1)")
     ap.add_argument('--lk-ph', type=float, default=0.0, help="kinetic sheet inductance in pH per square (default 0)")
-    ap.add_argument('--margin', type=float, default=0.25, help="film margin around the window, a fraction of its larger side (default 0.25)")
+    ap.add_argument('--margin', type=float, default=0.1, help="film margin around the window, a fraction of its larger side (default 0.1, as flux_coupling)")
     ap.add_argument('--tol', type=float, default=1e-7, help="relative residual of the conjugate gradients (default 1e-7)")
     ap.add_argument('--maxit', type=int, default=6000)
-    ap.add_argument('--floating', action='store_true', help="treat every aperture as a bounded hole (zero net flux), none held at the window edge")
-    ap.add_argument('--zone', type=float, default=0.0, help="weight the owner's etch beyond the island's bounding box grown by this (um) with the value where it leaves")
+    ap.add_argument('--floating', action='store_true', help="treat every aperture as a bounded hole (zero net flux), none held at the window edge (for dumps "
+                    "of the earlier model, which held the apertures the window clips)")
+    ap.add_argument('--zone', type=float, default=40.0, help="the branch rule: weight the owner's etch beyond the island's bounding box grown by this (um) with "
+                    "the value where it leaves (default 40, as flux_coupling; 0: no branch rule)")
     a = ap.parse_args()
     if not (0.05 <= a.h <= 5) or a.lk_ph < 0 or not (0 <= a.margin <= 2):
         print("flux_check.py: --h must be in [0.05, 5] um, --lk-ph >= 0, --margin in [0, 2]", file=sys.stderr)
@@ -300,13 +304,16 @@ def main():
     mom = d['method_of_moments']
     print(f"{d['chip']}: {d['owner']} <- {d['line']} ({d['cells']}); window {d['window'][2] - d['window'][0]:.0f} x {d['window'][3] - d['window'][1]:.0f} um, "
           f"{len(d['kind'])} apertures")
-    print(f"  method of moments (edge panels {mom['mesh_um']:.2f} um, {mom['panels']} panels): M {mom['M_pH']:.4f} pH, M_cm {mom['M_cm_pH']:.4f} pH (signed {mom['M_cm_signed_pH']:+.4f})")
+    method = mom.get('method', 'method of moments')           # the dump's own solve: flux_coupling's grid or its method of moments
+    unit = 'cells' if method == 'grid' else 'edge panels'
+    print(f"  flux_coupling, {method} ({unit} {mom['mesh_um']:.2f} um, {mom['panels']} {'cells' if method == 'grid' else 'panels'}): M {mom['M_pH']:.4f} pH, "
+          f"M_cm {mom['M_cm_pH']:.4f} pH (signed {mom['M_cm_signed_pH']:+.4f})")
     s = solve(d, a.h, a.lk_ph, a.margin, a.tol, a.maxit, True, a.floating, a.zone)
     print(f"  stream function on a {s['nx']} x {s['ny']} grid of {s['h']:g} um cells ({s['unknowns']} unknowns, L_k {a.lk_ph:g} pH/sq): "
           f"M {s['M']:.4f} pH, M_cm {s['M_cm']:.4f} pH (signed {s['M_cm_signed']:+.4f}); {s['iterations']} iterations, residual {s['residual']:.1e}, {s['seconds']:.0f} s")
     if a.lk_ph == 0:
         print(f"    largest |B_z| in the film {s['film_bz']:.3g} T against {s['max_bz']:.3g} T in the apertures (per A)")
-    print(f"  difference (grid - moments): M {s['M'] - mom['M_pH']:+.4f} pH ({100 * (s['M'] / mom['M_pH'] - 1):+.1f}%), M_cm {s['M_cm_signed'] - mom['M_cm_signed_pH']:+.4f} pH")
+    print(f"  difference (this tool - flux_coupling): M {s['M'] - mom['M_pH']:+.4f} pH ({100 * (s['M'] / mom['M_pH'] - 1):+.1f}%), M_cm {s['M_cm_signed'] - mom['M_cm_signed_pH']:+.4f} pH")
     kind = 0 if a.floating else int(d['kind'][int(d['own_moat'])])
     print(f"  the owner's etch is {'held (it reaches the window edge)' if kind == 1 else 'a bounded hole'}; the line's net flux through it (loop included) {s['net']:+.4f} pH: "
           f"moving the split of the return between the two ways round from 1/2 by delta (the loop at the matching share) changes M_cm by {-s['net']:+.4f} delta pH")

@@ -99,7 +99,7 @@ chip names its origin. Alternatives:
 * Alternative considered: a shared JSON Schema file in both repos. Cheaper to check, but a second source of truth next to
   the reader; rejected for now.
 
-### Phase 4: tighter validation (G6), decided (D4: enumerate provenance now, in v0)
+### Phase 4: tighter validation (G6), decided (D4: enumerate provenance now, in v0); implemented on `feat/materials-provenance-enum`
 
 * `provenance` is an enumerated set on `forge.materials.v0` itself (no v0.1, no v1 wait): the four values of the contract's
   §3.2 example (`assumed`, `measured`, `dft-loss-tangent`, `participation-weighted`), `placeholder` (what atomforge

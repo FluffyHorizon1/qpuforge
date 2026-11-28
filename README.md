@@ -73,7 +73,7 @@ Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decod
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 500 validation checks (~15 min on 4 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 504 validation checks (~15 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
@@ -152,7 +152,7 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 500 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 504 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.

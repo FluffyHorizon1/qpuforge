@@ -1,0 +1,47 @@
+{
+  "schema": "qpuforge.fem_crosscheck.v0",
+  "solver": {
+    "name": "palace",
+    "version": "SYNTHETIC fixture, not a solver run"
+  },
+  "cell": "pair",
+  "units": "fF",
+  "conductors": [
+    "qa",
+    "coupler",
+    "bus",
+    "qb"
+  ],
+  "maxwell_fF": [
+    [
+      90.0,
+      -6.0,
+      -1.2,
+      -0.25
+    ],
+    [
+      -6.0,
+      48.0,
+      -0.9,
+      -5.8
+    ],
+    [
+      -1.2,
+      -0.9,
+      30.0,
+      -1.1
+    ],
+    [
+      -0.25,
+      -5.8,
+      -1.1,
+      88.0
+    ]
+  ],
+  "mesh": {
+    "note": "synthetic"
+  },
+  "domain": {
+    "note": "synthetic"
+  }
+}

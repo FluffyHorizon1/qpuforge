@@ -1,0 +1,6 @@
+! SYNTHETIC fixture (not a solver run): Elmer StatElecSolver capacitance matrix, lumped convention, farads
+! Capacitance Body order: qa coupler bus qb
+9.000000e-14  6.000000e-15  1.200000e-15  2.500000e-16
+6.000000e-15  4.800000e-14  9.000000e-16  5.800000e-15
+1.200000e-15  9.000000e-16  3.000000e-14  1.100000e-15
+2.500000e-16  5.800000e-15  1.100000e-15  8.800000e-14

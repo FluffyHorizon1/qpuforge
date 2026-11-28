@@ -2387,8 +2387,29 @@ static void test_layout_checks() {
         const std::string tag = std::to_string(cp.a) + "-" + std::to_string(cp.b), qn = "Q" + std::to_string(cp.a);
         std::printf("  two-qubit chip: %s\n    %s\n", drc_summary(L).c_str(), connectivity_summary(L).c_str());
         CHECK(L.drc_clean() && L.conn.clean() && L.conn.qubit_squids_on_plane == 2 && L.conn.qubit_flux_on_plane == 2 && L.conn.flux_returns_continuous == 2 &&
-              L.conn.coupler_squids_on_plane == 1 && L.conn.straps == 9 && L.conn.straps_landed == 9 && L.ground_bumps.size() == 6 && L.island("XY" + std::to_string(cp.a)) < 0,
-              "two-qubit chip: %zu problems, %zu DRC markers, %d straps, %zu ground bumps", L.problems.size(), L.drc.size(), L.conn.straps, L.ground_bumps.size());
+              L.conn.coupler_squids_on_plane == 1 && L.conn.straps == 9 && L.conn.straps_landed == 9 && L.ground_bumps.size() - std::size_t(L.lattice_bumps) == 10 &&
+              L.lattice_bumps > 0 && L.conn.bumps_ok() && L.island("XY" + std::to_string(cp.a)) < 0,
+              "two-qubit chip: %zu problems, %zu DRC markers, %d straps, %zu ground bumps (%d on the lattice)", L.problems.size(), L.drc.size(), L.conn.straps,
+              L.ground_bumps.size(), L.lattice_bumps);
+        {   // ground-bump rules: a signal bump without its ground bumps, a ground bump over etch, two bumps too close,
+            // and the separate-XY mode of the same chip (an XY line and its antenna per qubit)
+            ChipLayout A = L; A.ground_bumps.clear(); A.ground_bump_line.clear(); A.ground_bumps.push_back(L.ground_bumps.back()); A.ground_bump_line.push_back(-1);
+            analyze_connectivity(A);
+            ChipLayout E = L; E.ground_bumps.back() = rect_c(L.jj[0].cx(), L.jj[0].cy(), kBumpSize, kBumpSize);
+            analyze_connectivity(E);
+            ChipLayout P = L; P.ground_bumps.push_back(L.ground_bumps.back().shift(kBumpPitch - 10, 0)); P.ground_bump_line.push_back(-1);
+            analyze_connectivity(P);
+            std::printf("    bump rules: no ground bumps beside the pads: %d/%d signal bumps without one; a ground bump on a junction: %d violation(s); "
+                        "two bumps %.0f um apart: %d violation(s)\n", A.conn.signal_bumps_without_ground, A.conn.signal_bumps, E.conn.bump_rule_violations,
+                        kBumpPitch - 10, P.conn.bump_rule_violations);
+            CHECK(A.conn.signal_bumps_without_ground == A.conn.signal_bumps && !A.conn.ground_ok() && E.conn.bump_rule_violations >= 1 && !E.conn.ground_ok() &&
+                  P.conn.bump_rule_violations >= 1 && !P.conn.clean(), "bump rules not enforced");
+            CellSet sx = cs; sx.separate_xy = true;
+            const auto X = assemble_chip(D, sx);
+            const auto rt = cells_from_json(cells_json(sx, LayoutMetrics{}, LayoutTargets{}));
+            CHECK(X.island("XY" + std::to_string(cp.a)) >= 0 && X.island("A" + std::to_string(cp.a)) >= 0 && X.bumps.size() == L.bumps.size() + 2 && rt.separate_xy &&
+                  !cells_from_json(cells_json(cs, LayoutMetrics{}, LayoutTargets{})).separate_xy, "separate XY mode: lines %d, %zu signal bumps", X.island("XY" + std::to_string(cp.a)), X.bumps.size());
+        }
         const MeshOptions mo{2.5, 50.0, 2.0};
         const auto Fq = flux_coupling(L, cp.a, mo), Fc = flux_coupling(L, "C" + tag, "FC" + tag, mo);
         CellSet eq = cs; eq.meas.slot_up = eq.meas.slot_down = eq.data.slot_up = eq.data.slot_down = 18;

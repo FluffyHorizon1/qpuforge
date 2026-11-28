@@ -119,7 +119,8 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `--op cnot` only. Exit status 3 when a noiseless check fails.
 - `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
 - Tests: `surgery` and `surgery_cnot` groups (82 checks); the determinism guard also covers
-  `run_surgery_frame`; a smoke entry for the study.
+  `run_surgery_frame` (the ZZ measurement and the three-patch CNOT); a smoke entry for the study; `cli_*surgery*` guards
+  for the command line (outside the validation checks).
 - Tests: `cli_*` guards (label `unit`) for unknown options, missing values, malformed numbers and choices, repeated and
   extra arguments, one accepted invocation per command with every option given (two for `new`, a topology and
   `--preset`; three for `qec`: the burst options, then the decoding options and the streaming decoder at non-default
@@ -138,11 +139,18 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - CLI: `analyze --materials <sidecar.json> [--loss-tangent]` applies a sidecar, prints one line per quantity, then
   prints the device report. The chip JSON file is not changed. `--loss-tangent` without `--materials`, and an empty
   `--materials` value, are usage errors (exit 1), reported before any file is read.
+- CLI: `--materials <sidecar.json> [--loss-tangent]` is also accepted by `run`, `budget`, `fab`, `qec`, `cz`, `synth-chip`
+  and `hwgate`, through one shared loader, so a sidecar value reaches the emulators and the logical-error runs and is no
+  longer silently dropped by a sub-command that did not know the flag. `layout` and `gds` declare it only to refuse it
+  (a usage error, exit 1; they draw the chip from the chip JSON). When a sidecar changes `junction_gap_ueV`, the report line says that each qubit keeps its
+  `Rn_kOhm`, so `E_J` and `f01` scale with the gap.
 - Tests: the `materials` group (label `unit`, 25 checks), with sidecar fixtures in `tests/data/`, among them
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_loss_tangent_opt_in`,
-  `cli_materials_refused` and `cli_usage_materials` CLI guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the
-  path of `tests/data`.
+  `cli_materials_refused` and `cli_usage_materials` CLI guards, plus `cli_materials_fab`, `cli_materials_run`,
+  `cli_materials_budget`, `cli_materials_run_refused`, `cli_materials_layout_refused`, `cli_materials_gds_refused`,
+  `cli_materials_qec`, `cli_materials_cz_missing_chip`, `cli_materials_hwgate_missing_chip` and `cli_loss_tangent_alone`
+  for the other sub-commands. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
 - 504 validation checks in all: 500 on `main` (`results/test_output.txt`, not regenerated for the mask-connectivity work) and
   four more from it (below). Of the 500: 346 on `main` before the decoding work (the 321 of 0.4.0
   plus 25 in `materials`), plus 21 from the decoding work (#20), 48 from fabrication readiness (#19), 3 from the
@@ -218,6 +226,22 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - CLI: the usage text lists every option of every command (`budget --seed`, `qec --seed --cache --leakage-removal`,
   `synth-chip --cache`, `hwgate --seed --cache` and most `new` options were missing), and a usage error prints the
   usage of its command only. Options may come before the positional arguments.
+
+### Breaking CLI changes
+
+The strict option table (#24) and the follow-up for `--help` change what scripts can rely on. The list is limited to what
+the entries under Fixed do not already state; unknown, misspelt, repeated and misplaced options, `budget --shots` and the
+`qec` option dependencies are described there.
+
+- `new --plan` accepts only 2, 4 or 8 (`--plan expects 2, 4 or 8, got '16'`, exit 1), as the usage line always said and
+  `device.hpp` handles. Other values used to be accepted.
+- `--help`, `-h` and `help` print the usage to stdout and exit 0, and `<command> --help` or `-h` (also `help <command>`)
+  prints that command's usage only, exit 0. Before the strict table (#24), `--help` was an unknown command: the usage went to
+  stdout with exit status 1. Since #24 it was an unknown option: a message and the usage on stderr, exit 1. Scripts that
+  treated exit 1 as "help shown" must now expect 0. `--help` as the value of an option that takes one (`run --off --help`)
+  is still that option's bad value, a usage error.
+- The `cli_help`, `cli_help_short`, `cli_help_word` and `cli_help_command` guards (label `unit`) run `tests/check_cli_help.cmake`,
+  which asserts exit status 0, an empty stderr and the usage text on stdout; a pass regex alone cannot see the exit status.
 
 ### API changes
 - `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).

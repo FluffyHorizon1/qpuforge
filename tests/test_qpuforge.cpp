@@ -807,7 +807,7 @@ static void test_layout() {
             last = b[i + 2]; if (last == 0x08) ++boundaries;
             ++records; i += std::size_t(n);
         }
-        const std::size_t expect = L.etch.size() + L.jj.size() + L.bumps.size() + 1;
+        const std::size_t expect = L.etch.size() + L.jj.size() + L.bumps.size() + 3 * L.straps.size() + 1;
         std::printf("  AF-17 layout: %zu etch polygons, placement %s; GDSII: %d records, %d boundaries (expected %zu), ends with ENDLIB: %s\n", L.etch.size(),
                     L.problems.empty() ? "clean" : "violations", records, boundaries, expect, last == 0x04 ? "yes" : "no");
         CHECK(ok && last == 0x04 && std::size_t(boundaries) == expect, "GDSII stream structure");
@@ -1858,6 +1858,28 @@ static void test_layout_geometry() {
         bool merged = false; for (const auto& h : holes) merged |= h.contains(151, 50);
         CHECK(merged, "the 2 um sliver away from the pocket was not merged");
     }
+    {   // ground straps: a pocket inside a closed 10 um ring gets one strap across the ring; a strap never spans a qubit
+        // island (here a qubit drawn in the ring's left side forces the strap to another side), and a pocket ringed
+        // only by a qubit gets none
+        const Rect outline{0, 0, 300, 100};
+        const std::vector<Rect> ring{{20, 20, 80, 30}, {20, 70, 80, 80}, {20, 30, 30, 70}, {70, 30, 80, 70}};
+        std::vector<std::pair<std::string, std::vector<Rect>>> isl{{"Q1", {{22, 32, 28, 68}}}};
+        std::vector<Rect> holes = ring;
+        for (const auto& r : ring) holes.push_back(r.shift(100, 0));                                         // second ring
+        isl.push_back({"Q2", {{121, 77, 179, 79}, {121, 21, 179, 23}, {121, 21, 123, 79}, {177, 21, 179, 79}}});  // qubit ring 1 um inside the outer edge
+        std::vector<Rect> metal; for (const auto& [n, rs] : isl) metal.insert(metal.end(), rs.begin(), rs.end());
+        const auto e = detail::etch_of(holes, metal);
+        const auto M = detail::metal_map(outline, e);
+        const auto I = detail::island_index(isl);
+        std::vector<char> eligible(std::size_t(M.n_comp), 1);
+        for (const auto& [n, rs] : isl) eligible[std::size_t(M.at(rs.front().cx(), rs.front().cy()))] = 0;
+        const int plane = M.at(1, 1);
+        const auto S = detail::place_ground_straps(M, I, eligible, plane);
+        bool over_q = false; for (const auto& st : S) for (const auto& [n, rs] : isl) for (const auto& r : rs) over_q |= st.span.intersects(r);
+        const bool p1 = std::any_of(S.begin(), S.end(), [&](const detail::Strap& st) { return M.at(st.foot_a.cx(), st.foot_a.cy()) == M.at(50, 50) || M.at(st.foot_b.cx(), st.foot_b.cy()) == M.at(50, 50); });
+        std::printf("  ground straps: %zu placed; first pocket strapped: %s; any strap over a qubit: %s\n", S.size(), p1 ? "yes" : "no", over_q ? "yes" : "no");
+        CHECK(S.size() == 1 && p1 && !over_q, "ground straps: %zu, pocket %d, over qubit %d", S.size(), int(p1), int(over_q));
+    }
 }
 
 // ---------------------------------------------------------------- layout_presets: the committed chips are mask-clean and on target
@@ -1894,10 +1916,11 @@ static void test_layout_presets() {
         // the only DRC markers left are the ground necks the connectivity guard kept (one per undone fill)
         CHECK(L.drc_count("width") == 0 && L.drc_count("space") == L.conn.fills_reverted, "%s mask DRC: %d width + %d space violations, %d fills undone",
               c.name, L.drc_count("width"), L.drc_count("space"), L.conn.fills_reverted);
-        // connectivity is reported, not gated (floating ground, shorted lines and junction landing are open); what must
-        // hold already: no two conductors share metal and no conductor is shorted to the plane
-        CHECK(L.conn.islands_merged == 0 && L.conn.islands_on_plane == 0, "%s: %d conductors merged, %d on the plane", c.name, L.conn.islands_merged,
-              L.conn.islands_on_plane);
+        // connectivity (LVS-lite, with the ground straps): every conductor its own net, every shorted line and every
+        // ground fragment on the plane, every SQUID from its island to the plane
+        CHECK(L.conn.clean(), "%s: %s", c.name, connectivity_summary(L).c_str());
+        CHECK(L.conn.junctions == int(c.D.qubits.size() + c.D.couplings.size()) && L.conn.flux_lines == int(c.D.qubits.size()),
+              "%s: %d junctions, %d flux lines", c.name, L.conn.junctions, L.conn.flux_lines);
         CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);
         CHECK(std::abs(P.park_gap_MHz) < 0.05, "%s parked exchange not re-nullable (%.3f MHz)", c.name, P.park_gap_MHz);
     }

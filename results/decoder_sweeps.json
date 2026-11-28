@@ -1,0 +1,86 @@
+{
+  "herald_rules": [
+    {"case": "no heralds", "eps": 0.00531249057185, "failures": 2961},
+    {"case": "detector rule: every touching edge erased", "eps": 0.00868991420013, "failures": 4625},
+    {"case": "detector rule: measurement edge erased only", "eps": 0.00543075443296, "failures": 3022},
+    {"case": "footprint rule, factor 1 (measurement edge erased only)", "eps": 0.00543075443296, "failures": 3022},
+    {"case": "footprint rule, factor 0.5", "eps": 0.00408374667694, "failures": 2315},
+    {"case": "footprint rule, factor 0.4 (default)", "eps": 0.00399785654857, "failures": 2269},
+    {"case": "footprint rule, factor 0.3", "eps": 0.00408935544726, "failures": 2318},
+    {"case": "footprint rule, factor 0.15", "eps": 0.00436716344238, "failures": 2466},
+    {"case": "footprint rule, factor 0", "eps": 0.00529700987764, "failures": 2953},
+    {"case": "footprint rule, factor 0.4, measurement edge x0.4", "eps": 0.00409683518945, "failures": 2322}
+  ],
+  "veto_windows": [
+    {
+      "window_rounds": 1,
+      "radius": 1,
+      "threshold": 5,
+      "caught": 0.288,
+      "veto_at_0.10": 0.0102,
+      "veto_at_0.03": 0.0007,
+      "veto_at_0.01": 0.0003
+    },
+    {
+      "window_rounds": 2,
+      "radius": 1,
+      "threshold": 7,
+      "caught": 0.574,
+      "veto_at_0.10": 0.0251,
+      "veto_at_0.03": 0.0027,
+      "veto_at_0.01": 0.0012
+    },
+    {
+      "window_rounds": 3,
+      "radius": 2,
+      "threshold": 11,
+      "caught": 0.773,
+      "veto_at_0.10": 0.1033,
+      "veto_at_0.03": 0.0055,
+      "veto_at_0.01": 0.0019
+    },
+    {
+      "window_rounds": 3,
+      "radius": 10,
+      "threshold": 12,
+      "caught": 0.771,
+      "veto_at_0.10": 0.0791,
+      "veto_at_0.03": 0.0041,
+      "veto_at_0.01": 0.0011
+    },
+    {
+      "window_rounds": 11,
+      "radius": 10,
+      "threshold": 21,
+      "caught": 0.707,
+      "veto_at_0.10": 0.261,
+      "veto_at_0.03": 0.0128,
+      "veto_at_0.01": 0.0019
+    }
+  ],
+  "latched_hold": [
+    {"hold_tau": 1, "floor_per_round": 4.31516504294e-08, "dead_time_frac": 0.0025, "below_ladder": false},
+    {"hold_tau": 2, "floor_per_round": 4.31516504294e-08, "dead_time_frac": 0.005, "below_ladder": false},
+    {"hold_tau": 3, "floor_per_round": 4.31516504294e-08, "dead_time_frac": 0.0075, "below_ladder": false},
+    {"hold_tau": 5, "floor_per_round": 4.31516504294e-08, "dead_time_frac": 0.0125, "below_ladder": false},
+    {"hold_tau": 7, "floor_per_round": 4.29063762278e-08, "dead_time_frac": 0.0175, "below_ladder": true},
+    {"hold_tau": 10, "floor_per_round": 9.79301792271e-09, "dead_time_frac": 0.025, "below_ladder": true},
+    {"hold_tau": 15, "floor_per_round": 7.47762822326e-11, "dead_time_frac": 0.0375, "below_ladder": true},
+    {"hold_tau": 20, "floor_per_round": 5.04272728838e-13, "dead_time_frac": 0.05, "below_ladder": true}
+  ],
+  "floor_no_veto": 4.31516504294e-08,
+  "floor_shot_discard": 4.31516504294e-08,
+  "runtime_s": 57.064983743,
+  "provenance": {
+    "source_commit": "5e69544f153985be9ae2b042b467f762f06f85d2",
+    "source_tree_dirty": false,
+    "compiler": "g++ 13.3.0",
+    "openmp_threads": 4,
+    "date_utc": "2026-11-28T02:30:44Z",
+    "seeds": "heralds: 77; veto windows: 3 (calibration), 9 (injection), 5 (severity runs); hold: 3 (calibration), 505 (ladder)",
+    "cz_model_version": 2,
+    "cz_cache": "results/cz_cache.json",
+    "arguments": "",
+    "smoke": false
+  }
+}

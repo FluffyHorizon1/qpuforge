@@ -1,0 +1,32 @@
+1. Herald rules (d = 5 test chip, 15 rounds, CZ leakage 2e-3, leakage-removing reset, 40000 shots, exact matching, same syndromes)
+   no heralds                                               eps 0.00531 (2961 failures)
+   detector rule: every touching edge erased                eps 0.00869 (4625 failures)
+   detector rule: measurement edge erased only              eps 0.00543 (3022 failures)
+   footprint rule, factor 1 (measurement edge erased only)  eps 0.00543 (3022 failures)
+   footprint rule, factor 0.5                               eps 0.00408 (2315 failures)
+   footprint rule, factor 0.4 (default)                     eps 0.00400 (2269 failures)
+   footprint rule, factor 0.3                               eps 0.00409 (2318 failures)
+   footprint rule, factor 0.15                              eps 0.00437 (2466 failures)
+   footprint rule, factor 0                                 eps 0.00530 (2953 failures)
+   footprint rule, factor 0.4, measurement edge x0.4        eps 0.00410 (2322 failures)
+
+2. Veto window shape (d = 5 test chip, 10 rounds; threshold for a 1e-3 false-veto rate on 50000 burst-free shots; T1 impacts, peak 1 us, in 5% of 20000 shots; discarded fraction at chip-wide severity s over 10000 shots)
+    1 rounds x radius  1.0: threshold  5 (false 2.0e-04), caught 28.8% of 1000 impacts; v(0.10) 0.010 v(0.03) 0.001 v(0.01) 0.000
+    2 rounds x radius  1.0: threshold  7 (false 4.8e-04), caught 57.4% of 1000 impacts; v(0.10) 0.025 v(0.03) 0.003 v(0.01) 0.001
+    3 rounds x radius  2.0: threshold 11 (false 6.2e-04), caught 77.3% of 1000 impacts; v(0.10) 0.103 v(0.03) 0.005 v(0.01) 0.002
+    3 rounds x radius 10.0: threshold 12 (false 3.0e-04), caught 77.1% of 1000 impacts; v(0.10) 0.079 v(0.03) 0.004 v(0.01) 0.001
+   11 rounds x radius 10.0: threshold 21 (false 4.6e-04), caught 70.7% of 1000 impacts; v(0.10) 0.261 v(0.03) 0.013 v(0.01) 0.002
+
+3. Latched veto hold (d = 5 test chip, 10 rounds, T1 burst tau 25 ms, 20000 shots per severity, threshold 11)
+   floor 4.315e-08 per round without the veto, 4.315e-08 with shot-by-shot discard (41.94 ms discarded per impact)
+   ladder: s 1.0e+00 eps 0.50000 veto 1.0000; s 3.2e-01 eps 0.50000 veto 0.8492; s 1.0e-01 eps 0.04127 veto 0.1000; s 3.2e-02 eps 0.00864 veto 0.0080; s 1.0e-02 eps 0.00312 veto 0.0013; s 3.2e-03 eps 0.00212 veto 0.0004; s 1.0e-03 eps 0.00170 veto 0.0008;
+   hold  1 tau: rounds lost 1.213e+04, floor 4.315e-08 per round, dead time 2.50e-03
+   hold  2 tau: rounds lost 1.845e+03, floor 4.315e-08 per round, dead time 5.00e-03
+   hold  3 tau: rounds lost 3.673e+02, floor 4.315e-08 per round, dead time 7.50e-03
+   hold  5 tau: rounds lost 3.183e+01, floor 4.315e-08 per round, dead time 1.25e-02
+   hold  7 tau: rounds lost 2.585e+00, floor 4.291e-08 per round, dead time 1.75e-02 (below the ladder: linear-tail extrapolation)
+   hold 10 tau: rounds lost 1.287e-01, floor 9.793e-09 per round, dead time 2.50e-02 (below the ladder: linear-tail extrapolation)
+   hold 15 tau: rounds lost 8.672e-04, floor 7.478e-11 per round, dead time 3.75e-02 (below the ladder: linear-tail extrapolation)
+   hold 20 tau: rounds lost 5.843e-06, floor 5.043e-13 per round, dead time 5.00e-02 (below the ladder: linear-tail extrapolation)
+
+sweeps complete in 57 s

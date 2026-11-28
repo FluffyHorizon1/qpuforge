@@ -37,7 +37,7 @@ Two rules are implemented.
   X-type measure qubit puts X errors on its data qubits, yet its bits feed no detector there, so this rule never sees
   them. Erasing everything around a heralded detector also opens free paths to the boundary.
 
-Measured on the same syndromes (d = 5 test chip, 15 rounds, measure-qubit CZ leakage 2e-3 per CZ, transport 0.05,
+Measured on the same syndromes (`results/decoder_sweeps.txt`, section 1; d = 5 test chip, 15 rounds, measure-qubit CZ leakage 2e-3 per CZ, transport 0.05,
 leakage-removing reset, 40,000 shots, exact matching): logical error per round 0.00531 without heralds. With the
 detector rule, erasing every touching edge gave 0.00869 and erasing only the measurement edge gave 0.00543. With the
 footprint rule at factor 0.4, it is 0.00400. Factors from 0.3 to 0.5 are within noise of each other; 0.15 and 0 are

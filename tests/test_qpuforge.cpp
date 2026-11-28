@@ -668,11 +668,11 @@ static void test_pulse_cz() {
     }
 }
 
-static void test_flux_line() {
-    std::puts("[flux line] line response vs closed forms, predistortion, the CZ on a given drive, pulse history (fluxline.hpp)");
+static void test_flux_predistortion() {
+    std::puts("[flux predistortion] line response vs closed forms, predistortion, the CZ on a given drive, pulse history (fluxline.hpp)");
     // (a) partial fractions of a cascade with a low-pass against a step-by-step integration of the sections in sequence
     {
-        FluxLine L; L.tails = {{0.02, 30}, {-0.01, 400}}; L.rise_ns = 1.0;
+        FluxLine L; L.sections = {{0.02, 30}, {-0.01, 400}}; L.rise_ns = 1.0;
         const auto P = L.parallel();
         double dc = P.c0;
         for (double r : P.r) dc += r;
@@ -685,7 +685,7 @@ static void test_flux_line() {
             if (n % 4000 == 0) worst = std::max(worst, std::abs(y2 - L.step((n + 1) * h)));
         }
         // a section followed by its analytic inverse (-a / (1 + a), (1 + a) tau) is the identity
-        FluxLine I; I.tails = {{0.03, 50}, {-0.03 / 1.03, 1.03 * 50}};
+        FluxLine I; I.sections = {{0.03, 50}, {-0.03 / 1.03, 1.03 * 50}};
         double dev = 0;
         for (double t : {0.0, 1.0, 10.0, 50.0, 200.0, 5000.0}) dev = std::max(dev, std::abs(I.step(t) - 1));
         std::printf("  two sections and a low-pass: DC gain - 1 = %.1e, step response vs sequential integration %.1e; section x inverse: |step - 1| < %.1e\n", dc - 1, worst, dev + 1e-16);
@@ -693,12 +693,12 @@ static void test_flux_line() {
         CHECK(worst < 5e-6, "cascade step response off by %.2e", worst);
         CHECK(dev < 1e-12, "section followed by its inverse deviates by %.2e", dev);
         bool threw = false;
-        try { FluxLine B; B.tails = {{0.01, 20}, {0.02, 20}}; (void)B.parallel(); } catch (const std::invalid_argument&) { threw = true; }
+        try { FluxLine B; B.sections = {{0.01, 20}, {0.02, 20}}; (void)B.parallel(); } catch (const std::invalid_argument&) { threw = true; }
         CHECK(threw, "two sections with one time constant must be refused");
     }
     // (b) the running filter: integral of the step response in one piece and in uneven pieces vs the closed form
     {
-        FluxLine L; L.tails = {{-0.04, 80}};
+        FluxLine L; L.sections = {{-0.04, 80}};
         const double T = 300, exact = T - 0.04 * 80 * (1 - std::exp(-T / 80));
         FluxLineFilter one(L), many(L);
         const double i1 = one.advance(1.0, T);
@@ -710,7 +710,7 @@ static void test_flux_line() {
     }
     // (c) pulses through a line: area (unit DC gain), superposition and the idle shortcut, delay
     {
-        FluxChannel ch; ch.line.tails = {{0.02, 50}};
+        FluxChannel ch; ch.line.sections = {{0.02, 50}};
         const FluxAwg awg{};
         std::vector<double> e;
         for (int k = 0; k <= 2400; ++k) e.push_back(k * 1.0);
@@ -742,8 +742,8 @@ static void test_flux_line() {
         const std::vector<FluxPulse> train{{10.0, 0.2, 7, 26}};
         const auto ideal = flux_line_output(FluxChannel{}, awg, train, e);
         auto worst = [&](const FluxChannel& c) { const auto y = flux_line_output(c, awg, train, e); double w = 0; for (std::size_t i = 0; i < y.size(); ++i) w = std::max(w, std::abs(y[i] - ideal[i])); return w; };
-        FluxChannel one; one.line.tails = {{0.02, 300}}; one.correction = one.line.tails;
-        FluxChannel two; two.line.tails = {{-0.03, 20}, {0.02, 300}}; two.correction = two.line.tails;
+        FluxChannel one; one.line.sections = {{0.02, 300}}; one.correction = one.line.sections;
+        FluxChannel two; two.line.sections = {{-0.03, 20}, {0.02, 300}}; two.correction = two.line.sections;
         FluxChannel raw = one; raw.correction.clear();
         FluxChannel off = one; off.correction[0].a *= 0.9;
         const double w1 = worst(one), w2 = worst(two), wr = worst(raw), wo = worst(off);
@@ -778,7 +778,7 @@ static void test_flux_line() {
     // (f) a tail far slower than the gate only rescales the pulse, and the amplitude calibration removes it
     {
         FluxSetup F, I; F.pad_ns = 0; I.pad_ns = 0;
-        F.mover.line.tails = {{0.01, 1e9}}; F.coupler.line.tails = {{0.01, 1e9}};
+        F.mover.line.sections = {{0.01, 1e9}}; F.coupler.line.sections = {{0.01, 1e9}};
         CZCommand up = cz_nominal_command(S, P); up.amp_mover *= 1.01; up.amp_coupler *= 1.01;
         const auto slow = simulate_cz_drive(S, cz_gate_drive(S, P, F, cz_nominal_command(S, P))), scaled = simulate_cz_drive(S, cz_gate_drive(S, P, I, up));
         const auto fixed = simulate_cz_drive(S, cz_gate_drive(S, P, F, cz_matched_command(S, P, F))), ref = simulate_cz_drive(S, cz_gate_drive(S, P, I, cz_nominal_command(S, P)));
@@ -794,7 +794,7 @@ static void test_flux_line() {
     // independent quadrature of the tail; the shift of the mover's phase against the frequency shift of the bare transmon
     {
         FluxSetup F; F.pad_ns = 0;
-        F.mover.line.tails = {{0.003, 300}}; F.coupler.line.tails = {{0.003, 300}};
+        F.mover.line.sections = {{0.003, 300}}; F.coupler.line.sections = {{0.003, 300}};
         const CZCommand cmd = cz_matched_command(S, P, F);
         const double T = P.duration(), t2 = std::ceil(T / 0.05) * 0.05;
         const auto Wa = cz_gate_drive(S, P, F, cmd);
@@ -2675,7 +2675,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"frame_vs_statevector", test_frame_vs_statevector},
     {"eigensolver", test_eigensolver},
     {"pulse_cz", test_pulse_cz},
-    {"flux_line", test_flux_line},
+    {"flux_predistortion", test_flux_predistortion},
     {"leakage_frame", test_leakage_frame},
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},

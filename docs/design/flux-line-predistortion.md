@@ -1,12 +1,11 @@
 # Design note: flux-line response, predistortion, and what the CZ needs from them
 
-Status: model, tests and a study (`include/qpuforge/fluxline.hpp`, test group `flux_line`,
+Status: model, tests and a study (`include/qpuforge/fluxline.hpp`, test group `flux_predistortion`,
 `examples/flux_distortion_study.cpp` → `results/flux_distortion_study.{txt,json}`). Nothing in `calibrate_chip_cz` uses
 the model, so no calibration, cache or review output changes. In the plan for flux-pulse distortion
-(`docs/design/q17-q18-feasibility.md`, on its own branch at the time of writing) this is the full path: line model,
-inverse filter, waveform-driven CZ and predistortion study. The plan's opt-in error term for the calibration is
-separate work; this note supplies its coefficients (`cz_offset_response`) and says which of two assumptions it has to
-make (see "Two ways to count").
+(`docs/design/q17-q18-feasibility.md`) this is the full path: line model, inverse filter, waveform-driven CZ and
+predistortion study. The plan's opt-in error term for the calibration is separate work; this note supplies its
+coefficients (`cz_offset_response`) and says which of two assumptions it has to make (see "Two ways to count").
 
 ## Why
 
@@ -24,7 +23,7 @@ after 60 ns and needs more than 650 ns for 99 % before correction [2].
 
 ## Model
 
-**The line** (`FluxLine`). First-order sections in cascade, each with the step response 1 + a·exp(−t/τ), then an
+**The line** (`FluxLine`). First-order sections (`FluxSection`) in cascade, each with the step response 1 + a·exp(−t/τ), then an
 optional single-pole low-pass (given by its 10–90 % rise time) and a delay. a > 0 is an overshoot that decays (a
 high-pass element such as a bias tee); a < 0 is slow settling (skin effect, filters). The static gain is 1: it belongs to
 the flux-per-volt calibration. The cascade is expanded in partial fractions into one low-pass state per pole, so the
@@ -70,7 +69,7 @@ with each calibration (`CZCalibration::err_flux_quasistatic`) is the free form.
 `cz_offset_response` returns both forms for a gate: the added 1 − F to second order in constant offsets on the two
 lines, and the mover's phase per flux. The study's JSON has it for every pair class.
 
-## Checks (`flux_line`, 32 checks)
+## Checks (`flux_predistortion`, 32 checks)
 
 - Partial fractions of two sections and a low-pass against a step-by-step integration of the sections in sequence
   (8e-7); a section followed by its analytic inverse is the identity (to rounding); the filter's integral against the
@@ -182,7 +181,11 @@ time constants to within 1.3 % or 4.1 %.
 ## Open points
 
 1. An error term in the calibration (`err_distortion`): it has to choose between the free and the fixed coefficients,
-   that is, state whether the virtual Z gates are calibrated in the cycle. The stored curvature is the free form.
+   that is, state whether the virtual Z gates are calibrated in the cycle. The stored curvature is the free form. A
+   bound from that curvature and the larger of the two flux steps (the plan's fast form) lies 2.6–4.8 times above the
+   free number for equal fractional offsets on both lines, and 2.6–4.5 times below the fixed one. What enters as the
+   offset matters as much: a gate's own tail is removed by its calibration (result 2); the part that is left comes from
+   the pulses before it (result 3).
 2. A net-zero CZ in `pulse.hpp` and its calibration, then this study again.
 3. A measured step response per line in `qpuforge.characterisation.v0`, so that `qpuforge hwgate` can run the study's
    third section on the chip's own lines.

@@ -94,5 +94,5 @@ the commands below to reproduce them.
 - **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
 - **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `8de7512`
   (tree a0a5686, which `main` has after #21 and #24): 500 checks passed, 0 failed.
-  The `flux_line` group (32 checks, `fluxline.hpp`) was added after this log, so the suite now has 532 checks; the log
-  has not been regenerated for it.
+  The `flux_predistortion` group (32 checks, `fluxline.hpp`) was added after this log; it has not been regenerated
+  for it.

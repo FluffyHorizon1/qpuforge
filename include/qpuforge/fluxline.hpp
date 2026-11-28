@@ -27,15 +27,15 @@ namespace qpuforge {
 // One first-order section of a flux line. Step response: 1 + a exp(-t / tau).
 //   a > 0: an overshoot that decays (high-pass character, e.g. a bias tee);
 //   a < 0: slow settling towards the final value (skin effect, filters).
-struct FluxTail { double a{0}, tau_ns{1}; };
+struct FluxSection { double a{0}, tau_ns{1}; };
 
 struct FluxLine {
-    std::vector<FluxTail> tails;   // sections in cascade; for small amplitudes the step response is ~ 1 + sum a_k exp(-t / tau_k)
+    std::vector<FluxSection> sections;   // in cascade; for small amplitudes the step response is ~ 1 + sum a_k exp(-t / tau_k)
     double rise_ns{0};             // 10-90 % rise time of a single-pole low-pass (0: none)
     double delay_ns{0};            // pure delay
 
     bool ideal() const {
-        for (const auto& t : tails) if (t.a != 0) return false;
+        for (const auto& t : sections) if (t.a != 0) return false;
         return rise_ns <= 0 && delay_ns == 0;
     }
     double lp_tau_ns() const { return rise_ns > 0 ? rise_ns / std::log(9.0) : 0.0; }
@@ -45,7 +45,7 @@ struct FluxLine {
     struct Parallel { double c0{1}; std::vector<double> p, r; };
     Parallel parallel() const {
         std::vector<double> a, p;
-        for (const auto& t : tails) {
+        for (const auto& t : sections) {
             if (t.a == 0) continue;
             if (!(t.tau_ns > 0) || !(t.a > -1)) throw std::invalid_argument("FluxLine: a section needs tau > 0 and a > -1");
             a.push_back(t.a); p.push_back(1.0 / t.tau_ns);
@@ -134,7 +134,7 @@ struct FluxAwg {
 
 struct FluxChannel {
     FluxLine line;                       // what the hardware does
-    std::vector<FluxTail> correction;    // the sections the predistortion inverts: a fit of line.tails (empty: none)
+    std::vector<FluxSection> correction; // the sections the predistortion inverts: a fit of line.sections (empty: none)
 };
 
 // Digital predistortion at the AWG sample rate: one first-order inverse per fitted section, in cascade. For a single
@@ -142,7 +142,7 @@ struct FluxChannel {
 // low-pass and the delay of a line are not corrected.
 class Predistorter {
 public:
-    Predistorter(const std::vector<FluxTail>& fit, double sample_ns) {
+    Predistorter(const std::vector<FluxSection>& fit, double sample_ns) {
         for (const auto& t : fit) {
             if (t.a == 0) continue;
             if (!(t.tau_ns > 0) || !(t.a > -1)) throw std::invalid_argument("Predistorter: a section needs tau > 0 and a > -1");

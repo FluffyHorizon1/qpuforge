@@ -190,7 +190,7 @@ double median(std::vector<double> v) { std::sort(v.begin(), v.end()); return v.s
 Json jstat(const Stat& s) { Json o = Json::object(); o.set("mean", s.mean); o.set("max", s.max); return o; }
 FluxSetup with_tail(double a, double tau) {
     FluxSetup F; F.pad_ns = 0;
-    F.mover.line.tails = {{a, tau}}; F.coupler.line.tails = {{a, tau}};
+    F.mover.line.sections = {{a, tau}}; F.coupler.line.sections = {{a, tau}};
     return F;
 }
 
@@ -381,9 +381,9 @@ int main(int argc, char** argv) {
     J.set("tail_in_cycle", j3); J.set("tail_tolerance", jtol);
 
     // ---------------------------------------------------------------- 4. predistortion of an example line
-    const std::vector<FluxTail> ex = {{-0.05, 15}, {-0.025, 150}, {-0.012, 1500}};
+    const std::vector<FluxSection> ex = {{-0.05, 15}, {-0.025, 150}, {-0.012, 1500}};
     {
-        FluxLine L; L.tails = ex;
+        FluxLine L; L.sections = ex;
         out("4. Predistortion of an example line in the %s cycle. Sections (a, tau ns):", A.name.c_str());
         for (const auto& t : ex) out(" (%+.3f, %.0f)", t.a, t.tau_ns);
         out("\n   uncorrected step response: %.3f after 20 ns, %.3f after 60 ns, %.3f after 650 ns, %.4f after 2.5 us (an assumption, not a measured line)\n", L.step(20), L.step(60), L.step(650), L.step(2500));
@@ -402,9 +402,9 @@ int main(int argc, char** argv) {
     double amp3_fixed = 0, amp3_free = 0, tau10_fixed = 0, tau10_free = 0;
     for (const auto& pc : pre_cases) {
         FluxSetup F; F.pad_ns = 0;
-        F.mover.line.tails = ex; F.coupler.line.tails = ex;
+        F.mover.line.sections = ex; F.coupler.line.sections = ex;
         if (pc.on) {
-            std::vector<FluxTail> fit;
+            std::vector<FluxSection> fit;
             for (std::size_t k = 0; k < ex.size(); ++k) if (int(k) != pc.drop) fit.push_back({ex[k].a * (1 + pc.da), ex[k].tau_ns * (1 + pc.dtau)});
             F.mover.correction = fit; F.coupler.correction = fit;
         }

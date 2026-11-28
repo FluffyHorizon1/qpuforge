@@ -34,8 +34,8 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
 
 ### Added
 - `fluxline.hpp`:
-  - `FluxLine` (first-order sections in cascade with the step response 1 + a exp(-t / tau), a single-pole low-pass, a
-    delay), `FluxLineFilter` (its response to a held drive in closed form), `FluxAwg` (sample-and-hold, DAC resolution),
+  - `FluxLine` (first-order sections, `FluxSection`, in cascade with the step response 1 + a exp(-t / tau), a
+    single-pole low-pass, a delay), `FluxLineFilter` (its response to a held drive in closed form), `FluxAwg` (sample-and-hold, DAC resolution),
     `FluxChannel`, `Predistorter` (digital first-order inverses of a fit of the line), `flux_line_output` (the flux a
     channel delivers for a train of pulses).
   - `CZDrive`, `simulate_cz_drive` (the propagator and fidelity of `simulate_cz` for any mover and coupler flux),
@@ -47,7 +47,7 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
     pair system of a stored calibration), `cz_starts` (CZ start times of a compiled program).
 - `pulse.hpp`: `pair_system` (the system `design_pair_system` builds for a given direct coupling; no change of arithmetic).
 - `examples/flux_distortion_study.cpp` and its smoke test (`smoke_flux_distortion_study`).
-- Tests: group `flux_line` (label `pulse`, 32 checks, about 3 s). 532 validation checks in all; the committed
+- Tests: group `flux_predistortion` (label `pulse`, 32 checks, about 3 s). 541 validation checks in all; the committed
   `results/test_output.txt` predates the group and holds 500.
 - `layout.hpp`:
   - `detail::fill_ground_slivers`: mask clean-up that merges two cut-outs separated by a strip of ground narrower than

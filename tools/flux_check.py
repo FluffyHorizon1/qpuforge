@@ -21,6 +21,10 @@ flux_coupling assumes). Preconditioned conjugate gradients minimise it. The norm
 in the film (L_k = 0) and threads the apertures: the flux in the loop gives M; the flux in the owner's etch weighted by
 (theta / 2 pi - 1/2) gives M_cm, theta as flux_coupling defines it (the polar angle, about the island's centre, of the
 ground metal nearest each point, along 16 rays in 0.5 um steps up to 80 um; found here on a 0.1 um raster).
+When the dump holds the owner's charge distribution (island_charge, from the control window's extraction), M_cm is
+also given by reciprocity with that charge: the displacement current leaving the island at each angle in proportion to
+its charge instead of evenly in angle. The tool also prints the line's net flux through the owner's etch, which sets
+how much the split of the return between the two ways round matters when that etch is held (reaches the window edge).
 
 Needs numpy only. Prints the two methods' M and M_cm and their difference; exit status 0, or 2 on a usage error.
 """
@@ -106,7 +110,7 @@ def ring_theta(d, pts):
     return th
 
 
-def solve(d, h, lk_ph, margin, tol, maxit, log):
+def solve(d, h, lk_ph, margin, tol, maxit, log, floating=False, zone=0.0):
     x0, y0, x1, y1 = d['window']
     m = margin * max(x1 - x0, y1 - y0)
     lp = d['loop']                                           # grid aligned to the loop's corner: the launcher's edges (at whole and half
@@ -121,6 +125,8 @@ def solve(d, h, lk_ph, margin, tol, maxit, log):
         if i1 > i0 and j1 > j0:
             lab[j0:j1, i0:i1] = int(k)
     kind = [int(k) for k in d['kind']]
+    if floating:                                             # every aperture a bounded hole: no aperture held at the window edge
+        kind = [0 if k == 1 else k for k in kind]
     ga, gb = int(d['gap_a']), int(d['gap_b'])
     fa, fb = kind[ga] == 2, kind[gb] == 2
     # fixed part g0 (amperes) and the unknowns: every film cell, each floating aperture, the gap pair's offset
@@ -225,12 +231,51 @@ def solve(d, h, lk_ph, margin, tol, maxit, log):
     jj, ii = np.nonzero(moat)
     pts = np.stack([xc[ii], yc[jj]], axis=1)
     th = ring_theta(d, pts)
-    cm = float(np.sum(B[jj, ii] * (th / (2 * math.pi) - 0.5))) * hm * hm
+    wgt = th / (2 * math.pi) - 0.5
+    branch = None                                            # (branch cell, zone-edge cell whose weight it takes)
+    if zone > 0:
+        # branches of the owner's etch beyond its cut-out (the readout line's gaps, joined to it at the claw) carry no
+        # crossing current: there the qubit's stream function keeps the value it has where the branch leaves the zone
+        isl = np.array(d['island'], dtype=float)
+        zx0, zy0 = isl[:, 0].min() - zone, isl[:, 1].min() - zone
+        zx1, zy1 = isl[:, 2].max() + zone, isl[:, 3].max() + zone
+        inz = (pts[:, 0] >= zx0) & (pts[:, 0] <= zx1) & (pts[:, 1] >= zy0) & (pts[:, 1] <= zy1)
+        if (~inz).any() and inz.any():
+            edge = inz & ((pts[:, 0] - zx0 < 3 * h) | (zx1 - pts[:, 0] < 3 * h) | (pts[:, 1] - zy0 < 3 * h) | (zy1 - pts[:, 1] < 3 * h))
+            ep = pts[edge]
+            ew = wgt[edge]
+            eidx = np.nonzero(edge)[0]
+            branch = []
+            for k in np.nonzero(~inz)[0]:                    # nearest zone-edge cell of the owner's etch
+                j = int(np.argmin((ep[:, 0] - pts[k, 0]) ** 2 + (ep[:, 1] - pts[k, 1]) ** 2))
+                wgt[k] = ew[j]
+                branch.append((int(k), int(eidx[j])))
+    cm = float(np.sum(B[jj, ii] * wgt)) * hm * hm
     M_cm = abs(cm) * 1e12
-    M_cm_signed = cm * 1e12 * (-1 if phi_loop < 0 else 1)
+    sgn = -1 if phi_loop < 0 else 1
+    M_cm_signed = cm * 1e12 * sgn
+    net = (float(np.sum(B[jj, ii])) * hm * hm + phi_loop) * 1e12 * sgn   # the line's net flux through the owner's etch, loop included (pH)
+    recip = None
+    if 'island_charge' in d:
+        # reciprocity with the island's own charge: the displacement current leaving the island at angle theta (the
+        # same angle convention, measured at the island's panels) replaces the even spread of the ansatz; F(theta) is
+        # the fraction of the island's charge between the SQUID and theta
+        ic = np.array(d['island_charge']['panels'], dtype=float)
+        thi = ring_theta(d, ic[:, :2])
+        order = np.argsort(thi)
+        qs = ic[order, 2]
+        cum = np.cumsum(qs) / qs.sum()
+        F = np.interp(th, thi[order], cum, left=0.0, right=1.0)
+        if branch:
+            for k, j in branch:
+                F[k] = F[j]
+        cmr = float(np.sum(B[jj, ii] * (F - 0.5))) * hm * hm
+        quad = [float(qs[(thi[order] >= q * math.pi / 2) & (thi[order] < (q + 1) * math.pi / 2)].sum() / qs.sum()) for q in range(4)]
+        recip = dict(M_cm_signed=cmr * 1e12 * sgn, quadrants=quad, ground=d['island_charge']['ground_fF'], other=d['island_charge']['other_conductors_fF'],
+                     owner=d['island_charge']['owner_fF'])
     film_bz = float(np.max(np.abs(B.ravel()[film_idx]))) if lk == 0 else float('nan')
     return dict(nx=nx, ny=ny, h=h, unknowns=nf + nd, iterations=it, residual=res, seconds=time.time() - t0, M=M, M_cm=M_cm,
-                M_cm_signed=M_cm_signed, film_bz=film_bz, max_bz=float(np.max(np.abs(B))))
+                M_cm_signed=M_cm_signed, film_bz=film_bz, max_bz=float(np.max(np.abs(B))), net=net, recip=recip)
 
 
 def main():
@@ -241,6 +286,8 @@ def main():
     ap.add_argument('--margin', type=float, default=0.25, help="film margin around the window, a fraction of its larger side (default 0.25)")
     ap.add_argument('--tol', type=float, default=1e-7, help="relative residual of the conjugate gradients (default 1e-7)")
     ap.add_argument('--maxit', type=int, default=6000)
+    ap.add_argument('--floating', action='store_true', help="treat every aperture as a bounded hole (zero net flux), none held at the window edge")
+    ap.add_argument('--zone', type=float, default=0.0, help="weight the owner's etch beyond the island's bounding box grown by this (um) with the value where it leaves")
     a = ap.parse_args()
     if not (0.05 <= a.h <= 5) or a.lk_ph < 0 or not (0 <= a.margin <= 2):
         print("flux_check.py: --h must be in [0.05, 5] um, --lk-ph >= 0, --margin in [0, 2]", file=sys.stderr)
@@ -254,12 +301,21 @@ def main():
     print(f"{d['chip']}: {d['owner']} <- {d['line']} ({d['cells']}); window {d['window'][2] - d['window'][0]:.0f} x {d['window'][3] - d['window'][1]:.0f} um, "
           f"{len(d['kind'])} apertures")
     print(f"  method of moments (edge panels {mom['mesh_um']:.2f} um, {mom['panels']} panels): M {mom['M_pH']:.4f} pH, M_cm {mom['M_cm_pH']:.4f} pH (signed {mom['M_cm_signed_pH']:+.4f})")
-    s = solve(d, a.h, a.lk_ph, a.margin, a.tol, a.maxit, True)
+    s = solve(d, a.h, a.lk_ph, a.margin, a.tol, a.maxit, True, a.floating, a.zone)
     print(f"  stream function on a {s['nx']} x {s['ny']} grid of {s['h']:g} um cells ({s['unknowns']} unknowns, L_k {a.lk_ph:g} pH/sq): "
           f"M {s['M']:.4f} pH, M_cm {s['M_cm']:.4f} pH (signed {s['M_cm_signed']:+.4f}); {s['iterations']} iterations, residual {s['residual']:.1e}, {s['seconds']:.0f} s")
     if a.lk_ph == 0:
         print(f"    largest |B_z| in the film {s['film_bz']:.3g} T against {s['max_bz']:.3g} T in the apertures (per A)")
     print(f"  difference (grid - moments): M {s['M'] - mom['M_pH']:+.4f} pH ({100 * (s['M'] / mom['M_pH'] - 1):+.1f}%), M_cm {s['M_cm_signed'] - mom['M_cm_signed_pH']:+.4f} pH")
+    kind = 0 if a.floating else int(d['kind'][int(d['own_moat'])])
+    print(f"  the owner's etch is {'held (it reaches the window edge)' if kind == 1 else 'a bounded hole'}; the line's net flux through it (loop included) {s['net']:+.4f} pH: "
+          f"moving the split of the return between the two ways round from 1/2 by delta (the loop at the matching share) changes M_cm by {-s['net']:+.4f} delta pH")
+    r = s['recip']
+    if r:
+        q = r['quadrants']
+        print(f"  reciprocity with the island's own charge (control window, 1.5 um panels): charge to ground {r['ground']:.1f} fF, to other conductors {r['other']:.1f} fF "
+              f"of {r['owner']:.1f} fF; by quarter turns from the SQUID {100 * q[0]:.0f} / {100 * q[1]:.0f} / {100 * q[2]:.0f} / {100 * q[3]:.0f} %")
+        print(f"    M_cm with that charge in place of the even spread: {r['M_cm_signed']:+.4f} pH (ansatz {s['M_cm_signed']:+.4f} pH, {100 * (r['M_cm_signed'] / s['M_cm_signed'] - 1):+.1f}%)")
     return 0
 
 

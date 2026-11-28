@@ -2307,7 +2307,8 @@ struct ControlWindow {
     bool has(const std::string& n) const { return std::find(C.names.begin(), C.names.end(), n) != C.names.end(); }
     double mutual(const std::string& a, const std::string& b) const { return has(a) && has(b) ? C.mutual(a, b) : 0.0; }
 };
-inline ControlWindow control_window(const ChipLayout& L, int qubit_id, const MeshOptions& mo, double margin = 200) {
+// panels (optional): the panel solution of the window's extraction (the charge on every panel for each conductor at 1 V).
+inline ControlWindow control_window(const ChipLayout& L, int qubit_id, const MeshOptions& mo, double margin = 200, PanelSolution* panels = nullptr) {
     ControlWindow O; O.qubit = qubit_id;
     const std::string qn = "Q" + std::to_string(qubit_id), xn = "XY" + std::to_string(qubit_id), fn = "FQ" + std::to_string(qubit_id);
     const int iq = L.island(qn), ix = L.island(xn), ifq = L.island(fn);
@@ -2370,6 +2371,7 @@ inline ControlWindow control_window(const ChipLayout& L, int qubit_id, const Mes
     PanelSolution sol;
     try { O.C = extract_capacitance(cs, 11.45, mo, &sol); }
     catch (const std::exception& e) { O.note = e.what(); return O; }
+    if (panels) *panels = sol;
     // path distance from the short along the flux line's metal (shortest path over touching panels)
     if (!flux.empty() && !shorts.empty()) {
         const int fi = O.C.index("flux"), qi = O.C.index(qn);

@@ -125,6 +125,27 @@ int main(int argc, char** argv) {
             Json centre = Json::array(); centre.push(Json(fw.qx)); centre.push(Json(fw.qy));
             j.set("island_centre", centre);
             j.set("theta0", fw.theta0); j.set("etch", rects(fw.etch)); j.set("island", rects(fw.island));
+            if (a[3].size() > 1 && a[3][0] == 'Q') {             // the owner's charge distribution, for the reciprocity check of M_cm
+                PanelSolution ps;
+                const ControlWindow cw = control_window(L, std::stoi(a[3].substr(1)), mesh_of(1.5), 200, &ps);
+                if (cw.ok || !cw.C.names.empty()) {
+                    const int qi = cw.C.index(a[3]), gi = cw.C.index("ground");
+                    Json ch = Json::array();
+                    double own = 0, ground = 0, other = 0;
+                    for (std::size_t p = 0; p < ps.panels.size(); ++p) {
+                        const double q = ps.q_fF[std::size_t(qi)][p];
+                        if (ps.panels[p].cond == qi) {
+                            own += q;
+                            Json e = Json::array();
+                            for (double v : {ps.panels[p].r.cx(), ps.panels[p].r.cy(), q}) e.push(Json(v));
+                            ch.push(e);
+                        } else if (ps.panels[p].cond == gi) ground += q; else other += q;
+                    }
+                    Json c = Json::object();
+                    c.set("panels", ch); c.set("owner_fF", own); c.set("ground_fF", ground); c.set("other_conductors_fF", other);
+                    j.set("island_charge", c);
+                }
+            }
             Json r = Json::object();
             r.set("mesh_um", h_flux); r.set("panels", F.panels); r.set("M_pH", F.M_pH); r.set("M_cm_pH", F.M_cm_pH); r.set("M_cm_signed_pH", F.M_cm_signed_pH);
             j.set("method_of_moments", r);

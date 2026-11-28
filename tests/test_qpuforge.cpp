@@ -819,7 +819,32 @@ static void test_flux_line() {
         CHECK(std::abs(dth - phase_pred) < 0.1 * std::abs(phase_pred), "mover phase shift %.4f vs %.4f", dth, phase_pred);
         CHECK(fixed > 3 * free && free > 0 && fixed > 1e-5, "fixed-frame error %.2e should exceed the free-frame error %.2e", fixed, free);
     }
-    // (h) CZ start times of a compiled program: three time slices, the second without a CZ
+    // (h) response to constant flux offsets: against the curvature recipe of calibrate_cz_pair (simulate_cz with the
+    // interaction flux moved), a direct simulation with both lines offset, and the bare transmon's phase
+    {
+        const CZDrive W = cz_ideal_drive(S, P);
+        const auto R = cz_offset_response(S, W);
+        const double hc = 2e-4, e0 = 1 - r0.fidelity;
+        auto inf = [&](double d1) { CZPulse q = P; q.flux1_int += d1; return 1 - simulate_cz(S, q, CZModel::dt_ns).fidelity; };
+        const double c1 = (inf(hc) - 2 * e0 + inf(-hc)) / (hc * hc);
+        const double dm = 3e-5, dc = -5e-5;
+        CZDrive V = W;
+        for (auto& f : V.f1) f += dm;
+        for (auto& f : V.fc) f += dc;
+        const auto rw = simulate_cz_drive(S, W), rv = simulate_cz_drive(S, V);
+        const double dfree = rw.fidelity - rv.fidelity, dfixed = rw.fidelity - cz_fidelity_in_frame(rv, cz_frame(rw));
+        double bare = 0;
+        for (std::size_t s = 0; s < W.h.size(); ++s) bare -= 2 * PI * (S.q1.f01(W.f1[s] + 1e-5) - S.q1.f01(W.f1[s] - 1e-5)) / 2e-5 * W.h[s];
+        std::printf("  offset response: 1-F per Phi0^2 on the mover line %.3e free (curvature recipe %.3e), %.3e fixed; mover phase %.0f rad/Phi0 (bare transmon %.0f)\n"
+                    "    offsets %+.0e / %+.0e Phi0: added %.4e free (predicted %.4e), %.4e fixed (predicted %.4e)\n", R.free_mm, c1 / 2, R.fixed_mm, R.phase_mover, bare,
+                    dm, dc, dfree, R.added_free(dm, dc), dfixed, R.added_fixed(dm, dc));
+        CHECK(std::abs(R.free_mm - c1 / 2) < 0.02 * c1 / 2, "free response %.4e vs half the curvature %.4e", R.free_mm, c1 / 2);
+        CHECK(std::abs(R.added_free(dm, dc) - dfree) < 0.01 * dfree && std::abs(R.added_fixed(dm, dc) - dfixed) < 0.01 * dfixed, "response vs direct simulation: free %.4e / %.4e, fixed %.4e / %.4e",
+              R.added_free(dm, dc), dfree, R.added_fixed(dm, dc), dfixed);
+        CHECK(std::abs(R.phase_mover - bare) < 0.1 * std::abs(bare), "mover phase per flux %.1f vs bare transmon %.1f", R.phase_mover, bare);
+        CHECK(R.fixed_mm > 5 * R.free_mm, "fixed virtual Z should cost several times more: %.3e vs %.3e", R.fixed_mm, R.free_mm);
+    }
+    // (i) CZ start times of a compiled program: three time slices, the second without a CZ
     {
         auto cz = [](int a, int b) { Gate g; g.op = Op::CZ; g.q = {a, b}; g.name = "cz"; return g; };
         Gate rz; rz.op = Op::RZ; rz.q = {2}; rz.theta = 0.3; rz.name = "rz";

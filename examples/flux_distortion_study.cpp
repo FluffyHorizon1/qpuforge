@@ -1,5 +1,5 @@
 // Flux-line distortion study: what the CZ gates of Alpha-1 v1.1 and Beta-1 need from their flux lines
-// (fluxline.hpp, docs/design/flux-line-distortion.md).
+// (fluxline.hpp, docs/design/flux-line-predistortion.md).
 //
 //   flux_distortion_study [--out DIR] [--cache FILE] [--smoke]     (review_io.hpp)
 //
@@ -94,8 +94,10 @@ std::vector<Alone> alone(const Chip& C, const FluxSetup& F, bool recalibrate_amp
 
 // Every gate of the chip in round `round` of the cycle (0: the first round after a long idle), relative to the same
 // gate on its own: with the virtual Z gates kept from the calibration alone (fixed) and re-calibrated in place (free).
-struct InCycle { double fixed{0}, free{0}, dleak{0}, dphase{0}; };
-std::vector<InCycle> in_cycle(const Chip& C, const FluxSetup& F, const std::vector<Alone>& al, int round) {
+// est_*: the quasi-static estimate of the same numbers, from the flux offsets averaged over the flat top and the
+// gate's response to constant offsets (cz_offset_response), with no pulse simulation.
+struct InCycle { double fixed{0}, free{0}, dleak{0}, dphase{0}, est_fixed{0}, est_free{0}; };
+std::vector<InCycle> in_cycle(const Chip& C, const FluxSetup& F, const std::vector<Alone>& al, const std::vector<CZOffsetResponse>& resp, int round) {
     const double Ts = F.awg.period(), settle = F.settle_ns();
     std::vector<double> start(C.gates.size()), period(C.lines.size());
     for (std::size_t l = 0; l < C.lines.size(); ++l) {
@@ -126,8 +128,18 @@ std::vector<InCycle> in_cycle(const Chip& C, const FluxSetup& F, const std::vect
             }
             coupler.push_back({r * T + start[std::size_t(gi)], A.cmd.amp_coupler, c.P.t_rise, c.P.t_flat});
         }
-        const auto r = simulate_cz_drive(c.S, cz_train_drive(c.S, c.P, F, round * T + start[std::size_t(gi)], mover, coupler));
+        const auto W = cz_train_drive(c.S, c.P, F, round * T + start[std::size_t(gi)], mover, coupler), Wa = cz_gate_drive(c.S, c.P, F, A.cmd);
+        const auto r = simulate_cz_drive(c.S, W);
         InCycle x;
+        double dm = 0, dc = 0, hold = 0, t = 0;
+        for (std::size_t s = 0; s < W.h.size(); ++s) {
+            const double mid = t + 0.5 * W.h[s];
+            if (mid > c.P.t_rise && mid < c.P.t_rise + c.P.t_flat) { dm += (W.f1[s] - Wa.f1[s]) * W.h[s]; dc += (W.fc[s] - Wa.fc[s]) * W.h[s]; hold += W.h[s]; }
+            t += W.h[s];
+        }
+        if (hold > 0) { dm /= hold; dc /= hold; }
+        x.est_fixed = resp[std::size_t(g.cls)].added_fixed(dm, dc);
+        x.est_free = resp[std::size_t(g.cls)].added_free(dm, dc);
         x.fixed = (1 - cz_fidelity_in_frame(r, A.frame)) - A.err;
         x.free = (1 - r.fidelity) - A.err;
         x.dleak = r.leakage - A.leak;
@@ -135,6 +147,13 @@ std::vector<InCycle> in_cycle(const Chip& C, const FluxSetup& F, const std::vect
         x.dphase = std::remainder(x.dphase, 2 * PI);
         v[std::size_t(gi)] = x;
     }
+    return v;
+}
+// Response of every class to constant flux offsets, on ideal lines.
+std::vector<CZOffsetResponse> responses(const Chip& C) {
+    std::vector<CZOffsetResponse> v(C.cls.size());
+#pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < int(C.cls.size()); ++i) v[std::size_t(i)] = cz_offset_response(C.cls[std::size_t(i)].S, cz_ideal_drive(C.cls[std::size_t(i)].S, C.cls[std::size_t(i)].P));
     return v;
 }
 // A round late enough for the slowest tail to have reached its periodic state (exp(-14) of the start remains).
@@ -204,14 +223,21 @@ int main(int argc, char** argv) {
 
     FluxSetup ideal; ideal.pad_ns = 0;
     const auto ref = alone(A, ideal, false);
+    const auto respA = responses(A);
     {
         Json jc = Json::array();
         for (std::size_t i = 0; i < A.cls.size(); ++i) {
             const auto& c = A.cls[i];
+            const auto& R = respA[i];
             Json o = Json::object();
             o.set("f_mover_GHz", c.fm); o.set("f_target_GHz", c.ft); o.set("t_cz_ns", c.P.duration());
             o.set("step_mover_Phi0", c.P.flux1_int - c.S.flux1_idle); o.set("step_coupler_Phi0", c.P.fluxc_on - c.S.fluxc_idle);
             o.set("err_ideal_lines", ref[i].err); o.set("leakage_ideal_lines", ref[i].leak);
+            Json jr = Json::object();           // added 1 - F for constant offsets dm, dc (Phi0): m dm + c dc + mm dm^2 + cc dc^2 + mc dm dc
+            jr.set("free_m", R.free_m); jr.set("free_c", R.free_c); jr.set("free_mm", R.free_mm); jr.set("free_cc", R.free_cc); jr.set("free_mc", R.free_mc);
+            jr.set("fixed_m", R.fixed_m); jr.set("fixed_c", R.fixed_c); jr.set("fixed_mm", R.fixed_mm); jr.set("fixed_cc", R.fixed_cc); jr.set("fixed_mc", R.fixed_mc);
+            jr.set("mover_phase_rad_per_Phi0", R.phase_mover);
+            o.set("offset_response", jr);
             jc.push(o);
         }
         J.set("pair_classes", jc);
@@ -254,7 +280,11 @@ int main(int argc, char** argv) {
     }
     {
         const double lo = -stat(curv_ratio, [](double x) { return -x; }).max, hi = stat(curv_ratio, [](double x) { return x; }).max;
-        out("   curvature of 1 - F in flux from these runs / the curvature stored with the calibrations: %.2f-%.2f\n\n", lo, hi);
+        out("   curvature of 1 - F in flux from these runs / the curvature stored with the calibrations: %.2f-%.2f\n", lo, hi);
+        std::vector<double> ratio, phase;
+        for (const auto& R : respA) { ratio.push_back(R.fixed_mm / R.free_mm); phase.push_back(std::abs(R.phase_mover) * 1e-3); }
+        out("   constant offset on the mover line (cz_offset_response): fixed costs %.1f times free (median; %.1f-%.1f); the mover's phase moves by %.2f rad per mPhi0 (median)\n\n",
+            median(ratio), -stat(ratio, [](double x) { return -x; }).max, stat(ratio, [](double x) { return x; }).max, median(phase));
         J.set("static_offsets", j1);
         Json o = Json::object(); o.set("min", lo); o.set("max", hi);
         J.set("curvature_ratio_to_calibration", o);
@@ -292,7 +322,10 @@ int main(int argc, char** argv) {
     out("   added error against the gate on its own (mean / max over the CZ gates of a round)\n");
     struct Tol { std::string chip; double tau, a_fixed, a_free; };
     std::vector<Tol> tols;
+    struct Est { std::string chip; double tau, fixed, free; };
+    std::vector<Est> ests;
     for (const auto& C : chips) {
+        const auto resp = &C == &chips.front() ? respA : responses(C);
         double pmin = 1e300, pmax = 0;
         for (const auto& L : C.lines) { pmin = std::min(pmin, L.period); pmax = std::max(pmax, L.period); }
         int n4 = 0; for (const auto& L : C.lines) if (L.gates.size() == 4) ++n4;
@@ -305,16 +338,19 @@ int main(int argc, char** argv) {
             const FluxSetup F = with_tail(tc.a, tc.tau);
             const auto al = alone(C, F, true);
             const int rs = steady_round(C, tc.tau);
-            const auto c0 = in_cycle(C, F, al, 0), c1 = in_cycle(C, F, al, rs);
+            const auto c0 = in_cycle(C, F, al, resp, 0), c1 = in_cycle(C, F, al, resp, rs);
             const Stat f0 = stat(c0, [](const InCycle& x) { return x.fixed; }), g0 = stat(c0, [](const InCycle& x) { return x.free; });
             const Stat f1 = stat(c1, [](const InCycle& x) { return x.fixed; }), g1 = stat(c1, [](const InCycle& x) { return x.free; });
             const double ph = std::sqrt(stat(c1, [](const InCycle& x) { return x.dphase * x.dphase; }).mean);
+            const double ef = stat(c1, [](const InCycle& x) { return x.est_fixed; }).mean, eg = stat(c1, [](const InCycle& x) { return x.est_free; }).mean;
             out("   %+.1e  %7.0f   %+.2e / %+.2e   %+.2e / %+.2e    %+.2e / %+.2e   %+.2e / %+.2e    %.4f\n", tc.a, tc.tau, f0.mean, f0.max, g0.mean, g0.max, f1.mean, f1.max, g1.mean, g1.max, ph);
             Json o = Json::object();
             o.set("chip", C.name); o.set("a", tc.a); o.set("tau_ns", tc.tau); o.set("steady_round", rs);
             o.set("first_round_fixed", jstat(f0)); o.set("first_round_free", jstat(g0)); o.set("steady_fixed", jstat(f1)); o.set("steady_free", jstat(g1));
             o.set("steady_mover_phase_rms_rad", ph);
+            o.set("steady_fixed_estimate_mean", ef); o.set("steady_free_estimate_mean", eg);
             j3.push(o);
+            if (tc.a == a_ref) ests.push_back({C.name, tc.tau, f1.mean > 0 ? ef / f1.mean : 0.0, g1.mean > 0 ? eg / g1.mean : 0.0});
             if (tc.a == a_ref) {
                 const double target = 0.1 * C.allowance;
                 auto tol = [&](double e) { return e > 0 ? std::abs(a_ref) * std::sqrt(target / e) : 1e9; };
@@ -336,6 +372,10 @@ int main(int argc, char** argv) {
         o.set("fixed_above_cap", t.a_fixed > tol_cap); o.set("free_above_cap", t.a_free > tol_cap);
         jtol.push(o);
     }
+    out("   quasi-static estimate / simulation, steady state (mean added error; the estimate takes the flux offsets averaged over the\n");
+    out("   flat top and each gate's response to constant offsets, without a pulse simulation):\n");
+    out("   chip                     tau ns    fixed    free\n");
+    for (const auto& e : ests) out("   %-24s %7.0f    %.2f     %.2f\n", e.chip.c_str(), e.tau, e.fixed, e.free);
     out("\n");
     J.set("tail_in_cycle", j3); J.set("tail_tolerance", jtol);
 
@@ -371,7 +411,7 @@ int main(int argc, char** argv) {
         std::vector<double> da(A.cls.size());
         for (std::size_t i = 0; i < A.cls.size(); ++i) da[i] = al[i].err - ref[i].err;
         const Stat sa = stat(da, [](double x) { return x; });
-        const auto c0 = in_cycle(A, F, al, 0), c1 = in_cycle(A, F, al, steady_round(A, 1500 * 1.1));
+        const auto c0 = in_cycle(A, F, al, respA, 0), c1 = in_cycle(A, F, al, respA, steady_round(A, 1500 * 1.1));
         const Stat f0 = stat(c0, [](const InCycle& x) { return x.fixed; }), g0 = stat(c0, [](const InCycle& x) { return x.free; });
         const Stat f1 = stat(c1, [](const InCycle& x) { return x.fixed; }), g1 = stat(c1, [](const InCycle& x) { return x.free; });
         out("   %-38s %+.1e     %+.2e / %+.2e   %+.2e / %+.2e    %+.2e / %+.2e   %+.2e / %+.2e\n", pc.label.c_str(), sa.mean, f0.mean, f0.max, g0.mean, g0.max, f1.mean, f1.max, g1.mean, g1.max);

@@ -12,9 +12,10 @@
 //   CZDrive            piecewise-constant mover and coupler flux; simulate_cz_drive propagates it with simulate_cz's
 //                      propagator and fidelity metric (cz_ideal_drive reproduces simulate_cz)
 //   CZFrame            the virtual Z gates of a CZ; cz_fidelity_in_frame scores a gate with corrections fixed elsewhere
+//   cz_offset_response the added error per unit of constant flux offset, with free and with fixed virtual Z gates
 //   cz_gate_drive      the drive of one CZ on two channels; cz_train_drive the same gate inside pulse trains (history)
 // Nothing here is used by calibrate_chip_cz, so no review output or cache depends on it.
-// docs/design/flux-line-distortion.md describes the model and its limits; examples/flux_distortion_study.cpp uses it.
+// docs/design/flux-line-predistortion.md describes the model and its limits; examples/flux_distortion_study.cpp uses it.
 #pragma once
 #include "compiler.hpp"
 #include "pulse.hpp"
@@ -309,6 +310,43 @@ inline double cz_fidelity_in_frame(const CZResult& R, const CZFrame& frame) {
         for (int j = 0; j < 4; ++j) tr_mm += std::norm(R.M[std::size_t(i)][std::size_t(j)]);
     }
     return (std::norm(tr) + tr_mm) / 20.0;
+}
+
+// Response of a gate to small constant flux offsets during its drive, to second order:
+//   added 1 - F = m dm + c dc + mm dm^2 + cc dc^2 + mc dm dc      (dm on the mover line, dc on the coupler line, Phi0),
+// with the virtual Z gates re-calibrated for the offset (free) and with those of the undisturbed gate (fixed). The
+// fixed form includes the shift of the single-qubit phases, which is first order in the offset and usually the
+// largest term. The linear coefficients vanish for a gate at its optimum; a residual conditional-phase error makes
+// them finite. This is what a quasi-static estimate of pulse history, drift or DAC steps needs; the curvature stored
+// with a calibration (CZCalibration::err_flux_quasistatic) is 2 (free_mm + free_cc) before its noise scaling.
+// Seven simulations.
+struct CZOffsetResponse {
+    double free_m{0}, free_c{0}, free_mm{0}, free_cc{0}, free_mc{0};
+    double fixed_m{0}, fixed_c{0}, fixed_mm{0}, fixed_cc{0}, fixed_mc{0};
+    double phase_mover{0};          // shift of the mover's virtual Z per Phi0 on the mover line, rad
+    double added_free(double dm, double dc) const { return free_m * dm + free_c * dc + free_mm * dm * dm + free_cc * dc * dc + free_mc * dm * dc; }
+    double added_fixed(double dm, double dc) const { return fixed_m * dm + fixed_c * dc + fixed_mm * dm * dm + fixed_cc * dc * dc + fixed_mc * dm * dc; }
+};
+inline CZOffsetResponse cz_offset_response(const CZSystem& S, const CZDrive& W, double h = 2e-5) {
+    const auto r0 = simulate_cz_drive(S, W);
+    const CZFrame f0 = cz_frame(r0);
+    struct Run { double free, fixed, th; };
+    auto run = [&](double dm, double dc) {
+        CZDrive V = W;
+        for (auto& f : V.f1) f += dm;
+        for (auto& f : V.fc) f += dc;
+        const auto r = simulate_cz_drive(S, V);
+        return Run{r0.fidelity - r.fidelity, r0.fidelity - cz_fidelity_in_frame(r, f0), cz_frame(r).th_mover};
+    };
+    const Run mp = run(h, 0), mn = run(-h, 0), cp = run(0, h), cn = run(0, -h), bp = run(h, h), bn = run(-h, -h);
+    CZOffsetResponse R;
+    const double q = 1 / (2 * h * h), l = 1 / (2 * h);   // sums give the quadratic terms, differences the linear ones
+    R.free_m = (mp.free - mn.free) * l; R.free_c = (cp.free - cn.free) * l;
+    R.free_mm = (mp.free + mn.free) * q; R.free_cc = (cp.free + cn.free) * q; R.free_mc = (bp.free + bn.free) * q - R.free_mm - R.free_cc;
+    R.fixed_m = (mp.fixed - mn.fixed) * l; R.fixed_c = (cp.fixed - cn.fixed) * l;
+    R.fixed_mm = (mp.fixed + mn.fixed) * q; R.fixed_cc = (cp.fixed + cn.fixed) * q; R.fixed_mc = (bp.fixed + bn.fixed) * q - R.fixed_mm - R.fixed_cc;
+    R.phase_mover = std::remainder(mp.th - mn.th, 2 * PI) / (2 * h);
+    return R;
 }
 
 // ---------------------------------------------------------------- a CZ on two channels

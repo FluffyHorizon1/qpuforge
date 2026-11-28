@@ -22,6 +22,11 @@ Phase Gamma logical operations: lattice surgery between surface-code patches (lo
 and a three-patch CNOT). Each operation is checked noiselessly with a stabiliser tableau and simulated with the
 Pauli-frame Monte Carlo. Study: `examples/surgery_study.cpp` -> `results/surgery_study.{txt,json}` (CZ model version 4).
 
+Lattice surgery, next steps: one decoder pass that returns all observables of an operation (exact matching or
+union-find on one graph whose edges carry an observable mask); a two-pass correlated decoder that uses the detectors
+of both Pauli types; operations between patches that are not adjacent, through a routing strip; and a chip account for
+two and three d = 5 patches with their routing region. `surgery_study` sections 4 to 6.
+
 A strict command line: each command accepts only its own options, and an unknown, misspelt or repeated option, a
 missing value or a malformed number is a usage error (exit 1), reported before any file is read.
 
@@ -96,6 +101,34 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
 - Tests: `surgery` and `surgery_cnot` groups (82 checks); the determinism guard also covers
   `run_surgery_frame`; a smoke entry for the study.
+- `surgery.hpp`, joint decoding: `SurgeryFault` and `surgery_faults` (each fault mechanism with its decoded detectors,
+  a mask of the observables it flips and, on request, its detectors of the other Pauli type); `JointEdge`, `JointDEM`
+  and `build_joint_dem` (one edge per detector pair: the probability of all its mechanisms, the mask of the most
+  likely class, and counts of the edges and of the probability that one mask cannot represent); `SurgerySetup::jdem`
+  and `SurgerySetup::joint`, a `MatchingDecoder` whose `decode()` returns the mask of all observables from one
+  matching, or from one union-find pass with `DecodeMethod::UnionFind`.
+- `surgery.hpp`, correlated decoding: `prepare_surgery(..., correlated = true)` builds a union-find decoder on the
+  detectors of the other Pauli type and, for each of its edges, the joint-graph edges that share mechanisms with it.
+  `SurgeryDecoder::Correlated` decodes the other type first, lowers the weights of the correlated edges to their
+  conditional probability and runs exact matching on the joint graph.
+- `surgery.hpp`: `SurgeryDecoder` (`Separate`, `Joint`, `SeparateUF`, `JointUF`, `Correlated`),
+  `surgery_decoder_name`, and `run_surgery_decoders`, which decodes the same shots with several decoders and returns
+  for each the error per observable, the shots with any observable wrong, the shots that differ from, are fixed or are
+  broken relative to the first decoder, and the decode time per shot. `SurgeryResult` gains `decoder`, `decode_ns`,
+  `differ`, `any_fixed` and `any_broken`.
+- `surgery.hpp`, routing: `surgery_parity`, `surgery_cnot`, `surgery_experiment` and `surgery_cnot_reference` take a
+  `gap` (odd, default 1). With `gap` > 1 the patches are joined through a routing strip, d wide and `gap` long, which
+  is merged with both patches for the measurement and read out at the split. Strips are straight.
+- CLI: `qpuforge surgery --gap G` (odd, 1 to 15) and `--decoder separate|joint|uf|joint-uf|correlated|all`; `all`
+  decodes the same shots with every decoder and prints decode times. Both are in the option table, the usage and the
+  `cli_*` guards (`cli_surgery_even_gap`, `cli_surgery_bad_decoder`, `cli_ok_surgery_routing`, `cli_exit_status`).
+- `examples/surgery_study.cpp`: section 4 (the shots of section 2 decoded with every decoder), section 5 (noiseless
+  check and logical error against the strip length, Beta-1 physics, strips of 1, 3, 5 and 7 at d = 3 and 5) and
+  section 6 (chip account for d = 5 patches and their routing region: qubits, couplers, feedlines, lines, design
+  frequencies, collisions, fabrication Monte Carlo). `results/surgery_study.{txt,json}` regenerated; sections 1 to 3
+  are unchanged.
+- Tests: `surgery_joint` (57 checks) and `surgery_routing` (51 checks) groups. The determinism guard also covers
+  `run_surgery_decoders` with every decoder and a routed XX measurement.
 - Tests: `cli_*` guards (label `unit`) for unknown options, missing values, malformed numbers and choices, repeated and
   extra arguments, one accepted invocation per command with every option given (two for `new`, a topology and
   `--preset`; three for `qec`: the burst options, then the decoding options and the streaming decoder at non-default
@@ -181,8 +214,23 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - CLI: the usage text lists every option of every command (`budget --seed`, `qec --seed --cache --leakage-removal`,
   `synth-chip --cache`, `hwgate --seed --cache` and most `new` options were missing), and a usage error prints the
   usage of its command only. Options may come before the positional arguments.
+- `build_surgery`: a face that ends at a split and whose whole support is read out there in its basis closes with a
+  detector (the faces inside a routing strip), and a face that ends is forgotten, so that a face returning in a later
+  phase is not compared with a measurement from before its data were read out. Neither case occurs in the schedules of
+  PR #21 (adjacent patches): their circuits, detectors and results are unchanged.
 
 ### API changes
+- `surgery.hpp`: `prepare_surgery` has a sixth parameter `correlated` (default `false`), `run_surgery_frame` a fourth
+  parameter `decoder` (default `SurgeryDecoder::Separate`), and `surgery_parity`, `surgery_cnot`, `surgery_experiment`
+  and `surgery_cnot_reference` a last parameter `gap` (default 1). Calls written for the earlier signatures compile
+  and give the same results. `SurgerySetup` and `SurgeryResult` have new members; `SurgerySetup` holds a
+  `std::unique_ptr` more and stays move-only. New names in `qpuforge`: `SurgeryFault`, `JointEdge`, `JointDEM`,
+  `SurgeryDecoder`, `build_joint_dem`, `surgery_faults`, `surgery_fault_signatures_of`, `surgery_decoder_name`,
+  `run_surgery_decoders`; `surgery_fault_signatures` has an overload taking a fault list.
+- `qec.hpp`: `MatchingDecoder` has a second constructor, `MatchingDecoder(n_det, edges)`, from any list of edges with
+  members `a`, `b`, `obs` and `p`. `obs` may be a mask of up to 8 observables; `decode()` and `decode_scaled()` then
+  return the XOR of the masks along the matching instead of 0 or 1. The constructor from a `DetectorErrorModel` is
+  unchanged.
 - `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
 - `frame_detail::FaultDesc` (internal) gained `owner`.
 - `enumerate_faults(F, E, long* steps = nullptr)` and `optimize_cz(S, fluxc_on, t_rise, dt, max_eval, leak_weight = 0,

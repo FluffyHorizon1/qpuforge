@@ -1,6 +1,7 @@
 # Design note: lattice surgery
 
 Status: implemented in `include/qpuforge/surgery.hpp` and merged into `main` in PR #21 (Phase Gamma, ROADMAP.md).
+Joint and correlated decoding, routing strips and the chip account were added in PR #30.
 Study: `examples/surgery_study.cpp`, results in `results/surgery_study.{txt,json}`.
 
 ## Goal
@@ -32,6 +33,22 @@ gets the numbering, the couplers and the chip of `rotated_surface_code`.
 | ZZ (patches stacked vertically) | \|+⟩ | Z | Z_A Z_B | X |
 | XX (patches side by side) | \|0⟩ | X | X_A X_B | Z |
 
+**Routing strips.** Two patches that are not adjacent are joined through a routing strip: a block of data qubits, d
+wide and g long (g odd), between them. In the builders this is the `gap` argument; g = 1 is the single gap row or
+column above. Patch B then sits at (0, d+g) for a ZZ measurement and at (d+g, 0) for XX, and the merged region is
+d × (2d+g) or (2d+g) × d. Nothing else changes in the protocol: the strip qubits are prepared like gap qubits, the
+strip is merged with both patches for the rounds of the measurement, and it is read out at the split.
+
+- The new faces of the measured type are the (d+1)(g+1)/2 faces of that type in the strip and at its two ends. Every
+  strip qubit lies in exactly two of them and every seam-row qubit of a patch in one, so their product is still
+  Z_A Z_B (or X_A X_B).
+- The strip also has (d−1)(g−1)/2 faces of the other type that touch no patch. Their data are prepared in their basis,
+  so they are deterministic from the first merged round, and they end at the split (see Detectors).
+- Each strip row adds d data qubits and d measure qubits (d = 5: a strip of 3 has 20 more qubits than adjacent
+  patches). It adds no rounds: the measurement still takes d merged rounds, whatever the strip length.
+
+Strips are straight. A route with a bend, or one that passes other patches, is not built (see Limitations).
+
 ## Schedules
 
 A `SurgerySchedule` is a list of phases. Each phase cuts the lattice into regions (a patch on its own, or two patches
@@ -44,10 +61,12 @@ details follow `memory_experiment` exactly, so a one-patch schedule produces the
 
 The protocols:
 
-- `surgery_parity(d, 'Z' | 'X', a, b)`: one separate round, d merged rounds, one round after the split.
-- `surgery_cnot(d, c, t)`: control C at (0, 0), ancilla A at (0, d+1) in |+⟩, target T at (d+1, d+1). One separate
-  round, d rounds of the ZZ merge of C and A, d rounds of the XX merge of A and T, one separate round, then C and T are
-  read out in the chosen basis and A in Z. The ZZ split and the XX merge happen at the same phase boundary.
+- `surgery_parity(d, 'Z' | 'X', a, b, rounds, gap)`: one separate round, d merged rounds, one round after the split.
+- `surgery_cnot(d, c, t, readout, rounds, require_observable, gap)`: control C at (0, 0), ancilla A at (0, d+g) in |+⟩,
+  target T at (d+g, d+g), with g = `gap` (1 by default). One separate round, d rounds of the ZZ merge of C and A, d
+  rounds of the XX merge of A and T, one separate round, then C and T are read out in the chosen basis and A in Z. The
+  ZZ split and the XX merge happen at the same phase boundary. With g > 1 there is a strip between C and A and one
+  between A and T, both of length g.
 
 ## Detectors
 
@@ -59,7 +78,12 @@ previous measurement. Since then, data qubits may have left its support or joine
 - otherwise the face's value is random and there is no detector.
 
 A face measured for the first time gives a detector on its own if all its data were prepared in its basis (the first
-round of a transversally prepared patch), and none otherwise (the seam faces of a merge: their first outcome is random).
+round of a transversally prepared patch, and the faces of the other type inside a routing strip), and none otherwise
+(the seam faces of a merge: their first outcome is random).
+A face that ends at a split closes there if its whole support is read out in its basis at that split: its last
+measurement and those outcomes form a detector. These are the faces of the other type inside a routing strip; without
+them a readout error on a strip qubit could flip a logical that crosses the strip without firing any detector (tested).
+A face that ends is forgotten, so a face that returns in a later phase starts afresh.
 At the final readout each face whose type matches its patch's readout basis closes with its last measurement and its
 data outcomes. Each detector has a type; a run decodes the detectors of one type, as the memory experiments do.
 
@@ -74,11 +98,11 @@ Each observable is a set of classical bits whose XOR is deterministic in the noi
 **Parity measurement.** With both inputs in the measured basis, the observables are the merge outcome m (the product of
 the new seam faces in the first merged round) and each patch's logical next to the seam. With both inputs in the other
 basis the merge must preserve the product of the other logicals: X_A X_B through a ZZ merge is column 0 of A, column 0
-of B and the gap qubit between them, read out at the split.
+of B and the gap qubits between them (one per strip row), read out at the split.
 
-**CNOT.** Write a for the ZZ outcome, b for the XX outcome, c_A for the ancilla's final Z, g for the A–T gap qubit in the
-logical Z row and h for the C–A gap qubit in the logical X column, both read out at the splits, and f for the product of
-A's X faces in the first XX round. The logical X of A is used on its left column at the C–A seam and on its right column
+**CNOT.** Write a for the ZZ outcome, b for the XX outcome, c_A for the ancilla's final Z, g for the A–T gap qubits in the
+logical Z row and h for the C–A gap qubits in the logical X column (one qubit each for adjacent patches, one per strip
+row or column otherwise), all read out at the splits, and f for the product of A's X faces in the first XX round. The logical X of A is used on its left column at the C–A seam and on its right column
 at the A–T seam; the two differ by the product of all of A's X faces, which f supplies. Then
 
 - Z_T(out) = Z_T(final, row 0) + Z_A(final, row 0) + g + a, so the correction is X_T^(a + c_A + g);
@@ -95,22 +119,48 @@ Z) Z_C Z_T = z_T or X_C X_T = x_C.
 ## Decoding
 
 `prepare_surgery` builds the frame program with `build_frame_program` (the memory experiments' noise model: Pauli-
-twirled T1/T_phi with state-aware decoherence, coherent-ZZ windows, control errors, readout and reset errors, leakage),
-enumerates every single fault once with `enumerate_faults`, and builds one detector error model per decoded observable
-with `build_dem`. To get all observables from one enumeration, each observable is appended to the detector list as an
-extra detector and split off again. Each observable gets its own exact matching decoder (`MatchingDecoder`): the
-matching graph is the same, but parallel edges merge differently depending on which observable they flip.
+twirled T1/T_phi with state-aware decoherence, coherent-ZZ windows, control errors, readout and reset errors, leakage)
+and enumerates every single fault once with `enumerate_faults` (`surgery_faults`). To get everything from one
+enumeration, each observable is appended to the detector list as an extra detector and split off again, so a fault
+carries the decoded detectors it flips and a mask of the observables it flips. A run decodes the detectors of one Pauli
+type, the type of its observables. There are five decoders (`SurgeryDecoder`, `qpuforge surgery --decoder`):
 
-The decoders are independent, so "any observable wrong" combines matchings that can differ on ties. For the parity
-measurement and the CNOT these differences are rare; a joint decoder would have to carry an observable mask per edge.
+- **Separate matching** (`Separate`, the default). One detector error model (`build_dem`) and one exact matching
+  decoder (`MatchingDecoder`) per observable. The graphs have the same detectors; parallel edges merge differently
+  depending on which observable they flip.
+- **Joint matching** (`Joint`). One graph for all observables (`build_joint_dem`, `SurgerySetup::joint`). Each pair of
+  detectors has one edge. Its probability is that of all mechanisms flipping exactly that pair, and it carries the
+  observable mask of the most likely class among them. One exact matching returns the XOR of the masks along the
+  correction, so all observables are read off the same correction and are consistent with each other. An edge whose
+  mechanisms do not all flip the same observables is counted (`mixed_edges`, with `minority_p`, the probability of the
+  mechanisms that disagree with the edge's mask): this is the error mass a single mask per edge cannot represent.
+- **Union-find** (`SeparateUF`, `JointUF`). The weighted union-find decoder of `unionfind.hpp` on the same graphs.
+  `JointUF` peels one correction and XORs the masks of its edges.
+- **Correlated matching** (`Correlated`, needs `prepare_surgery(..., correlated = true)`). Two passes that use the
+  detectors of both Pauli types. A mechanism that flips one or two detectors of each type (a Y error on a data qubit,
+  most two-qubit errors of a CZ) is an edge e of the decoded graph and an edge o of the other type's graph at once.
+  Pass 1 decodes the other type's detectors with union-find. For every edge o of that correction, the weight of each
+  edge e that shares mechanisms with o is lowered to log((1 − p)/p) with p = p(e and o) / p(o), the probability of e
+  given that o fired. Pass 2 is exact matching on the joint graph with those weights (`decode_scaled`, the routine
+  that re-weights edges for heralds). Weights are only lowered, never raised, and the edge masks are not changed.
+
+**Mechanisms that flip more than two decoded detectors** (hyperedges) are handled as before in every decoder: they are
+left out of the graph and their total probability is reported (`hyperedge_p`). The correlated decoder does use
+mechanisms that flip up to two detectors of each type, which the single-type graphs see only as two unrelated edges.
 
 ## Monte Carlo
 
-`run_surgery_frame` samples the frame program with the same per-shot function as `run_memory_frame`
+`run_surgery_decoders` samples the frame program with the same per-shot function as `run_memory_frame`
 (`frame_detail::sample_shot` in `qec.hpp`; the surgery runner uses neither heralds nor impacts) and keeps its determinism contract (docs/design/deterministic-mc.md): each shot reseeds from
 `frame_shot_seed(seed, shot)`, shots are grouped in blocks of `kFrameBlock`, and block tallies are added in block order.
 The result depends only on the setup, the shot count and the seed. For a single-patch schedule it reproduces
 `run_memory_frame` shot for shot (tested), so a change to the shared sampler changes both runners together.
+
+`run_surgery_decoders` decodes every shot with each decoder in a list, so decoders are compared on the same syndromes.
+For each it returns the error of every observable, the shots with any observable wrong, and against the first decoder
+of the list the shots whose prediction differs, the shots it fixes and the shots it breaks. It also returns the mean
+decode time per shot, which is wall time and the only field that is not reproducible. `run_surgery_frame(M, shots,
+seed, decoder)` is the same run with one decoder; its default is separate matching.
 
 ## Chips
 
@@ -118,6 +168,13 @@ The result depends only on the setup, the shot count and the seed. For a single-
 site colour, 45° placement, couplers in CZ order) and applies the physics of `alpha1_v11` or `beta1`. Both use Beta-1's
 readout plan (at most 9 resonators per feedline): Alpha-1's three feedlines do not scale to 169 qubits. For one d = 3
 patch with `beta1` the chip equals `beta1(3)` qubit for qubit (tested).
+
+Strip qubits get their frequencies from the same colouring by site, so a lattice with strips uses the same eight
+design frequencies and the same sixteen (measure, data) frequency pairs as one patch, and the CZ calibrations of
+`results/cz_cache.json` cover it. The study's chip account (section 6, see Results) counts qubits, couplers, feedlines
+and control lines for two and three d = 5 patches with and without strips and runs the collision rules and the
+fabrication Monte Carlo on them. It is an account of the lattice only: there is no placement of control lines, no
+cell layout and no mask for these chips.
 
 ## Verification
 
@@ -145,6 +202,24 @@ patch with `beta1` the chip equals `beta1(3)` qubit for qubit (tested).
   the previous one, so a twirled conditional phase between them straddles two rounds and acts as a weight-2 error. The
   test allows twirl terms only, and bounds their total probability.
 - The noiseless frame run of a ZZ measurement has no defects and no errors.
+- Joint decoding (`surgery_joint` test group). A matching decoder built from a hand-made edge list returns the XOR of
+  the masks along the matching, with matching and with union-find. For the d = 3 ZZ measurement and CNOT in both
+  bases, the joint model has the same detector pairs as each per-observable model, and each edge's probability is
+  that of the pair's two classes combined. With uniform weights the joint decoder corrects every single fault except
+  the coherent-ZZ twirl terms listed above. On 10,000 shots, `run_surgery_decoders` reproduces `run_surgery_frame` for
+  the separate and the joint decoder, the tallies of every decoder are consistent, union-find stays within 1.3× of
+  matching, and the correlated decoder fixes more shots than it breaks. Without noise every decoder is silent.
+- Routing strips (`surgery_routing` test group). Qubit and face counts of the strip at d = 3 and 5 for strips of 1, 3
+  and 5, and one closing detector per strip face of the other type. A strip of length 1 gives the adjacent-patch
+  circuit. The tableau check passes for ZZ and XX on the eight inputs (strips 3 and 5 at d = 3, strip 3 at d = 5; at
+  d = 3 with a strip of 3 also merging from the first round), for the CNOT on Z- and X-basis inputs, on Bell-pair
+  inputs (d = 3) and with reference qubits. Negative controls: dropping any strip qubit from X_A X_B, and an X error
+  in the middle of the strip, are caught; with the strip's closing detectors removed, `prepare_surgery` refuses
+  X_A X_B. The d = 3 detector error models with strips of 3 have no undetectable logical faults, and uniform-weight
+  decoding leaves only coherent-ZZ twirl terms uncorrected (at most 4 mechanisms, total p 2.4e-7, for the CNOT's
+  Z-type detectors; the same for separate and joint decoding). A strip of 5 raises the error of the ZZ outcome at
+  d = 3 by more than 1.5×, at the same number of rounds.
+- The thread-count determinism digest covers every decoder on the same shots and a routed XX measurement.
 
 ## Results
 

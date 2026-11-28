@@ -21,7 +21,7 @@ By contributing, you confirm that you have the right to submit the change and th
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge                 # 449 validation checks; or:
+./build/test_qpuforge                 # 367 validation checks; or:
 ctest --test-dir build -LE smoke      # one CTest entry per group, excluding end-to-end smokes
 ```
 

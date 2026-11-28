@@ -13,10 +13,10 @@ assumptions listed in each design spec. They are design targets, not measured pe
 
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
-| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (449 validation checks) | n/a |
-| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed on means; worst CZ pair leaks 2.3e-4 (limit 2e-4); mask DRC open (designs/alpha1-v11) | open: fabricate and characterise |
-| **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask DRC open (designs/beta1) | open |
-| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask DRC open (designs/gamma1). Lattice-surgery ZZ, XX and CNOT simulated at d = 3, 5 (results/surgery_study.txt) | planned |
+| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (346 validation checks) | n/a |
+| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11); mask not fabrication-ready: metal connectivity open | open: fabricate and characterise |
+| **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/beta1) | open |
+| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/gamma1). Lattice-surgery ZZ, XX and CNOT simulated at d = 3, 5 (results/surgery_study.txt) | planned |
 | Delta | modular | Several logical qubits linked between modules; logical-level benchmarks | planned | planned |
 
 ---
@@ -59,9 +59,9 @@ After this phase the model is calibrated against our own hardware, not just agai
 |---|---|
 | Distance-3 logical error per round (memory-Z, 25 rounds) | ≤ 0.6% |
 | Logical lifetime vs best physical T1 | > 2× |
-| CZ coherent error / leakage per gate (pulse simulation) | ≤ 5e-4 / ≤ 2e-4 |
+| CZ coherent error / leakage per gate (pulse simulation), every pair | ≤ 5e-4 / ≤ 2e-4 |
 | Idle ZZ at the coupler park point | ≤ 10 kHz |
-| Layout | Placement/spacing checks clean (mask width/space DRC clean before fabrication); extracted E_C within 3%, couplings within 6% of target; residual parked exchange re-nullable |
+| Layout | Placement/spacing checks clean; extracted E_C within 3%, couplings within 6% of target; residual parked exchange re-nullable. Mask width/space DRC and metal connectivity (no floating ground, shorted lines reach the ground plane, junctions land at both ends) clean before fabrication (reported, not gated in simulation) |
 | Fabrication Monte Carlo at 2% junction spread | ≥ 90% collision-free |
 
 ### Alpha hardware gate (after fabrication)
@@ -123,7 +123,7 @@ Details are in `designs/beta1/BETA-1.md`.
 | Trimmed fabrication yield (0.5% spread) | ≥ 80% collision-free |
 | Leakage removal over 50 rounds | chosen scheme at least as good as the alternative |
 | Detection rate over 100 rounds with the leakage-removing reset | drift < 5% |
-| Layout | Placement/spacing checks clean; extracted E_C within 3%, couplings and readout capacitance within 6% of target; residual parked exchange re-nullable. Mask width/space DRC clean before tape-out (reported, not gated in simulation) |
+| Layout | Placement/spacing checks clean; extracted E_C within 3%, couplings and readout capacitance within 6% of target; residual parked exchange re-nullable. Mask width/space DRC, metal connectivity and the foundry DRC deck clean before tape-out (reported, not gated in simulation) |
 
 ### Beta hardware gate
 
@@ -162,7 +162,7 @@ the chip in the same data file.
 | Logical-error floor from high-energy impacts | < 10% of the distance-7 error |
 | Detection rate over 40 rounds with the leakage-removing reset | drift < 5% |
 | Trimmed fabrication yield (0.5% spread) | ≥ 80% collision-free |
-| Layout | as Beta (mask width/space DRC reported, not gated) |
+| Layout | as Beta (mask DRC and connectivity reported, not gated) |
 
 ### Still open in Phase Gamma
 

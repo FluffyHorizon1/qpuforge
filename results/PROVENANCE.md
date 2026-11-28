@@ -5,25 +5,28 @@ the commands below to reproduce them.
 
 | Output | Program and arguments | Source | Compiler | OpenMP threads | Finished (UTC) | Runtime |
 |---|---|---|---|---|---|---|
-| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000 > designs/alpha1-v11/alpha1_v11_review.txt` | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27T23:06:33Z | 392 s |
-| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000 > designs/beta1/beta1_review.txt` | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27T23:22:33Z | 960 s |
-| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000 > designs/gamma1/gamma1_review.txt` | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27T23:36:33Z | 840 s |
-| `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `f9c704cd9a0ca427f1b1a3d5b5d75d56a47893f9` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T00:27:08Z | 1904 s |
+| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` (`.txt` = stdout and stderr) | `0b2ea59bfac1a8206e75f33017711e65a3a14491` (clean tree: `main` 2e19180 merged into `scs-bot/fab-readiness`) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:24:14Z | 399 s |
+| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:43:15Z | 1141 s |
+| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:36Z | 982 s |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
 | `results/design_study.{csv,txt}` | `design_study > results/design_study.txt` from the repository root (default: 300 trajectories; the program writes the CSV itself) | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27 (time not recorded) | 31 s |
-| `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 449 checks) | `81e9dc2fff9b658bc339a59b4f92e3c546ac0c57` (`scs-bot/lattice-surgery` with `main` 5495bce merged; clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T03:28:43Z | 601 s |
-| `results/decoder_sweeps.{json,txt}` | `decoder_sweeps` (`OMP_NUM_THREADS=4 ./build/decoder_sweeps`) | `5e69544f153985be9ae2b042b467f762f06f85d2` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:30:44Z | 57 s |
-| `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | `bff9d108eb60886e2b6cb258de831142785457ce` (unchanged since 0.3) | g++ 14.2.0 | — | 2026-11-26 | — |
-| `designs/beta1/layout_cells.json` | `qpuforge gds designs/beta1/beta1.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` | 0.4 development tree, before it moved onto CZ model version 2 (see below) | g++ 13.3.0 | — | 2026-11-26 | 366 s |
+| `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 415 checks, 0 failed) | `ea63b9f` (`main` 5495bce merged into `scs-bot/fab-readiness`; the reviews' tree plus #20, whose default decoding path is unchanged) | g++ 13.3.0 | 4 (informational) | 2026-11-28T03:38:01Z | 926 s |
+| `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` (warm start from the 0.4 cell file, `git show 5125500:designs/alpha1-v11/layout_cells.json`), output copied to the committed path | `0900b14` (`layout.hpp` and `src/` unchanged since) | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 267 s |
+| `designs/beta1/layout_cells.json` (also used by GF-97) | same, with `designs/beta1/beta1.json` and the 0.4 Beta-1 cell file | same | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 280 s |
+| `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` (exit status 2: the mask DRC is not clean) | same | g++ 13.3.0 | — | 2026-11-28T02:17:35Z | — |
+| `designs/alpha1-v11/example_characterisation_synthetic.json`, `example_gate_report_synthetic.json` | the first two commands of `CHARACTERISATION-PLAN.md` §7 with `virtual.json` → `designs/alpha1-v11/example_characterisation_synthetic.json` and `--out designs/alpha1-v11/example_gate_report_synthetic.json`; the hidden-dephasing pair as written there (output not committed) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:58Z | 22 s (all four) |
+| `designs/alpha1-v11/AF17_v11_layout.{png,svg}`, `AF17_v11_detail.{png,svg}`, `docs/from-committed-layout/af17-{full,zoom,q5}.svg` | `python3 tools/gds_preview.py designs/alpha1-v11/AF17_v11.gds <out>`; detail `--zoom 1550,2450,2250,3150`, zoom `--zoom 1350,2250,2700,3600`, Q5 `--zoom 1580,2480,2020,2920` | matplotlib 3.10 | — | — | 2026-11-28 | — |
+| `designs/beta1/BF49_layout.{png,svg}`, `designs/gamma1/GF97_layout.{png,svg}` | `python3 tools/gds_preview.py designs/beta1/BF49.gds <out>`, `python3 tools/gds_preview.py designs/gamma1/GF97.gds <out>` | matplotlib 3.10 | — | — | 2026-11-28 | — |
 | `results/surgery_study.{txt,json}` | `OMP_NUM_THREADS=4 surgery_study 100000` | `c864fefde215c827117df011cb2f6d8e55be6b7f` (clean tree) | g++ 13.3.0 | 4 | 2026-11-27T23:55:32Z | 1150 s |
-| `results/cz_cache.json` | written by the 0.3 Alpha run from an empty cache (16 calibrations simulated); the 0.4 runs reuse it (0 simulated, 16 cached) | `bff9d108eb60886e2b6cb258de831142785457ce` (unchanged since 0.3) | g++ 14.2.0 | 8 | 2026-11-25 | — |
-| `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | not recorded (ALPHA-1.md dates the review 24 Nov 2026; first committed 2026-11-25 in `3fe4d23`) | 421 s |
+| `results/cz_cache.json` | `qpuforge cz designs/alpha1-v11/alpha1_v11.json --cache results/cz_cache.json` from an empty cache (16 calibrations simulated); every review reuses it (0 simulated, 16 cached) | CZ model version 4 (`pulse.hpp` and `src/` as committed with this file) | g++ 13.3.0 | 2 | 2026-11-28T01:32:18Z | 259 s |
+| `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
+| `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `f9c704cd9a0ca427f1b1a3d5b5d75d56a47893f9` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T00:27:08Z | 1904 s |
+| `results/decoder_sweeps.{json,txt}` | `decoder_sweeps` (`OMP_NUM_THREADS=4 ./build/decoder_sweeps`) | `5e69544f153985be9ae2b042b467f762f06f85d2` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:30:44Z | 57 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
-  The 0.4 outputs above were generated from a clean checkout of `802ceb7d5cb230879c79d054633b23bc422938f5`: each
-  review JSON says `source_tree_dirty: false`. `main` at `5125500` differs from that commit only in documentation and
-  in `tests/test_determinism.cpp` (a guard outside the validation checks), so the review programs, `design_study` and
-  `test_qpuforge` are built from identical sources.
+  The reviews, the GDS files, the characterisation rehearsal and the test log were regenerated from the clean tree
+  `0b2ea59` (`main` at 2e19180 merged into `scs-bot/fab-readiness`): each review JSON says `source_tree_dirty: false`.
+  `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
@@ -45,10 +48,10 @@ the commands below to reproduce them.
   and change from run to run, as do the group times, the decode times and the fault-enumeration times (reference /
   fast) printed in `results/test_output.txt`. With the same toolchain, a rerun at any thread count reproduces every
   other number.
-- **Beta-1 cell file.** `designs/beta1/layout_cells.json` was synthesised before the 0.4 work moved onto CZ model
-  version 2, which shifted one circuit target (the direct qubit–qubit coupling) in the fifth digit. Running the
-  synthesis command above on the release code reproduces every cell dimension to within 2 nm. The reviews evaluate
-  the committed cells against the current targets.
+- **Cell files.** Both were synthesised with the DRC-aware generator (bus no narrower than its strip, shorted staircase
+  ends, ground-sliver clean-up of the extraction cells, G_md aimed 1.5 % high) in one run each, warm-started from the 0.4
+  cell file. The synthesis is deterministic: rerunning the command on the same code and starting file gives the same
+  cells. The reviews evaluate the committed cells against the current targets.
 - **Alpha-1 v1.0 review (historical; not regenerated for v0.3 or v0.4).** `results/alpha1_review.{json,txt}` reproduce
   digit for digit only with the binary that was committed alongside them, run with two threads from a checkout of
   `3fe4d23`:
@@ -80,12 +83,10 @@ the commands below to reproduce them.
   from `main` no longer reproduce `results/alpha1_review.{json,txt}` (Gen-0 rows use `gen0_surface17()`, which PR #2 did not
   touch); those files describe the pre-PR-#2 Alpha-1 v1.0 design
   and have not been regenerated for it.
-- **CZ model** version 2 (`CZModel::kVersion`): dt 0.1 ns, Nelder–Mead budget 260, levels 4/4/4
-  (qubit/coupler/qubit), charge cutoff 12. The cache keys encode all of these, and a cache from another model version
-  is rejected.
-- **GDS files:** the Beta-1 and Gamma-1 review runs rewrote `BF49.gds` and `GF97.gds` byte for byte, with
-  `SOURCE_DATE_EPOCH` set to the BGNLIB date of the committed files: 2026-11-26T17:45:36Z (`1795715136`) for
-  `BF49.gds` and 2026-11-26T18:19:13Z (`1795717153`) for `GF97.gds`. Without `SOURCE_DATE_EPOCH` the GDS files carry
-  the real write date. `BF49_layout.png` and `GF97_layout.png` are rendered from them by `tools/gds_preview.py`.
-- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from the same
-  source: 321 checks passed, 0 failed.
+- **CZ model** version 4 (`CZModel::kVersion`): dt 0.1 ns, Nelder–Mead budget 260, levels 4/4/4
+  (qubit/coupler/qubit), charge cutoff 12, guarded leakage fallback (`leak_limit` 2e-4, `coh_limit` 5e-4,
+  `leak_weight` 10; `docs/design/cz-leakage.md`). The cache keys encode all of these, and a cache from another model
+  version is rejected. 15 of the 16 entries are bit-identical to version 2.
+- **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
+- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `ea63b9f`:
+  415 checks passed, 0 failed.

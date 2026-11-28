@@ -65,7 +65,7 @@ endforeach()
 target_compile_definitions(test_qpuforge PRIVATE QPUFORGE_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
 
 # One CTest entry per validation test, labelled by layer:  ctest -L unit | physics | pulse | qec | layout | smoke
-#   ctest -LE smoke    everything except the end-to-end review smoke runs
+#   ctest -LE smoke    everything except the end-to-end review smoke runs and the full mask gates of BF-49 and GF-97
 enable_testing()
 # Build-flag guard (not one of the validation checks): fails if this build contracts a*b+c into an FMA.
 # Built with QPUFORGE_COMPILE_OPTIONS via the target helper above, so dropping the flag fails this test.
@@ -349,6 +349,12 @@ foreach(t ${QPUFORGE_TESTS})
   add_test(NAME ${name} COMMAND test_qpuforge ${name})
   set_tests_properties(${name} PROPERTIES LABELS ${label} FAIL_REGULAR_EXPRESSION "FAIL ")
 endforeach()
+# The full mask gates of BF-49 and GF-97 from the committed cell files (tests/layout_gates.cpp: DRC, connectivity, ground
+# bumps, the line budget with crosstalk on the fine meshes). Too slow for every CI job: layout_presets gates the line
+# budget on AF-17 only, and these run with the nightly smoke tests.
+add_test(NAME layout_gates_bf49 COMMAND layout_gates gates beta1 ${CMAKE_CURRENT_SOURCE_DIR}/designs/beta1/layout_cells.json)
+add_test(NAME layout_gates_gf97 COMMAND layout_gates gates gamma1 ${CMAKE_CURRENT_SOURCE_DIR}/designs/beta1/layout_cells.json)
+set_tests_properties(layout_gates_bf49 layout_gates_gf97 PROPERTIES LABELS smoke TIMEOUT 1800)
 # End-to-end smoke runs of the review programs: 200 shots, outputs in the build tree, committed files untouched.
 # They reuse results/cz_cache.json (copied); with a stale or missing cache they re-calibrate (a few minutes).
 foreach(name alpha1_v11_review beta1_review gamma1_review surgery_study flux_distortion_study)

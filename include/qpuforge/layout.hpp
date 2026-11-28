@@ -2096,8 +2096,20 @@ struct FluxCoupling {
     int apertures{0}, panels{0}; double seconds{0};
     Rect window;
 };
+// The window of a flux_coupling solve, for an independent check of it (tools/flux_check.py solves the same thin film
+// by another method): the apertures as solved (etch pieces with straps and pad cuts taken out, and the aperture each
+// belongs to), their kinds, the line's two gaps, the loop, the owner's etch, and what the angle of a point around the
+// island is measured from (the plain etch in the window and the owner's metal, the island's centre and the loop's angle).
+struct FluxWindow {
+    Rect window, loop;
+    std::vector<Rect> pieces; std::vector<int> aperture;     // aperture index of each piece
+    std::vector<int> kind;                                    // per aperture: 0 floating, 1 held (touches the window), 2 gap of the line
+    int gap_a{-1}, gap_b{-1}, own_moat{-1};
+    double qx{0}, qy{0}, theta0{0};
+    std::vector<Rect> etch, island;
+};
 inline FluxCoupling flux_coupling(const ChipLayout& L, const std::string& owner, const std::string& flux_line, const MeshOptions& mo, double margin = 150, double reach = 0,
-                                  double local_um = 0) {
+                                  double local_um = 0, FluxWindow* fw = nullptr) {
     FluxCoupling F;
     const int iq = L.island(owner), line_island = L.island(flux_line);
     if (iq < 0 || line_island < 0) { F.note = "no island " + owner + " or flux line " + flux_line; return F; }
@@ -2249,6 +2261,10 @@ inline FluxCoupling flux_coupling(const ChipLayout& L, const std::string& owner,
         return std::atan2(by - qy, bx - qx);
     };
     const double th0 = ring_angle(loop.cx(), loop.cy());
+    if (fw) {
+        fw->window = W; fw->loop = loop; fw->pieces = E; fw->aperture = comp; fw->kind = type; fw->gap_a = ga; fw->gap_b = gb; fw->own_moat = own_moat;
+        fw->qx = qx; fw->qy = qy; fw->theta0 = th0; fw->etch = etch_w; fw->island = own_rects;
+    }
     double cm = 0;
     for (std::size_t p = 0; p < sol.panels.size(); ++p) {
         if (sol.panels[p].cond != own_moat || type[std::size_t(own_moat)] == Gap) continue;

@@ -4,14 +4,16 @@
 // of the review, and the flux coupling of any one line to any one SQUID at a chosen mesh.
 //
 //   layout_gates gates <chip> <cells.json> [--flux-mesh H] [--cross-mesh H] [--window-mesh H] [--no-crosstalk] [--bump-sensitivity] [--gds <out.gds>]
-//   layout_gates flux  <chip> <cells.json> <owner> <line> [--flux-mesh H]
+//   layout_gates flux  <chip> <cells.json> <owner> <line> [--flux-mesh H] [--margin UM] [--local UM] [--dump <window.json>]
 //
 // <chip> is a preset as the reviews use it: alpha1-v11 (AF-17, distance 3), beta1 (BF-49, distance 5) or gamma1
 // (GF-97, distance 7). A mesh is given by its edge panel size H in um (largest panel 50 um, growth 1.6 below 2 um and
 // 2.0 from 2 um). Defaults are the reviews' settings: cells and control windows 1.5 um, flux solves 1.5 um
 // (kFluxMesh), crosstalk solves 2.5 um (kFluxCrossMesh). --bump-sensitivity evaluates the budget again (no new solve)
 // with the bump inductance halved and doubled, and with all of a qubit's current and half of a neighbour's taken through
-// the bumps (quadrant fractions 1 and 0.5 instead of 0.75 and 0.25).
+// the bumps (quadrant fractions 1 and 0.5 instead of 0.75 and 0.25). flux: --margin grows the solve window (default
+// 150 um, as line_budget), --local keeps only the etch within UM of the line and of the owner (line_budget_crosstalk
+// uses 60 and 150 um on the 2.5 um mesh); --dump writes the solve's window and result for tools/flux_check.py.
 // Exit status: 0 when every gate passes (gates) or the solve ran (flux); 1 when a gate fails or the solve did not
 // run; 2 on a usage error or a file that cannot be read.
 #include "qpuforge/qpuforge.hpp"
@@ -39,7 +41,7 @@ int usage(const char* why) {
     std::fprintf(stderr,
                  "layout_gates: %s\n"
                  "usage: layout_gates gates <chip> <cells.json> [--flux-mesh H] [--cross-mesh H] [--window-mesh H] [--no-crosstalk] [--bump-sensitivity] [--gds <out.gds>]\n"
-                 "       layout_gates flux  <chip> <cells.json> <owner> <line> [--flux-mesh H]\n"
+                 "       layout_gates flux  <chip> <cells.json> <owner> <line> [--flux-mesh H] [--margin UM] [--local UM] [--dump <window.json>]\n"
                  "  <chip>: alpha1-v11 | beta1 | gamma1 (the presets of the reviews); H: edge panel size in um\n",
                  why);
     return 2;
@@ -74,22 +76,25 @@ int main(int argc, char** argv) {
     try { C = cells_from_json(Json::parse(ss.str())); } catch (const std::exception& e) { std::fprintf(stderr, "layout_gates: %s: %s\n", a[2].c_str(), e.what()); return 2; }
     std::size_t first_opt = cmd == "flux" ? 5 : 3;
     if (cmd == "flux" && a.size() < 5) return usage("flux needs <owner> <line>");
-    double h_flux = kFluxMesh.h_min, h_cross = kFluxCrossMesh.h_min, h_window = 1.5;
+    double h_flux = kFluxMesh.h_min, h_cross = kFluxCrossMesh.h_min, h_window = 1.5, margin = 150, local = 0;
     bool crosstalk = true, bump_sensitivity = false;
-    std::string gds;
+    std::string gds, dump;
     for (std::size_t i = first_opt; i < a.size(); ++i) {
-        auto num = [&](double& v) {
+        auto num = [&](double& v, double lo = 0.2, double hi = 20) {     // the next argument, a number in [lo, hi]
             if (i + 1 >= a.size()) return false;
             char* end = nullptr; v = std::strtod(a[i + 1].c_str(), &end);
             ++i;
-            return end && *end == 0 && v > 0.2 && v < 20;
+            return end && end != a[i].c_str() && *end == 0 && v >= lo && v <= hi;
         };
         if (a[i] == "--flux-mesh") { if (!num(h_flux)) return usage("--flux-mesh needs a size in um (0.2 .. 20)"); }
         else if (a[i] == "--cross-mesh" && cmd == "gates") { if (!num(h_cross)) return usage("--cross-mesh needs a size in um (0.2 .. 20)"); }
         else if (a[i] == "--window-mesh" && cmd == "gates") { if (!num(h_window)) return usage("--window-mesh needs a size in um (0.2 .. 20)"); }
         else if (a[i] == "--no-crosstalk" && cmd == "gates") crosstalk = false;
+        else if (a[i] == "--margin" && cmd == "flux") { if (!num(margin, 20, 1000)) return usage("--margin needs a size in um (20 .. 1000)"); }
+        else if (a[i] == "--local" && cmd == "flux") { if (!num(local, 20, 1000)) return usage("--local needs a size in um (20 .. 1000)"); }
         else if (a[i] == "--bump-sensitivity" && cmd == "gates") bump_sensitivity = true;
         else if (a[i] == "--gds" && cmd == "gates" && i + 1 < a.size()) gds = a[++i];
+        else if (a[i] == "--dump" && cmd == "flux" && i + 1 < a.size()) dump = a[++i];
         else return usage(("unknown option '" + a[i] + "'").c_str());
     }
     int threads = 1;
@@ -106,8 +111,28 @@ int main(int argc, char** argv) {
 
     if (cmd == "flux") {
         t0 = Clock::now();
-        const FluxCoupling F = flux_coupling(L, a[3], a[4], mesh_of(h_flux));
+        FluxWindow fw;
+        const FluxCoupling F = flux_coupling(L, a[3], a[4], mesh_of(h_flux), margin, 0, local, dump.empty() ? nullptr : &fw);
         print_flux("flux coupling", a[3], a[4], F, h_flux);
+        if (!dump.empty()) {
+            auto rect = [](const Rect& r) { Json j = Json::array(); for (double v : {r.x0, r.y0, r.x1, r.y1}) j.push(Json(v)); return j; };
+            auto rects = [&](const std::vector<Rect>& v) { Json j = Json::array(); for (const auto& r : v) j.push(rect(r)); return j; };
+            auto ints = [](const std::vector<int>& v) { Json j = Json::array(); for (int x : v) j.push(Json(double(x))); return j; };
+            Json j = Json::object();
+            j.set("chip", D.name); j.set("cells", a[2]); j.set("owner", a[3]); j.set("line", a[4]);
+            j.set("window", rect(fw.window)); j.set("loop", rect(fw.loop)); j.set("pieces", rects(fw.pieces)); j.set("aperture", ints(fw.aperture));
+            j.set("kind", ints(fw.kind)); j.set("gap_a", fw.gap_a); j.set("gap_b", fw.gap_b); j.set("own_moat", fw.own_moat);
+            Json centre = Json::array(); centre.push(Json(fw.qx)); centre.push(Json(fw.qy));
+            j.set("island_centre", centre);
+            j.set("theta0", fw.theta0); j.set("etch", rects(fw.etch)); j.set("island", rects(fw.island));
+            Json r = Json::object();
+            r.set("mesh_um", h_flux); r.set("panels", F.panels); r.set("M_pH", F.M_pH); r.set("M_cm_pH", F.M_cm_pH); r.set("M_cm_signed_pH", F.M_cm_signed_pH);
+            j.set("method_of_moments", r);
+            std::ofstream o(dump);
+            j.dump(o);
+            o << "\n";
+            if (!o) { std::fprintf(stderr, "layout_gates: cannot write %s\n", dump.c_str()); return 2; }
+        }
         std::printf("  time (%d threads): assemble %.1f s, flux solve %.1f s, total %.1f s\n", threads, t_assemble, since(t0), since(t_start));
         return F.ok ? 0 : 1;
     }

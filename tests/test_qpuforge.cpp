@@ -2556,7 +2556,8 @@ static void test_layout_checks() {
 #define QPUFORGE_SOURCE_DIR "."
 #endif
 static void test_layout_presets() {
-    std::puts("[layout_presets] AF-17, BF-49, GF-97 from the committed cell files: placement clean, mask DRC, connectivity and ground gate, straps, control-line gate, extraction on target, re-nullable");
+    std::puts("[layout_presets] AF-17, BF-49, GF-97 from the committed cell files: placement clean, mask DRC, connectivity, ground and bump gate, straps, extraction on target, "
+              "re-nullable; the control-line gate on AF-17 (BF-49 and GF-97: layout_gates_bf49 / _gf97, label smoke)");
     using namespace layout;
     struct Chip { const char* name; ChipDesign D; const char* cells; };
     const std::vector<Chip> chips{{"AF-17", alpha1_v11(3), "designs/alpha1-v11/layout_cells.json"},
@@ -2614,7 +2615,13 @@ static void test_layout_presets() {
             }
         }
         CHECK(foot_on_island == 0 && span_over_qubit == 0, "%s straps: %d with a foot on island metal, %d over a qubit or a junction region", c.name, foot_on_island, span_over_qubit);
-        // control-line gate (window on the coarse mesh): drive and flux-line T1 limits, drive crosstalk, drive power, I(Phi0/2)
+        CHECK(L.conn.bumps_ok(), "%s ground bumps: fewest on a plaquette %d, farthest SQUID ground from a bump %.0f um, signal bumps without one %d, rule violations %d", c.name,
+              L.conn.min_plaquette_bumps, L.conn.max_squid_bump_dist_um, L.conn.signal_bumps_without_ground, L.conn.bump_rule_violations);
+        // control-line gate (windows on the coarse mesh, flux solves on kFluxMesh): drive and flux-line T1 limits, drive
+        // crosstalk, drive power, I(Phi0/2). AF-17 only: the solves cost minutes per chip, and BF-49 / GF-97 use the same
+        // launcher and cells; their full budget runs in the smoke set (layout_gates_bf49, layout_gates_gf97) and the reviews.
+        if (std::string(c.name) != "AF-17") { CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);
+                                              CHECK(std::abs(P.park_gap_MHz) < 0.05, "%s parked exchange not re-nullable (%.3f MHz)", c.name, P.park_gap_MHz); continue; }
         auto LB = line_budget(c.D, R, L, m, P.park_fc_GHz, MeshOptions{3.0, 50.0, 2.0});
         line_budget_crosstalk(LB, c.D, R, L, m);
         std::printf("    %s\n", line_budget_summary(LB).c_str());

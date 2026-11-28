@@ -101,7 +101,7 @@ inline LayoutCheck layout_section(const ChipDesign& D, const std::string& cells_
     out.mask_drc_clean = L.drc_clean();
     out.connectivity_clean = L.conn.clean();
     auto LB = line_budget(D, R, L, m, P.park_fc_GHz, g_opt.smoke ? MeshOptions{3.0, 50.0, 2.0} : MeshOptions{1.5, 50.0, 1.6});
-    if (LB.evaluated) line_budget_flux_crosstalk(LB, L, MeshOptions{3.0, 50.0, 2.0});
+    line_budget_crosstalk(LB, D, R, L, m);
     out.lines_ok = LB.ok();
     out.within_tolerance = out.max_ec_err <= 0.03 && out.max_g_err <= 0.06 && std::abs(out.readout_c_err) <= 0.06;
     out.renull_ok = std::abs(P.park_gap_MHz) < 0.05;

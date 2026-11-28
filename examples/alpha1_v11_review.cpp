@@ -182,7 +182,7 @@ int main(int argc, char** argv) {
             const auto P = layout::post_layout(V11, R11, m);
             const auto L = layout::assemble_chip(V11, C);
             auto LB = layout::line_budget(V11, R11, L, m, P.park_fc_GHz, layout::MeshOptions{1.5, 50.0, 1.6});
-            if (LB.evaluated) layout::line_budget_flux_crosstalk(LB, L, layout::MeshOptions{3.0, 50.0, 2.0});
+            layout::line_budget_crosstalk(LB, V11, R11, L, m);
             std::printf("   cells: measure arm %.1f um, data arm %.1f um, coupler pad %.0f um, coupler T-bar %.1f um, readout pad %.1f um\n",
                         C.meas.L, C.data.L, C.cg.pad, C.cg.l_c, C.meas.r_pad);
             std::printf("   extracted: C_sigma %.1f/%.1f fF, C_coupler %.0f fF, C_qc %.2f fF, C_qq %.3f fF, C_qr %.2f fF\n", m.C_sigma_m, m.C_sigma_d, m.C_c, m.C_qc,
@@ -229,7 +229,7 @@ int main(int argc, char** argv) {
         crit("zz", "every pair: idle ZZ at the coupler park point <= 10 kHz", cz_zz_max <= 10.0);
         crit("drc", "layout passes placement, island-spacing and mask width/space checks", lay_found && lay_placement && lay_drc);
         crit("connectivity", "metal connectivity clean: conductors separate, every SQUID from its own island to ground, qubit SQUID grounds and flux-line shorts on plane metal with no strap in the path, no fragment on a single strap", lay_found && lay_conn);
-        crit("lines", "control lines: XY and flux T1 limits >= 10x the design T1 (coupler-mediated drive, common-mode flux coupling included), drive crosstalk <= 10%, I(Phi0/2) <= 2 mA", lay_found && lay_lines);
+        crit("lines", "control lines: drive and flux-line T1 limits >= 10x the design T1 (capacitive, SQUID loop, common mode), drive crosstalk <= 10%, I(Phi0/2) <= 2 mA", lay_found && lay_lines);
         crit("layout", "extracted E_C within 3%, couplings within 6%; parked exchange re-nullable", lay_found && lay_tol && lay_renull);
         out.set("exit_criteria", ej);
     }

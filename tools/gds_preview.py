@@ -3,7 +3,7 @@
 
 Usage: gds_preview.py chip.gds out.png [--zoom x0,y0,x1,y1]
 Parses every record, checks structure (HEADER/BGNLIB/UNITS/.../ENDLIB), counts elements per layer and renders
-layers 1 (etch), 2 (junctions), 3 (bumps), 4/5 (ground-strap spans/feet), 10 (outline) and text labels with matplotlib.
+layers 1 (etch), 2 (junctions), 3 (bumps), 4/5 (ground-strap spans/feet), 6 (ground bumps), 10 (outline) and text labels with matplotlib.
 """
 import struct, sys
 from collections import Counter
@@ -63,6 +63,8 @@ def main():
     if spans: ax.add_collection(PolyCollection(spans, facecolors='#9b5de580', edgecolors='#9b5de5', linewidths=0.4))
     feet = [p['xy'][:-1] for p in s['polys'] if p['layer'] == 5]
     if feet: ax.add_collection(PolyCollection(feet, facecolors='#f15bb5', edgecolors='none', linewidths=0))
+    gb = [p['xy'][:-1] for p in s['polys'] if p['layer'] == 6]
+    if gb: ax.add_collection(PolyCollection(gb, facecolors='#ffffff', edgecolors='#2a9d8f', linewidths=0.8))
     for p in s['polys']:
         if p['layer'] == 10:
             xs, ys = zip(*p['xy']); ax.plot(xs, ys, color='k', lw=1)
@@ -74,7 +76,7 @@ def main():
         if not zoom or (zoom[0] <= x <= zoom[2] and zoom[1] <= y <= zoom[3]):
             ax.text(x, y, t['s'], fontsize=6 if not zoom else 9, color='white')
     ax.set_aspect('equal'); ax.set_xlabel('um'); ax.set_ylabel('um')
-    ax.set_title(f'{next(iter(lib["structs"]))}  (gold: metal, navy: etch, red: junctions, teal: bumps, violet: ground straps)', fontsize=9)
+    ax.set_title(f'{next(iter(lib["structs"]))}  (gold: metal, navy: etch, red: junctions, teal: signal bumps, white: ground bumps, violet: ground straps)', fontsize=9)
     fig.tight_layout(); fig.savefig(out); print('wrote', out)
 
 if __name__ == '__main__':

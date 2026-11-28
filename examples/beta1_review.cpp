@@ -202,7 +202,7 @@ int main(int argc, char** argv) {
         // control-line budget (layout.control_lines), and to meet the circuit targets.
         crit("drc", "layout passes placement, island-spacing and mask width/space checks", lay.found && lay.placement_clean && lay.mask_drc_clean);
         crit("connectivity", "metal connectivity clean: conductors separate, every SQUID from its own island to ground, qubit SQUID grounds and flux-line shorts on plane metal with no strap in the path, no fragment on a single strap", lay.found && lay.connectivity_clean);
-        crit("lines", "control lines: XY and flux T1 limits >= 10x the design T1 (coupler-mediated drive, common-mode flux coupling included), drive crosstalk <= 10%, I(Phi0/2) <= 2 mA", lay.found && lay.lines_ok);
+        crit("lines", "control lines: drive and flux-line T1 limits >= 10x the design T1 (capacitive, SQUID loop, common mode), drive crosstalk <= 10%, I(Phi0/2) <= 2 mA", lay.found && lay.lines_ok);
         crit("layout", "extracted E_C within 3%, couplings and readout capacitance within 6%; parked exchange re-nullable",
              lay.found && lay.within_tolerance && lay.renull_ok);
         out.set("exit_criteria", ej);

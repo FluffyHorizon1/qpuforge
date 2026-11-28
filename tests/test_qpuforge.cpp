@@ -2154,6 +2154,186 @@ static NoiseModel with_leakage(const ChipDesign& D, const ChipReport& R, NoiseMo
     return nm;
 }
 
+// ---------------------------------------------------------------- herald weights derived from the leakage model
+// The model's prior (probability that a measure qubit is leaked at its readout) against the sampler: the expected
+// number of true heralds per shot is the sum of the priors times the fidelity.
+static double model_true_heralds(const MemorySetup& M, double fidelity) {
+    double s = 0; for (double p : M.herald_model.prior) s += p;
+    return s * fidelity;
+}
+// failures of the streaming decoder alone on the syndromes of a herald run: heralds sampled (same draws) but not used
+static long plain_stream(const MemorySetup& M, const StreamingUnionFind& S, long shots, std::uint64_t seed, FrameRunOptions o) {
+    o.herald.use_in_decoder = false; o.stream = &S;
+    return run_memory_frame(M, shots, seed, o).logical_errors;
+}
+static void test_herald_weights() {
+    std::puts("[herald weights] weights derived from the leakage model: the model's leak probabilities against the sampler, logical gain against the fixed factors");
+    const auto D = surface_chip(5); const auto R = analyze(D);
+    const auto nm = stressed_leakage(D, R, 2e-3);
+    auto M = prepare_memory(D, R, nm, 10);
+    prepare_herald_model(M);
+    const auto& H = M.herald_model;
+    const long shots = 20000;
+    FrameRunOptions fixed; fixed.herald.on = true;
+    FrameRunOptions blind = fixed; blind.herald.use_in_decoder = false;
+    FrameRunOptions der = fixed; der.herald.derived = true;
+    const auto rb = run_memory_frame(M, shots, 515, blind), rf = run_memory_frame(M, shots, 515, fixed), rd = run_memory_frame(M, shots, 515, der);
+    // 1. the leakage chain against the Monte Carlo, and how much of each herald it explains
+    const double mc_true = rb.heralds_per_shot * rb.herald_true_frac, model_true = model_true_heralds(M, fixed.herald.fidelity);
+    std::size_t edges = 0; for (const auto& v : H.cond) edges += v.size();
+    std::printf("  d=5, 10 rounds, CZ leakage 2e-3: true heralds per shot %.4f sampled, %.4f from the model (%+.1f%%); the look-back of %d rounds leaves at most %.3f of a herald unexplained\n",
+                mc_true, model_true, 100 * (model_true / mc_true - 1), H.max_rounds, H.worst_unexplained);
+    std::printf("  %ld consequence signatures, %zu (bit, edge) entries; conditional fault probability kept %.1f, below the pruning limit %.1f, without a graph edge %.2f\n",
+                H.requests, edges, H.kept_mass, H.pruned_mass, H.dropped_mass);
+    CHECK(std::abs(model_true / mc_true - 1) < 0.05, "leak probability at readout: model %.4f vs sampled %.4f true heralds per shot", model_true, mc_true);
+    CHECK(H.worst_unexplained < 0.05 && H.dropped_mass < 0.02 * H.kept_mass, "leakage chain: %.3f unexplained, %.2f of %.1f without an edge", H.worst_unexplained,
+          H.dropped_mass, H.kept_mass);
+    // 2. logical gain on the same syndromes, exact matching and union-find
+    FrameRunOptions ub = blind, uf = fixed, ud = der; ub.method = uf.method = ud.method = DecodeMethod::UnionFind;
+    const auto qb = run_memory_frame(M, shots, 515, ub), qf = run_memory_frame(M, shots, 515, uf), qd = run_memory_frame(M, shots, 515, ud);
+    std::printf("  same syndromes, %ld shots: exact matching %ld failures without heralds, %ld fixed factors, %ld derived weights; union-find %ld, %ld, %ld\n",
+                shots, rb.logical_errors, rf.logical_errors, rd.logical_errors, qb.logical_errors, qf.logical_errors, qd.logical_errors);
+    CHECK(100 * rd.logical_errors <= 102 * rf.logical_errors && 10 * rd.logical_errors < 8 * rb.logical_errors, "derived weights, exact matching: %ld (fixed %ld, none %ld)",
+          rd.logical_errors, rf.logical_errors, rb.logical_errors);
+    CHECK(100 * qd.logical_errors <= 102 * qf.logical_errors && 10 * qd.logical_errors < 8 * qb.logical_errors, "derived weights, union-find: %ld (fixed %ld, none %ld)",
+          qd.logical_errors, qf.logical_errors, qb.logical_errors);
+    // 3. heralds that never fire change nothing; the fixed-factor result does not depend on the model being built
+    FrameRunOptions never = der; never.herald.fidelity = 0; never.herald.false_rate = 0;
+    const auto rn = run_memory_frame(M, shots, 515, never), plain = run_memory_frame(M, shots, 515);
+    const auto M0 = prepare_memory(D, R, nm, 10);
+    const auto rf0 = run_memory_frame(M0, shots, 515, fixed);
+    CHECK(rn.logical_errors == plain.logical_errors && rf0.logical_errors == rf.logical_errors, "no heralds: %ld vs %ld failures; fixed factors %ld vs %ld",
+          rn.logical_errors, plain.logical_errors, rf0.logical_errors, rf.logical_errors);
+    // 4. the streaming decoder with heralds: one window over the whole shot is the batch decoder, and a sliding window
+    //    uses the heralds too (the run and its comparison are decoded by the same decoder)
+    {
+        const int nd = int(M.exp.detectors.size());
+        const StreamingUnionFind whole(nd, M.dem.edges, M.exp.detector_round, M.exp.rounds + 2, 1), slide(nd, M.dem.edges, M.exp.detector_round, 6, 3);
+        FrameRunOptions wd = der, wf = fixed, sb = blind, sd = der, sn = never; wd.stream = wf.stream = &whole; sb.stream = sd.stream = sn.stream = &slide;
+        const auto a = run_memory_frame(M, shots, 515, wd), b = run_memory_frame(M, shots, 515, wf);
+        const auto c = run_memory_frame(M, shots, 515, sb), e = run_memory_frame(M, shots, 515, sd), f = run_memory_frame(M, shots, 515, sn);
+        std::printf("  streaming union-find with heralds: one window %ld derived, %ld fixed (batch %ld, %ld); window 6 / commit 3: %ld without heralds, %ld derived\n",
+                    a.logical_errors, b.logical_errors, qd.logical_errors, qf.logical_errors, c.logical_errors, e.logical_errors);
+        CHECK(a.logical_errors == qd.logical_errors && b.logical_errors == qf.logical_errors, "one window with heralds is not the batch decoder (%ld vs %ld, %ld vs %ld)",
+              a.logical_errors, qd.logical_errors, b.logical_errors, qf.logical_errors);
+        // heralds that are sampled and ignored, and heralds that never fire, both leave the plain streaming decoder
+        CHECK(c.logical_errors != qb.logical_errors && 10 * e.logical_errors < 8 * c.logical_errors && f.logical_errors == plain_stream(M, slide, shots, 515, never),
+              "streaming with heralds: blind %ld (batch %ld), never firing %ld, derived %ld", c.logical_errors, qb.logical_errors, f.logical_errors, e.logical_errors);
+    }
+}
+
+// ---------------------------------------------------------------- data-qubit leakage heralding (DQLR with transfer)
+static void test_dqlr_herald() {
+    std::puts("[dqlr herald] DQLR that leaves the leakage on the measure qubit: sampler against the model, heralds of data-qubit leakage, logical gain");
+    const auto D = surface_chip(5); const auto R = analyze(D);
+    // the data qubits leak (2e-3 per CZ); leakage-removing reset and DQLR
+    auto nm = noise_model(D, R);
+    nm.leakage = true; nm.leak_1q = 0; nm.leak_transport = 0.05; nm.reset_removes_leakage = true; nm.dqlr = true; nm.dqlr_eff = 0.98; nm.dqlr_err = 5e-4;
+    for (const auto& p : R.pairs) if (p.designed) {
+        const int a = D.index_of(p.a), b = D.index_of(p.b);
+        nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {D.qubits[std::size_t(a)].role == "data" ? a : b, 2e-3};
+    }
+    const long shots = 20000;
+    FrameRunOptions h; h.herald.on = true; h.herald.derived = true;
+    FrameRunOptions blind = h; blind.herald.use_in_decoder = false;
+    // dump (the 0.4 model): the measure-qubit readout sees almost none of the data-qubit leakage
+    auto Md = prepare_memory(D, R, nm, 10);
+    prepare_herald_model(Md);
+    const auto db = run_memory_frame(Md, shots, 616, blind), dd = run_memory_frame(Md, shots, 616, h);
+    // transfer
+    auto nt = nm; nt.dqlr_transfer = true;
+    auto Mt = prepare_memory(D, R, nt, 10);
+    prepare_herald_model(Mt);
+    const auto tb = run_memory_frame(Mt, shots, 616, blind), td = run_memory_frame(Mt, shots, 616, h);
+    const double mc_d = db.heralds_per_shot * db.herald_true_frac, mc_t = tb.heralds_per_shot * tb.herald_true_frac;
+    const double mo_d = model_true_heralds(Md, h.herald.fidelity), mo_t = model_true_heralds(Mt, h.herald.fidelity);
+    std::printf("  d=5, 10 rounds, data-qubit CZ leakage 2e-3, %.2f leakage events per shot; true heralds per shot: dump %.4f (model %.4f), transfer %.4f (model %.4f)\n",
+                tb.leak_events_per_shot, mc_d, mo_d, mc_t, mo_t);
+    std::printf("  leaked fraction data / measure: dump %.2e / %.2e, transfer %.2e / %.2e\n", db.leak_frac_data, db.leak_frac_meas, tb.leak_frac_data, tb.leak_frac_meas);
+    std::printf("  failures of %ld: dump %ld without heralds, %ld with; transfer %ld without heralds, %ld with derived weights\n", shots, db.logical_errors, dd.logical_errors,
+                tb.logical_errors, td.logical_errors);
+    CHECK(std::abs(mo_t / mc_t - 1) < 0.05 && std::abs(mo_d / mc_d - 1) < 0.15, "true heralds per shot: transfer %.4f vs model %.4f, dump %.4f vs model %.4f", mc_t, mo_t, mc_d, mo_d);
+    // most leakage events are now heralded one round later: about eff x fidelity of them (less those that end first)
+    CHECK(mc_t > 0.8 * tb.leak_events_per_shot && mc_t > 5 * mc_d, "transfer heralds %.4f per shot for %.4f events (dump %.4f)", mc_t, tb.leak_events_per_shot, mc_d);
+    CHECK(tb.leak_frac_meas > 5 * db.leak_frac_meas && tb.leak_frac_data < 1.5 * db.leak_frac_data, "leaked fractions: transfer %.2e / %.2e, dump %.2e / %.2e",
+          tb.leak_frac_data, tb.leak_frac_meas, db.leak_frac_data, db.leak_frac_meas);
+    CHECK(10 * td.logical_errors < 7 * tb.logical_errors, "the heralds of transferred leakage do not lower the logical error by 30%% (%ld vs %ld)", td.logical_errors, tb.logical_errors);
+    CHECK(Mt.herald_model.worst_unexplained < 0.01, "transfer: %.3f of a herald unexplained", Mt.herald_model.worst_unexplained);
+    // transfer off: bit for bit the sampler of before (the flag alone changes nothing without DQLR)
+    auto n0 = stressed_leakage(D, R, 2e-3), n1 = n0; n1.dqlr_transfer = true;
+    const auto r0 = run_memory_frame(prepare_memory(D, R, n0, 6), 5000, 9), r1 = run_memory_frame(prepare_memory(D, R, n1, 6), 5000, 9);
+    CHECK(r0.logical_errors == r1.logical_errors && r0.leak_frac_meas == r1.leak_frac_meas && r0.mean_defects == r1.mean_defects, "the transfer flag without DQLR changed the run");
+}
+
+// ---------------------------------------------------------------- operation counts of the streaming decoder
+static void test_stream_ops() {
+    std::puts("[stream ops] operation counters of the union-find decoders, the pre-decoder, the profile runner");
+    const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+    const auto M = prepare_memory(D, R, nm, 12);
+    const int nd = int(M.exp.detectors.size());
+    const auto& uf = M.decoder->union_find();
+    // 1. counting changes nothing; the counts add up
+    {
+        Xoshiro256 rng(31);
+        UFScratch a, b; StreamScratch sa, sb, sp;
+        const StreamingUnionFind S(nd, M.dem.edges, M.exp.detector_round, 6, 3);
+        long differ = 0, bad_counts = 0, uncleared = 0, pre_pairs = 0, trials = 3000, cleared = 0, with_defects = 0;
+        std::vector<int> def; std::vector<std::uint8_t> on(static_cast<std::size_t>(nd)), got(static_cast<std::size_t>(nd));
+        for (long t = 0; t < trials; ++t) {
+            std::fill(on.begin(), on.end(), 0);
+            for (const auto& e : M.dem.edges) if (rng.uniform() < (t % 2 ? 3 : 1) * e.p) { on[std::size_t(e.a)] ^= 1; if (e.b >= 0) on[std::size_t(e.b)] ^= 1; }
+            def.clear(); for (int k = 0; k < nd; ++k) if (on[std::size_t(k)]) def.push_back(k);
+            UFOpCounts c;
+            const int p0 = uf.decode(def, a), p1 = uf.decode_counted(def, b, c);
+            if (p0 != p1 || a.correction != b.correction) ++differ;
+            if (c.loads != long(def.size()) || c.corrections != long(b.correction.size()) || c.growth_iters != b.iterations || c.finds < c.unions || c.hops < 0 ||
+                c.edge_updates > c.edge_visits || (!def.empty() && c.peel_steps < c.corrections))
+                ++bad_counts;
+            StreamOptions so; so.count = true;
+            const int q0 = S.decode(def, sa), q1 = S.decode(def, sb, so);
+            if (q0 != q1 || sa.committed != sb.committed) ++differ;
+            long commits = 0, loads = 0;
+            for (int w = 0; w < S.n_windows(); ++w) {
+                commits += sb.counts[std::size_t(w)].commits; loads += sb.counts[std::size_t(w)].loads;
+                if ((sb.cleared[std::size_t(w)] == 0) != (sb.counts[std::size_t(w)].loads == 0) || sb.cleared[std::size_t(w)] == 1) ++bad_counts;
+            }
+            if (commits != long(sb.committed.size()) || loads < long(def.size())) ++bad_counts;
+            // the pre-decoder: the committed correction still clears the syndrome
+            so.predecode = true;
+            S.decode(def, sp, so);
+            std::fill(got.begin(), got.end(), 0);
+            for (auto [x, y] : sp.committed) { got[std::size_t(x)] ^= 1; if (y >= 0) got[std::size_t(y)] ^= 1; }
+            if (got != on) ++uncleared;
+            for (int w = 0; w < S.n_windows(); ++w) { pre_pairs += sp.counts[std::size_t(w)].pre_pairs; cleared += sp.cleared[std::size_t(w)] == 1; with_defects += sp.cleared[std::size_t(w)] != 0; }
+        }
+        std::printf("  %ld syndromes (d=5, 12 rounds): counted and plain decoding differ on %ld, inconsistent counts on %ld; with the pre-decoder %ld uncleared, %ld pairs removed, %ld of %ld windows with defects cleared\n",
+                    trials, differ, bad_counts, uncleared, pre_pairs, cleared, with_defects);
+        CHECK(differ == 0 && bad_counts == 0, "operation counters: %ld decodings differ, %ld inconsistent counts", differ, bad_counts);
+        CHECK(uncleared == 0 && pre_pairs > 0 && cleared > 0, "pre-decoder: %ld uncleared, %ld pairs, %ld windows cleared", uncleared, pre_pairs, cleared);
+    }
+    // 2. the profile runner decodes the syndromes of run_memory_frame, and its histograms account for every window
+    {
+        const StreamingUnionFind S(nd, M.dem.edges, M.exp.detector_round, 6, 3);
+        UFCostModel one; one.name = "unit"; one.fixed = 5; for (long& v : one.per) v = 1;
+        const long shots = 6000;
+        FrameRunOptions so; so.stream = &S;
+        const auto ref = run_memory_frame(M, shots, 88, so);
+        const auto P = run_stream_profile(M, S, shots, 88, false, {one}), Q = run_stream_profile(M, S, shots, 88, true, {one});
+        long nw = 0, empty = 0; for (const auto& [v, k] : P.cycles_hist[0]) { nw += k; if (v == one.empty) empty += k; }
+        long nloads = 0; for (const auto& [v, k] : P.count_hist[0]) nloads += k;
+        std::printf("  profile of %ld shots, window 6 / commit 3: %ld failures (run_memory_frame %ld); %ld windows, %.1f%% without defects; with the pre-decoder %ld failures, %.1f%% of the windows with defects cleared\n",
+                    shots, P.logical_errors, ref.logical_errors, P.windows, 100.0 * double(P.windows_empty) / double(P.windows), Q.logical_errors,
+                    100.0 * double(Q.windows_cleared) / double(Q.windows - Q.windows_empty));
+        CHECK(P.logical_errors == ref.logical_errors, "profile runner: %ld failures, run_memory_frame %ld", P.logical_errors, ref.logical_errors);
+        CHECK(P.windows == shots * S.n_windows() && nw == P.windows && nloads == P.windows && empty == P.windows_empty && P.windows_cleared == 0 &&
+              P.windows_empty + P.windows_uf == P.windows && Q.windows_cleared > 0 && Q.windows_empty + Q.windows_cleared + Q.windows_uf == Q.windows,
+              "profile histograms: %ld windows, %ld in the cycle histogram, %ld empty (%ld)", P.windows, nw, empty, P.windows_empty);
+        CHECK(StreamProfile::mean(Q.cycles_hist[0]) < StreamProfile::mean(P.cycles_hist[0]) && StreamProfile::quantile(P.cycles_hist[0], 0.999) <= StreamProfile::max(P.cycles_hist[0]) &&
+              StreamProfile::mean(P.latency_hist[0]) >= StreamProfile::mean(P.cycles_hist[0]),
+              "profile statistics (mean cycles %.2f, with the pre-decoder %.2f)", StreamProfile::mean(P.cycles_hist[0]), StreamProfile::mean(Q.cycles_hist[0]));
+    }
+}
+
 static void test_surgery() {
     std::puts("[surgery] multi-patch geometry, ZZ / XX parity measurement: tableau check, memory equivalence, DEM, noise");
     // geometry: two d x d patches and their merged region
@@ -2408,6 +2588,9 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"heralds", test_heralds},
     {"impact_veto", test_impact_veto},
     {"streaming_uf", test_streaming_uf},
+    {"herald_weights", test_herald_weights},
+    {"dqlr_herald", test_dqlr_herald},
+    {"stream_ops", test_stream_ops},
     {"surgery", test_surgery},
     {"surgery_cnot", test_surgery_cnot},
 };

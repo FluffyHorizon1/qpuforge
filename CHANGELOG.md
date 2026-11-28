@@ -446,9 +446,9 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
 
 ### Known issues
 - **Open review findings on the mask connectivity now on `main`** (details in docs/design/mask-connectivity.md). The
-  approach is known to be electrically wrong on the points below. A redesign is in progress. Its first step, the
-  stricter checks of PR #28, is on `main` already and the committed masks fail them (`layout_presets`, 9 checks;
-  `qpuforge gds` reports "metal connectivity NOT clean" for them); the corrected geometry is not on `main` yet:
+  approach is known to be electrically wrong on the points below. A redesign is in progress on the branch
+  `scs-bot/fab-readiness`; its first step, the stricter checks of PR #28, was merged before the masks pass them and is
+  reverted on `main` until the corrected geometry comes with it:
   - the SQUID ground lead and the flux-line short share one modelled airbridge to the plane (galvanic T1 channel,
     estimated 0.1–1 µs; the pocket is treated as ideal ground);
   - the flux-line short couples only ~0.004–0.011 pH to the SQUID loop (~90–290 mA for Φ0/2): the flux lines do not

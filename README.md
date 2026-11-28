@@ -54,7 +54,7 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 321 validation checks (~6 min on 4 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 346 validation checks (~6 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
@@ -89,6 +89,7 @@ qpuforge gds chip.json chip.gds --cells cells.json [--synthesize]       # layout
 qpuforge new chip.json --surface 3 --arch tunable           # any surface-code chip
 qpuforge new chip.json --grid 3x3 --arch tunable --g-MHz 4  # grid / line / ring chips
 qpuforge analyze chip.json                                  # device report + design-rule check
+qpuforge analyze chip.json --materials sidecar.json [--loss-tangent]            # apply an atomforge forge.materials.v0 sidecar first
 qpuforge layout chip.json chip.svg                          # floor-plan
 qpuforge run chip.json examples/ghz5.qasm --traj 400        # emulate a circuit (mid-circuit measure/reset supported)
 qpuforge run chip.json xeb:10                               # also ghz:N qft:N bv:N
@@ -122,7 +123,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 321 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 346 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -177,6 +178,10 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   source fails it (ratio 6.1). Threshold failures and missing data are reported.
 * Designs: feedline plans of Beta-1 and Gamma-1, no frequency collisions, and the CZ interaction point solved at the
   tuned anharmonicity (1–2.5 MHz above the idle-anharmonicity estimate).
+* Materials sidecar (`forge.materials.v0`, `materials.hpp`, [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md)): the
+  placeholder file exactly as atomforge writes it leaves Alpha-1 v1.1 unchanged. Sidecar values of Q_dielectric and the
+  junction gap reach `analyze()`: T1_diel matches 2πf/Q to 1e-12 and E_J scales with the gap. The loss tangent becomes
+  Q = 1/tanδ only on request. Wrong schemas, units, values and unknown quantities are rejected.
 * The new groups also pass under AddressSanitizer and UndefinedBehaviorSanitizer.
 
 ## Example: 3×3 chip design study (`examples/design_study.cpp`)

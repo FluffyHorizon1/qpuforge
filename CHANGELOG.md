@@ -3,6 +3,40 @@
 All notable changes to qpuforge. Versions follow `MAJOR.MINOR.PATCH`; before 1.0, a minor release may change the API, and
 every such change is listed under **API changes**.
 
+## [Unreleased]
+
+The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_CONTRACT.md`): a reader for the
+`forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
+
+### Added
+- `materials.hpp`: `load_materials` / `materials_from_json` read and check a `forge.materials.v0` sidecar, and
+  `apply_materials` writes it into a `ChipDesign`. The sidecar's `Q_dielectric` (unit `dimensionless`) sets
+  `ChipDesign::Q_dielectric` and its `junction_gap_ueV` (unit `ueV`) sets `ChipDesign::gap_ueV`; a value must be
+  finite and > 0. With `MaterialsApplyOptions::use_loss_tangent`, a `loss_tangent` sets
+  `Q_dielectric = 1 / loss_tangent` (the uniform-loss model of `analyze()`) when the sidecar's `Q_dielectric` is null
+  or absent. A null value, such as each of atomforge's placeholders, changes nothing. `Rn_spread_pct` and the
+  environment fields are never taken from a sidecar. The returned `MaterialsReport` has one line per quantity, applied
+  or skipped, with the reason. A wrong schema, an unknown quantity, a wrong unit, a bad value or a mismatched `maps_to`
+  throws `std::runtime_error` before the design is changed.
+- CLI: `analyze --materials <sidecar.json> [--loss-tangent]` applies a sidecar, prints one line per quantity, then
+  prints the device report. The chip JSON file is not changed.
+- Tests: the `materials` group (label `unit`, 25 checks), with sidecar fixtures in `tests/data/`, among them
+  atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
+  `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
+  guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
+- 346 validation checks in all. The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
+  `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
+- `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
+
+### API changes
+- New header `include/qpuforge/materials.hpp`, included by `qpuforge.hpp`. It adds `MaterialsQuantity`,
+  `MaterialsProducer`, `MaterialsSidecar`, `MaterialsApplyOptions`, `MaterialsReportLine`, `MaterialsReport`,
+  `materials_from_json`, `load_materials`, `apply_materials` and the `materials_detail` namespace to `qpuforge`. Code
+  that includes `qpuforge.hpp`, defines one of these names itself and uses `using namespace qpuforge` can now hit an
+  ambiguity.
+- Nothing else changes: `device.hpp`, chip JSON files and the output of `qpuforge analyze` without `--materials` are
+  as before. `--loss-tangent` without `--materials` is an error.
+
 ## [0.4.0] (unreleased)
 
 Finishes the software side of Phases Alpha and Beta and starts Phase Gamma: an exact decoder at any number of defects,

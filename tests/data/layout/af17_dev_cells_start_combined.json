@@ -1,0 +1,51 @@
+{
+ "pitch_um": 900,
+ "control_lines": "combined",
+ "measure_qubit": {
+  "arm_length_um": 116.567134226,
+  "arm_width_um": 16,
+  "gap_um": 30,
+  "tbar_thickness_um": 12,
+  "tbar_length_um": 104,
+  "readout_pad_um": 42.9969925703,
+  "claw_gap_um": 5,
+  "claw_width_um": 10,
+  "corner_relief_gap_um": 10,
+  "squid_width_um": 20,
+  "squid_gap_um": 10,
+  "flux_slot_up_um": 14,
+  "flux_slot_down_um": 20.5,
+  "flux_slot_feed_um": -13
+ },
+ "data_qubit": {
+  "arm_length_um": 119.200936641,
+  "arm_width_um": 16,
+  "gap_um": 30,
+  "tbar_thickness_um": 12,
+  "tbar_length_um": 104,
+  "readout_pad_um": 42.9969925703,
+  "claw_gap_um": 5,
+  "claw_width_um": 10,
+  "corner_relief_gap_um": 10,
+  "squid_width_um": 20,
+  "squid_gap_um": 10,
+  "flux_slot_up_um": 14,
+  "flux_slot_down_um": 18.5,
+  "flux_slot_feed_um": -13
+ },
+ "coupler": {
+  "tbar_gap_um": 5,
+  "tbar_thickness_um": 12,
+  "offset_um": 32.5,
+  "coupler_tbar_um": 53.6313636487,
+  "body_width_um": 10,
+  "gap_um": 20,
+  "pad_um": 234.612054356,
+  "bus_tbar_um": 9.1613000207,
+  "bus_width_um": 6,
+  "bus_gap_um": 15,
+  "bus_end_gap_um": 5,
+  "flux_slot_short_side_um": 38,
+  "flux_slot_other_side_um": 12
+ }
+}

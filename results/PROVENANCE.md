@@ -10,8 +10,8 @@ the commands below to reproduce them.
 | `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:36Z | 982 s |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
 | `results/design_study.{csv,txt}` | `design_study > results/design_study.txt` from the repository root (default: 300 trajectories; the program writes the CSV itself) | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27 (time not recorded) | 31 s |
-| `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 500 checks, 0 failed) | `8de7512` (clean tree a0a5686: `main` after #21 and #24) | g++ 13.3.0 | 4 (informational) | 2026-11-28T05:47:52Z | 917 s |
-| `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from <cells0.json>` (`<cells0.json>`: the 0.4 cell file, `git show 5125500:designs/alpha1-v11/layout_cells.json`, which was `designs/alpha1-v11/layout_cells.json` at `0900b14`), output copied to the committed path | `0900b14` (`layout.hpp` and `src/` unchanged since) | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 267 s |
+| `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 500 checks, 0 failed) | `8de7512` (clean tree a0a5686: `main` after #21 and #24) | g++ 13.3.0 | 4 (informational) | 2026-11-28T05:47:52Z | 918 s |
+| `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from <cells0.json>` (`<cells0.json>`: the 0.4 cell file, `git show 5125500:designs/alpha1-v11/layout_cells.json`, which was `designs/alpha1-v11/layout_cells.json` at `0900b14`), output copied to the committed path | `0900b14` (`layout.hpp` changed afterwards, in `cf0455e`, and so did `src/`; see **Cell files**) | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 267 s |
 | `designs/beta1/layout_cells.json` (also used by GF-97) | same, with `designs/beta1/beta1.json` and the 0.4 Beta-1 cell file | same | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 280 s |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` (exit status 2: the mask DRC is not clean) | `0b2ea59` (as the reviews) | g++ 13.3.0 | — | 2026-11-28T02:17:35Z | — |
 | `designs/alpha1-v11/example_characterisation_synthetic.json`, `example_gate_report_synthetic.json` | the first two commands of `CHARACTERISATION-PLAN.md` §7 with `virtual.json` → `designs/alpha1-v11/example_characterisation_synthetic.json` and `--out designs/alpha1-v11/example_gate_report_synthetic.json`; the hidden-dephasing pair as written there (output not committed) | `0b2ea59` (as the reviews) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:58Z | 22 s (all four) |
@@ -46,13 +46,15 @@ the commands below to reproduce them.
   Per-shot seeding draws a different, statistically equivalent sample, so the values differ from those within Monte
   Carlo error even where nothing else changed.
 - **Machine-dependent fields.** `runtime_s` and the decode times (`decode_us_per_round*`) are wall-clock measurements
-  and change from run to run, as do the group times, the decode times and the fault-enumeration times (reference /
-  fast) printed in `results/test_output.txt`. With the same toolchain, a rerun at any thread count reproduces every
+  and change from run to run, as do the group times, the decode times and the fault-enumeration times (reference,
+  sparse and linear-time) printed in `results/test_output.txt`. With the same toolchain, a rerun at any thread count reproduces every
   other number.
 - **Cell files.** Both were synthesised with the DRC-aware generator (bus no narrower than its strip, shorted staircase
   ends, ground-sliver clean-up of the extraction cells, G_md aimed 1.5 % high) in one run each, warm-started from the 0.4
   cell file. The synthesis is deterministic: rerunning the command on the same code and starting file gives the same
-  cells. The reviews evaluate the committed cells against the current targets.
+  cells. `layout.hpp` has changed since `0900b14` (`cf0455e`), but on tree a0a5686 both commands, warm-started from the
+  same 0.4 cell files, still give the committed cells byte for byte (checked 2026-11-28). The reviews evaluate the
+  committed cells against the current targets.
 - **Alpha-1 v1.0 review (historical; not regenerated for v0.3 or v0.4).** `results/alpha1_review.{json,txt}` reproduce
   digit for digit only with the binary that was committed alongside them, run with two threads from a checkout of
   `3fe4d23`:

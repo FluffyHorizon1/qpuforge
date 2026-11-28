@@ -35,7 +35,7 @@ Rev A → rev B (first review):
 Rev B → rev C (second review, with qpuforge v0.4):
 
 4. **Too many resonators per feedline.** Three feedlines for 49 qubits put 17 resonators on each line across almost 1 GHz. Readout chains are run at 6–8 per line today. Rev C uses {{FEED}} feedlines with at most 9 resonators each, in {{RO_LO}}–{{RO_HI}} GHz. Cost: {{EXTRA_LINES}} more coaxial lines.
-5. **The reused Alpha-1 cells could not deliver the Beta-1 readout.** Beta-1 doubles the dispersive shift, which needs a qubit–readout coupling of {{RO_G_T}} MHz. The Alpha-1 cell gives about 160 MHz (9.4 fF where 13.3 fF is needed): half the intended shift, and a slower or noisier readout than the model assumed. Rev B passed because its layout gate checked design rules only. Rev C re-synthesises the cells (readout pad 40.9 → 67.4 µm, arms shortened to hold E_C) and the gate now checks the extracted circuit.
+5. **The reused Alpha-1 cells could not deliver the Beta-1 readout.** Beta-1 doubles the dispersive shift, which needs a qubit–readout coupling of {{RO_G_T}} MHz. The Alpha-1 cell gives about 160 MHz (9.4 fF where 13.3 fF is needed): half the intended shift, and a slower or noisier readout than the model assumed. Rev B passed because its layout gate checked design rules only. Rev C re-synthesises the cells (readout pad {{RO_PAD_A}} → {{RO_PAD_B}} µm in the current cells, arms shortened to hold E_C) and the gate now checks the extracted circuit.
 6. **Decoding above 22 defects is now exact.** Rev B's decoder fell back to greedy matching there, and its long runs suffered for it. On identical syndromes of a {{DEC_R}}-round distance-5 run ({{DEC_N}} shots, {{DEC_DEF}} defects per shot, {{DEC_OVER}} of shots above 22), the fallback fails in {{DEC_PL_LG}} of shots ({{DEC_F_LG}} failures) and exact matching in {{DEC_PL_EX}} ({{DEC_F_EX}}). Rev B's long-run numbers were pessimistic; the leakage decision is re-tested with the exact decoder in §3.
 
 **Device model (rev C):** mean T1 {{T1_MEAN}} µs (best {{T1_BEST}} µs), T2 {{T2_MEAN}} µs, readout error {{RO_ERR}} % at 300 ns.
@@ -100,6 +100,7 @@ Next-step sensitivity: {{SENS}}.
 - **Layout:** `BF49.gds` (cell `BF49_BETA1`).
   - {{CHIP_W}} × {{CHIP_H}} mm, {{ETCH}} etch polygons, {{JJ}} junction regions, {{BUMPS}} bump pads.
   - DRC: {{DRC}}.
+  - Metal connectivity (reported, not gated): {{CONN}}.
 - **Interposer** (feedlines, Purcell filters, fan-out to edge launchers): designed in Beta; not drawn here.
 
 ## 7. Beta simulation gate (ROADMAP.md)

@@ -110,6 +110,7 @@ higher. The rising detection rate is the signature to look for on hardware.
 - **Layout:** `GF97.gds` (cell `GF97_GAMMA1`), built from the Beta-1 rev C cells.
   - {{CHIP_W}} × {{CHIP_H}} mm, {{ETCH}} etch polygons, {{JJ}} junction regions, {{BUMPS}} bump pads.
   - DRC: {{DRC}}.
+  - Metal connectivity (reported, not gated): {{CONN}}.
   - Extracted against target: E_C within {{EC_ERR}}, couplings within {{G_ERR}}, qubit–readout capacitance {{RO_C_ERR}}.
   - Parked exchange re-nulled by parking the couplers at {{PARK}} GHz (residual ZZ {{PARK_ZZ}} kHz).
 
@@ -135,7 +136,7 @@ This review covers the distance-7 memory. The rest of the phase is open:
 - **CZ calibrations** use pulse model version {{CZ_VERSION}}: four levels each for the two qubits and the coupler. The {{N_CZ}} pairs fall into 16 frequency combinations, the same 16 as on Alpha-1 v1.1 and Beta-1. {{CZ_LEAK_NOTE}}
 - **Impact model.** Each scenario is sampled at a ladder of severities, each half a decade below the last, until the excess logical error is lost in the statistical noise; below the last point the excess is taken as proportional to the severity. Runs in which the logical qubit is randomised within the {{ROUNDS}} rounds count as fully failed. The unmitigated scenario follows McEwen et al., *Nature Physics* 18, 107 (2022): chip-wide loss of T1 by one to two orders of magnitude, recovering with a time constant of about 25 ms. The rate of 0.1 per second is a round figure for a centimetre-scale chip; it scales with substrate area and shielding and must be measured on the actual chip. The gap-engineered scenario follows McEwen et al., *Phys. Rev. Lett.* 133, 240601 (2024) and Kurilovich et al., arXiv:2506.18228 (2025): no T1 degradation, but frequency shifts of up to a few MHz lasting about 1 ms, modelled here as a dephasing burst. The model treats the burst as chip-wide and uniform. Gap engineering does not address the scrambling of two-level-system defects by an impact (same PRL); that is not modelled either.
 - **Estimator.** One run length per distance gives the logical error per round without a fit; it folds the time-boundary effects of the first and last rounds into the value. The same estimator at every distance keeps Λ consistent.
-- **Decode time** is a software figure on one core of the build machine, with the other core busy on the same run. It covers matching only, not the syndrome extraction from the simulator.
+- **Decode time** is a software figure per decoding thread on the build machine, measured while the other OpenMP threads ran the same experiment. It covers matching only, not the syndrome extraction from the simulator.
 - The frequency-collision yield uses the static (sweet-spot) collision rules.
 
 ## 11. Files

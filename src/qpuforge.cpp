@@ -705,6 +705,11 @@ static int cmd_cz(const Args& a) {
     double mt = 0, me = 0, ml = 0; for (const auto& c : cal) { mt += c.t_cz_ns; me += c.err_total; ml += c.leakage + c.leak_spectators; }
     const double n = std::max<std::size_t>(cal.size(), 1);
     std::printf("  mean: t_cz %.1f ns, CZ error %.2e (incl. decoherence), leakage %.1e per CZ\n", mt / n, me / n, ml / n);
+    if (D.flux_line.enabled) {   // q18, opt-in (tunable_coupler.flux_line): included in ctrl and total above
+        double md = 0, wd = 0, me2 = 0; for (const auto& c : cal) { md += c.err_distortion; wd = std::max(wd, c.err_distortion); me2 += c.flux_eps_eff; }
+        std::printf("  flux-line distortion (opt-in, on top of residual %.1e): eps_eff %.1e mean, error %.2e mean / %.2e worst pair\n",
+                    D.coupler.residual_ctrl_err, me2 / n, md / n, wd);
+    }
     if (const auto out = a.text("--out"); !out.empty()) { write_json_file(out, cz_calibration_json(cal)); std::printf("  wrote %s\n", out.c_str()); }
     return 0;
 }

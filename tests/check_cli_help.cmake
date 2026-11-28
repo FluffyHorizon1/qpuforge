@@ -43,6 +43,7 @@ elseif(MODE STREQUAL "command")
   expect_usage("^usage:\n  qpuforge run <chip.json> <circuit> " run --help)
   expect_usage("^usage:\n  qpuforge hwgate <chip.json> <data.json> " hwgate -h)
   expect_usage("^usage:\n  qpuforge gds <chip.json> <out.gds> " gds --help)
+  expect_usage("^usage:\n  qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json> \\[--loss-tangent\\]" materials --help)
   # a value that is not a help request: `--help` after an option that takes a value is that option's (bad) value
   execute_process(COMMAND "${EXE}" run --off --help RESULT_VARIABLE rc OUTPUT_QUIET ERROR_QUIET)
   if("${rc}" STREQUAL "0")

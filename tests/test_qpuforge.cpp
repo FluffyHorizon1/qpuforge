@@ -986,7 +986,7 @@ static void test_layout() {
         double worst = 0; for (const auto& r : L.resonators) worst = std::max(worst, std::abs(r.drawn_um - r.target_um));
         CHECK(L.problems.empty(), "chip placement/spacing: %s", L.problems.empty() ? "" : L.problems.front().c_str());
         std::printf("  AF-17 mask DRC: %s\n", drc_summary(L).c_str());
-        CHECK(L.drc_count("width") == 0 && L.drc_count("space") == L.conn.fills_reverted, "AF-17 mask DRC: %d width + %d space violations",
+        CHECK(L.drc_count("width") == 0 && L.drc_count("space") == 0, "AF-17 mask DRC: %d width + %d space violations",
               L.drc_count("width"), L.drc_count("space"));
         CHECK(worst < 1.0 && L.resonators.size() == 17, "resonator lengths");
         const std::string gds_path = temp_path("af17.gds");
@@ -2138,12 +2138,210 @@ static void test_layout_geometry() {
     }
 }
 
+// ---------------------------------------------------------------- layout_checks: the connectivity, ground, flux and control-line checks on synthetic layouts
+static void test_layout_checks() {
+    std::puts("[layout_checks] junction ownership, ground quality (plane metal, straps, bumps), flux coupling by duality, control-line window and formulas");
+    using namespace layout;
+    // a synthetic mask: islands inside cut-outs, etch = cut-outs minus island metal
+    auto finish = [](ChipLayout& L) {
+        std::vector<Rect> metal; for (const auto& [n, rs] : L.islands) metal.insert(metal.end(), rs.begin(), rs.end());
+        L.etch = detail::etch_of(L.holes, metal);
+        analyze_connectivity(L);
+    };
+    {   // (1) junction ownership. Q1 sits in a cut-out of the plane; C2-3 sits in the etch ring around an enclosed pocket
+        // of ground; XY1 is an open line in its own cut-out.
+        ChipLayout B; B.outline = {0, 0, 400, 200};
+        B.islands = {{"Q1", {{40, 80, 80, 120}}}, {"C2-3", {{214, 90, 226, 110}}}, {"XY1", {{330, 90, 350, 110}}}};
+        B.holes = {{20, 60, 100, 140}, {210, 60, 300, 80}, {210, 120, 300, 140}, {210, 80, 240, 120}, {280, 80, 300, 120}, {320, 80, 360, 120}};
+        const Rect jq{80, 96, 100, 104}, jc{226, 98, 240, 102}, jx{350, 98, 360, 102};          // Q1 -> plane, C2-3 -> pocket, XY1 -> plane
+        const detail::Strap s1{{250, 60, 260, 90}, {250, 80, 260, 90}, {250, 50, 260, 60}, 0, 0};   // pocket -> plane across the ring's bottom side
+        const detail::Strap s2{{250, 110, 260, 150}, {250, 110, 260, 120}, {250, 140, 260, 150}, 0, 0};  // and across its top side
+        {   // one SQUID on the qubit: lands, on plane metal
+            ChipLayout L = B; L.jj = {jq}; L.jj_owner = {0}; finish(L);
+            CHECK(L.conn.junctions_landed == 1 && L.conn.qubit_squids == 1 && L.conn.qubit_squids_on_plane == 1 && L.conn.floating_ground == 1,
+                  "junction Q1 -> plane: landed %d, on plane %d/%d, floating %d", L.conn.junctions_landed, L.conn.qubit_squids_on_plane, L.conn.qubit_squids, L.conn.floating_ground);
+            CHECK(L.conn.junction_owner_errors == 1, "C2-3 has no junction: owner errors %d (expected 1)", L.conn.junction_owner_errors);
+        }
+        {   // the same region owned by the other island: on the wrong island
+            ChipLayout L = B; L.jj = {jq}; L.jj_owner = {1}; finish(L);
+            CHECK(L.conn.junctions_landed == 0 && L.conn.junction_owner_errors == 1, "junction on the wrong island: landed %d, owner errors %d", L.conn.junctions_landed, L.conn.junction_owner_errors);
+        }
+        {   // between a line and the plane: an XY line cannot own a junction, and a qubit does not own a junction that misses it
+            ChipLayout L = B; L.jj = {jq, jx}; L.jj_owner = {0, 2}; finish(L);
+            CHECK(L.conn.junctions_landed == 1 && L.conn.junction_owner_errors == 2, "junction owned by a line: landed %d of 2, owner errors %d", L.conn.junctions_landed, L.conn.junction_owner_errors);
+            L.jj_owner = {0, 1}; finish(L);
+            CHECK(L.conn.junctions_landed == 1 && L.conn.junction_owner_errors == 0 && !L.conn.nets_clean(), "junction between a line and the plane: landed %d of 2", L.conn.junctions_landed);
+        }
+        {   // two junctions on one island, none on the other
+            ChipLayout L = B; L.jj = {jq, {80, 106, 100, 112}}; L.jj_owner = {0, 0}; finish(L);
+            CHECK(L.conn.junction_owner_errors == 2, "two junctions on Q1, none on C2-3: owner errors %d", L.conn.junction_owner_errors);
+        }
+        {   // onto a floating fragment: not landed; the 0.4 rule (two different components) would have accepted it
+            ChipLayout L = B; L.jj = {jq, jc}; L.jj_owner = {0, 1}; finish(L);
+            CHECK(L.conn.junctions_landed == 1 && L.conn.floating_ground == 1 && !L.conn.nets_clean(), "junction onto a floating fragment: landed %d of 2", L.conn.junctions_landed);
+            // (2) the pocket reached through one strap: a net, but one cut strap away from floating
+            L.straps = {s1}; finish(L);
+            const auto g1 = L.grounds.back();
+            CHECK(L.conn.nets_clean() && L.conn.junctions_landed == 2 && L.conn.coupler_squids_on_plane == 0 && L.conn.fragments_on_one_strap == 1 &&
+                  L.conn.cut_straps == 1 && L.conn.max_strap_depth == 1 && !L.conn.ground_ok() && !L.conn.clean(),
+                  "pocket on one strap: nets %d, on one strap %d, cut straps %d, ground ok %d", int(L.conn.nets_clean()), L.conn.fragments_on_one_strap, L.conn.cut_straps, int(L.conn.ground_ok()));
+            CHECK(L.grounds.size() == 2 && L.grounds[1].name == "SC2-3" && !L.grounds[1].on_plane && L.grounds[1].straps == 1 && std::abs(L.grounds[1].span_um - 30) < 1e-9 &&
+                  L.grounds[0].on_plane && L.grounds[0].straps == 0 && L.strap_returns == std::vector<int>{1}, "ground reference of the coupler SQUID: %d strap(s), %.0f um", g1.straps, g1.span_um);
+            // two independent straps: a coupler SQUID may sit there
+            L.straps = {s1, s2}; finish(L);
+            CHECK(L.conn.fragments_on_one_strap == 0 && L.conn.cut_straps == 0 && L.conn.ground_ok() && L.conn.clean() && L.conn.coupler_squids_on_plane == 0,
+                  "pocket on two straps: on one strap %d, ground ok %d", L.conn.fragments_on_one_strap, int(L.conn.ground_ok()));
+            // ... but a qubit SQUID may not: its ground must be plane metal itself
+            L.islands[1].first = "Q2"; finish(L);
+            CHECK(L.conn.nets_clean() && L.conn.qubit_squids_on_plane == 1 && L.conn.qubit_squids == 2 && !L.conn.ground_ok(),
+                  "qubit SQUID behind straps: on plane metal %d/%d, ground ok %d", L.conn.qubit_squids_on_plane, L.conn.qubit_squids, int(L.conn.ground_ok()));
+            // a ground bump makes the pocket plane metal
+            L.ground_bumps = {rect_c(260, 100, 10, 10)}; finish(L);
+            CHECK(L.conn.plane_components == 2 && L.conn.qubit_squids_on_plane == 2 && L.conn.strapped_fragments == 0 && L.conn.ground_ok(),
+                  "ground bump on the pocket: plane components %d, on plane metal %d/2", L.conn.plane_components, L.conn.qubit_squids_on_plane);
+        }
+        {   // a chain: pocket A -> pocket B -> plane, two straps each (no cut strap) but depth 2; a third ring makes depth 3
+            ChipLayout L; L.outline = {0, 0, 700, 200};
+            auto ring = [&](double x) { for (const Rect& r : {Rect{x, 60, x + 90, 80}, Rect{x, 120, x + 90, 140}, Rect{x, 80, x + 20, 120}, Rect{x + 70, 80, x + 90, 120}}) L.holes.push_back(r); };
+            ring(100); ring(180); ring(260);                  // three pockets side by side, sharing their walls' edges
+            auto strap = [&](double xa, double xb, double y) { L.straps.push_back({{xa - 5, y - 5, xb + 5, y + 5}, rect_c(xa, y, 10, 10), rect_c(xb, y, 10, 10), 0, 0}); };
+            strap(90, 130, 90); strap(90, 130, 110);          // plane -> pocket 1 (twice)
+            strap(150, 210, 90); strap(150, 210, 110);        // pocket 1 -> pocket 2
+            finish(L);
+            CHECK(L.conn.strapped_fragments == 2 && L.conn.max_strap_depth == 2 && L.conn.fragments_on_one_strap == 0 && L.conn.floating_ground == 1,
+                  "strap chain: %d fragments, depth %d, on one strap %d, floating %d", L.conn.strapped_fragments, L.conn.max_strap_depth, L.conn.fragments_on_one_strap, L.conn.floating_ground);
+            strap(230, 290, 90); strap(230, 290, 110);        // pocket 2 -> pocket 3: three straps deep
+            finish(L);
+            CHECK(L.conn.max_strap_depth == 3 && L.conn.nets_clean() && !L.conn.ground_ok(), "strap chain of depth %d (limit %d): ground ok %d", L.conn.max_strap_depth, kMaxStrapDepth, int(L.conn.ground_ok()));
+        }
+    }
+    {   // (3) a qubit flux line: shorted into the plane with its bump pad's ground continuous to the short, or shorted
+        // into an enclosed pocket (strapped): the net is the same, the ground is not
+        for (int pocket = 0; pocket < 2; ++pocket) {
+            ChipLayout L; L.outline = {0, 0, 300, 400};
+            std::vector<Rect> fm, fh;
+            detail::cpw_path({{150, 100}, {150, 250}}, 10, 6, fm, fh, true);
+            fm.push_back(rect_c(150, 82, 36, 36)); fh.push_back(rect_c(150, 82, 52, 52));
+            L.islands = {{"FQ7", fm}}; L.holes = fh; L.bumps = {rect_c(150, 82, 30, 30)}; L.bump_island = {0};
+            if (pocket) {                                     // a ring of etch around the shorted end, open only where the line passes
+                for (const Rect& r : {Rect{100, 225, 139, 235}, Rect{161, 225, 200, 235}, Rect{100, 290, 200, 300}, Rect{100, 235, 110, 290}, Rect{190, 235, 200, 290}}) L.holes.push_back(r);
+                L.straps = {{{175, 280, 185, 310}, rect_c(180, 285, 10, 10), rect_c(180, 305, 10, 10), 0, 0}, {{115, 280, 125, 310}, rect_c(120, 285, 10, 10), rect_c(120, 305, 10, 10), 0, 0}};
+            }
+            finish(L);
+            CHECK(L.conn.flux_lines == 1 && L.conn.flux_lines_on_plane == 1 && L.conn.nets_clean(), "flux line (pocket %d): on the ground net %d/1: %s", pocket, L.conn.flux_lines_on_plane, connectivity_summary(L).c_str());
+            CHECK(L.conn.qubit_flux_on_plane == 1 - pocket && L.conn.flux_returns_continuous == 1 - pocket && L.conn.ground_ok() == !pocket,
+                  "flux line (pocket %d): short on plane metal %d, return continuous %d, ground ok %d", pocket, L.conn.qubit_flux_on_plane, L.conn.flux_returns_continuous, int(L.conn.ground_ok()));
+        }
+    }
+    {   // (4) duality check: inductance per length of a CPW (10 um centre, 6 um gaps) from the capacitance of its two gap
+        // apertures as conductors in vacuum, against mu0 K(k') / (4 K(k)). 3 mm long: end effects below 1 %.
+        const double len = 3000, w = 10, sgap = 6;
+        std::vector<Conductor> gaps(2);
+        gaps[0].name = "g1"; gaps[0].rects = {{0, w / 2, len, w / 2 + sgap}};
+        gaps[1].name = "g2"; gaps[1].rects = {{0, -w / 2 - sgap, len, -w / 2}};
+        PanelSolution sol;
+        const auto Cg = extract_capacitance(gaps, 1.0, MeshOptions{0.75, 60.0, 1.6}, &sol);
+        // 1 A in the centre conductor: psi = +1/4, -1/4; flux through gap 1 = mu0 / (2 eps0) * its dual charge
+        const double L_pH = dual_flux_pH_per_fF() * (Cg.at(0, 0) * 0.25 - Cg.at(0, 1) * 0.25);
+        const double k = w / (w + 2 * sgap), ref_pH = 4e-7 * PI / 4 * ellipK(std::sqrt(1 - k * k)) / ellipK(k) * len * 1e-6 * 1e12;
+        std::printf("  CPW inductance by duality: %.1f pH over %.0f um (%.4f pH/um), conformal mapping %.1f pH (%.4f pH/um): %+.2f%%\n", L_pH, len, L_pH / len, ref_pH, ref_pH / len, 100 * (L_pH / ref_pH - 1));
+        CHECK(std::abs(L_pH / ref_pH - 1) < 0.03, "CPW inductance by duality %.2f pH vs %.2f pH", L_pH, ref_pH);
+        // the panel solution reproduces the matrix: charges of row k on the panels of conductor j sum to C(k, j)
+        double q01 = 0, q00 = 0;
+        for (std::size_t p = 0; p < sol.panels.size(); ++p) (sol.panels[p].cond == 0 ? q00 : q01) += sol.q_fF[0][p];
+        const std::vector<double> qs = sol.charge({0.25, -0.25});
+        double q1 = 0; for (std::size_t p = 0; p < sol.panels.size(); ++p) if (sol.panels[p].cond == 0) q1 += qs[p];
+        CHECK(std::abs(q00 / Cg.at(0, 0) - 1) < 1e-9 && std::abs(q01 / Cg.at(0, 1) - 1) < 2 * Cg.asymmetry + 1e-9 && sol.q_fF.size() == 2 &&
+              std::abs(q1 - (Cg.at(0, 0) - Cg.at(0, 1)) * 0.25) < 1e-3 * std::abs(q1), "panel charges do not sum to the capacitance matrix (%.6g vs %.6g)", q00, Cg.at(0, 0));
+    }
+    {   // (5) flux coupling of a shorted CPW to a SQUID loop in the cut-out of a square island. The CPW comes from below
+        // on the island's axis and is shorted `d` below the cut-out. With the loop on the axis the two halves of the
+        // return current cancel in the loop (M ~ 0) but not in the common mode; a loop beside the axis sees a net
+        // flux, which falls quickly as the short moves away; an open line carries no current at all.
+        auto make = [&](double y_end, double loop_x, bool shorted) {
+            ChipLayout L; L.outline = {0, 0, 600, 600};
+            std::vector<Rect> fm, fh;
+            detail::cpw_path({{300, 80}, {300, y_end}}, 10, 6, fm, fh, shorted);
+            fm.push_back(rect_c(300, 60, 36, 36)); fh.push_back(rect_c(300, 60, 52, 52));
+            L.islands = {{"Q1", {{250, 250, 350, 350}}}, {"FQ1", fm}};
+            L.holes = {{220, 220, 380, 380}}; L.holes.insert(L.holes.end(), fh.begin(), fh.end());
+            L.jj = {{loop_x - 10, 220, loop_x + 10, 250}}; L.jj_owner = {0};
+            L.bumps = {rect_c(300, 60, 30, 30)}; L.bump_island = {1};
+            finish(L);
+            return L;
+        };
+        const MeshOptions mo{2.0, 40.0, 1.8};
+        const auto Fc = flux_coupling(make(206, 300, true), 1, mo), Fn = flux_coupling(make(206, 330, true), 1, mo), Ff = flux_coupling(make(140, 330, true), 1, mo),
+                   Fo = flux_coupling(make(206, 330, false), 1, mo);
+        std::printf("  flux coupling by duality: loop on the axis M %.4f pH (M_cm %.3f pH); loop 30 um off the axis M %.3f pH, I(Phi0/2) %.2f mA (M_cm %.3f pH); short 66 um further away "
+                    "M %.4f pH, I(Phi0/2) %.1f mA; open line M %.3g pH (%s)\n", Fc.M_pH, Fc.M_cm_pH, Fn.M_pH, Fn.I_half_mA, Fn.M_cm_pH, Ff.M_pH, Ff.I_half_mA, Fo.M_pH, Fo.note.c_str());
+        CHECK(Fc.ok && Fn.ok && Ff.ok && Fo.ok && Fn.apertures == 3, "flux coupling did not run (%s)", Fn.note.c_str());
+        CHECK(Fn.M_pH > 0.3 && Fn.I_half_mA < 5 && Fc.M_pH < 0.02 * Fn.M_pH && Fc.M_cm_pH > 0.2, "loop beside the axis %.3f pH, on the axis %.4f pH (M_cm %.3f pH)", Fn.M_pH, Fc.M_pH, Fc.M_cm_pH);
+        CHECK(Ff.M_pH < 0.2 * Fn.M_pH && Ff.I_half_mA > kMaxHalfFluxQuantum_mA, "a short far from the loop: M %.4f pH, I(Phi0/2) %.2f mA (gate %.0f mA)", Ff.M_pH, Ff.I_half_mA, kMaxHalfFluxQuantum_mA);
+        CHECK(Fo.M_pH == 0 && Fo.I_half_mA > 1e6, "an open flux line couples %.3g pH", Fo.M_pH);
+    }
+    {   // (6) control-line window. Q1 (a cross-free square island) with a coupler pad C1-2 beside it and its XY line:
+        // (a) ending outside the qubit's cut-out behind 64 um of ground, (b) ending inside the cut-out, (c) as (a) but
+        // with the line's pad cut-out merged with the coupler's (no ground between them).
+        auto make = [&](int variant) {
+            ChipLayout L; L.outline = {0, 0, 900, 600};
+            std::vector<Rect> xm, xh;
+            const double y_end = variant == 1 ? 215 : 150;
+            detail::cpw_path({{300, 80}, {300, y_end}}, 10, 6, xm, xh, false);
+            xm.push_back(rect_c(300, 60, 36, 36)); xh.push_back(rect_c(300, 60, 52, 52));
+            L.islands = {{"Q1", {{250, 250, 350, 350}}}, {"XY1", xm}, {"C1-2", {{350, 30, 410, 90}}}};
+            L.holes = {{220, 220, 380, 380}, {340, 20, 420, 100}};
+            L.holes.insert(L.holes.end(), xh.begin(), xh.end());
+            if (variant == 2) L.holes.push_back({326, 34, 340, 86});      // the 14 um of ground between the XY pad and the coupler pad etched away
+            L.bumps = {rect_c(300, 60, 30, 30)}; L.bump_island = {1};
+            finish(L);
+            return L;
+        };
+        const MeshOptions mo{2.5, 40.0, 2.0};
+        const auto Wa = control_window(make(0), 1, mo), Wb = control_window(make(1), 1, mo), Wc = control_window(make(2), 1, mo);
+        CHECK(Wa.ok && Wb.ok && Wc.ok && Wa.has("C1-2") && Wa.has("XY1") && Wa.has("Q1") && Wa.flux_zq.empty(), "control windows did not run (%s)", Wa.note.c_str());
+        const double qa = Wa.mutual("XY1", "Q1"), qb = Wb.mutual("XY1", "Q1"), ca = Wa.mutual("XY1", "C1-2"), cc = Wc.mutual("XY1", "C1-2");
+        std::printf("  control window: C(XY, qubit) %.4f fF behind ground, %.3f fF with the end inside the cut-out; C(XY, coupler) %.4f fF behind ground, %.3f fF with the pad cut-outs merged\n", qa, qb, ca, cc);
+        CHECK(qa > 0 && qb > 4 * qa && qb > 0.5, "XY end inside the cut-out: %.4f fF against %.4f fF outside", qb, qa);
+        CHECK(ca > 0 && cc > 1.4 * ca && cc > 0.8, "XY pad beside a coupler pad: %.4f fF against %.4f fF behind ground", cc, ca);
+        // the coupler-mediated drive: C_eff = C_xq + C_xc C_cq / C_c * f^2 / (f^2 - f_c^2), negative part below the coupler
+        LineCell cell; cell.qubit = 1; cell.win = Wc;
+        cell.mediators = {{"C1-2", cc, 150.0, 8.4}};
+        auto Cnt = [](const std::string&, const std::string&) { return 5.6; };
+        const double f = 6.0, direct = Wc.mutual("XY1", "Q1"), eff = cell.C_xy_eff("Q1", f, Cnt);
+        CHECK(std::abs(eff - (direct + cc * 5.6 / 150.0 * 36.0 / (36.0 - 8.4 * 8.4))) < 1e-12 && eff < direct, "mediated drive: C_eff %.5f fF, direct %.5f fF", eff, direct);
+        cell.mediators = {{"B1-2", 0.3, 65.0, 0.0}};                       // a floating bus adds C_xb C_bq / C_b at every frequency
+        CHECK(std::abs(cell.C_xy_eff("Q1", f, Cnt) - (direct + 0.3 * 5.6 / 65.0)) < 1e-12, "bus-mediated drive");
+    }
+    {   // (7) formulas. T1 of a coupling C into a matched line: C_sigma / (omega^2 C^2 Z0); the shorted line's weight
+        // sin(beta z) makes the effective capacitance proportional to f, so that limit goes as f^-4, not f^-2.
+        const double t = line_T1_us(95.0, 0.03, 6.0);
+        const double w = 2 * PI * 6e9, ref = 95e-15 / (w * w * 0.03e-15 * 0.03e-15 * 50) * 1e6;
+        CHECK(std::abs(t / ref - 1) < 1e-12 && std::abs(line_T1_us(95.0, -0.03, 6.0) - t) < 1e-9 * t && line_T1_us(95.0, 0.0, 6.0) > 1e200, "line_T1_us %.4g us vs %.4g us", t, ref);
+        LineCell c; c.win.flux_zq = {{100.0, 1.0}, {200.0, 0.5}};          // 1 fF at 100 um and 0.5 fF at 200 um from the short
+        const double beta = 2 * PI * 5.5e9 * std::sqrt(0.5 * (11.45 + 1)) / 299792458.0 * 1e-6;
+        CHECK(std::abs(c.C_flux_eff(5.5) - (std::sin(beta * 100) + 0.5 * std::sin(beta * 200))) < 1e-12, "C_flux_eff %.6f", c.C_flux_eff(5.5));
+        const double r_c = c.C_flux_eff(6.0) / c.C_flux_eff(5.5), r_t = line_T1_us(95, c.C_flux_eff(5.5), 5.5) / line_T1_us(95, c.C_flux_eff(6.0), 6.0);
+        CHECK(std::abs(r_c - 6.0 / 5.5) < 1e-3 && std::abs(r_t - std::pow(6.0 / 5.5, 4)) < 5e-3, "flux coupling scales as f (%.4f), its T1 limit as f^-4 (%.4f)", r_c, r_t);
+        // drive power: 0.030 fF into a 95 fF qubit with n01 = 1.33 needs about -74 dBm for a 25 MHz Rabi rate
+        const double p = drive_power_dBm(0.030, 95.0, 1.33);
+        CHECK(std::abs(p + 74.2) < 0.3 && std::abs(drive_power_dBm(0.015, 95.0, 1.33) - p - 6.02) < 0.01, "drive power %.2f dBm", p);
+        // loss through the SQUID loop: none for a symmetric SQUID, d^2 M^2 otherwise; about 33 ms for 2 pH at d = 0.1
+        const double tl = flux_loop_T1_us(2.0, 20.0, 0.2, 0.1, 0.0, 5.5);
+        CHECK(flux_loop_T1_us(2.0, 20.0, 0.2, 0.0, 0.0, 5.5) > 1e200 && std::abs(flux_loop_T1_us(4.0, 20.0, 0.2, 0.2, 0.0, 5.5) / tl - 1.0 / 16) < 1e-9 && tl > 2e4 && tl < 5e4,
+              "flux-loop T1 limit %.3g us", tl);
+        // common mode: 1 pH in series with a 9 nH junction at 6 GHz against 50 ohm: Z0 L_J / (omega M)^2 = 0.32 ms
+        const double EJ = std::pow(phys::Phi0 / (2 * PI), 2) / 9e-9 / phys::h / 1e9, tc = flux_cm_T1_us(1.0, EJ, 6.0);
+        CHECK(std::abs(tc - 50 * 9e-9 / std::pow(w * 1e-12, 2) * 1e6) < 1e-6 * tc && std::abs(tc - 317) < 3 && flux_cm_T1_us(0.0, EJ, 6.0) > 1e200, "common-mode T1 limit %.1f us", tc);
+    }
+}
+
 // ---------------------------------------------------------------- layout_presets: the committed chips are mask-clean and on target
 #ifndef QPUFORGE_SOURCE_DIR
 #define QPUFORGE_SOURCE_DIR "."
 #endif
 static void test_layout_presets() {
-    std::puts("[layout_presets] AF-17, BF-49, GF-97 from the committed cell files: placement clean, mask DRC, connectivity report, extraction on target, re-nullable");
+    std::puts("[layout_presets] AF-17, BF-49, GF-97 from the committed cell files: placement clean, mask DRC, connectivity and ground gate, straps, control-line gate, extraction on target, re-nullable");
     using namespace layout;
     struct Chip { const char* name; ChipDesign D; const char* cells; };
     const std::vector<Chip> chips{{"AF-17", alpha1_v11(3), "designs/alpha1-v11/layout_cells.json"},
@@ -2169,14 +2367,48 @@ static void test_layout_presets() {
         std::printf("  %s: %s; %d sliver fills; E_C within %.2f%%, couplings within %.2f%%, readout C within %.2f%%, re-nulled gap %.1e MHz\n    %s\n", c.name,
                     drc_summary(L).c_str(), L.slivers_filled, 100 * ec, 100 * g, 100 * cr, P.park_gap_MHz, connectivity_summary(L).c_str());
         CHECK(L.problems.empty(), "%s placement: %s", c.name, L.problems.empty() ? "" : L.problems.front().c_str());
-        // the only DRC markers left are the ground necks the connectivity guard kept (one per undone fill)
-        CHECK(L.drc_count("width") == 0 && L.drc_count("space") == L.conn.fills_reverted, "%s mask DRC: %d width + %d space violations, %d fills undone",
-              c.name, L.drc_count("width"), L.drc_count("space"), L.conn.fills_reverted);
-        // connectivity (LVS-lite, with the ground straps): every conductor its own net, every shorted line and every
-        // ground fragment on the plane, every SQUID from its island to the plane
-        CHECK(L.conn.clean(), "%s: %s", c.name, connectivity_summary(L).c_str());
-        CHECK(L.conn.junctions == int(c.D.qubits.size() + c.D.couplings.size()) && L.conn.flux_lines == int(c.D.qubits.size()),
-              "%s: %d junctions, %d flux lines", c.name, L.conn.junctions, L.conn.flux_lines);
+        CHECK(L.drc_count("width") == 0 && L.drc_count("space") == 0, "%s mask DRC: %d width + %d space violations", c.name, L.drc_count("width"), L.drc_count("space"));
+        // connectivity gate: nets (every conductor its own net, every shorted line and ground fragment on the ground
+        // net, every SQUID from its own island to ground, one SQUID per qubit and coupler) and ground quality (qubit
+        // SQUID grounds and flux-line shorts on plane metal with no strap in the path, no fragment on a single strap)
+        CHECK(L.conn.nets_clean(), "%s nets: %s", c.name, connectivity_summary(L).c_str());
+        CHECK(L.conn.ground_ok(), "%s ground: qubit SQUID grounds on plane metal %d/%d, flux shorts %d/%d (returns continuous %d), fragments on one strap %d, depth %d",
+              c.name, L.conn.qubit_squids_on_plane, L.conn.qubit_squids, L.conn.qubit_flux_on_plane, L.conn.flux_lines, L.conn.flux_returns_continuous,
+              L.conn.fragments_on_one_strap, L.conn.max_strap_depth);
+        CHECK(L.conn.junctions == int(c.D.qubits.size() + c.D.couplings.size()) && L.conn.qubit_squids == int(c.D.qubits.size()) &&
+              L.conn.coupler_squids == int(c.D.couplings.size()) && L.conn.flux_lines == int(c.D.qubits.size()) && L.conn.junction_owner_errors == 0,
+              "%s: %d junctions (%d qubit, %d coupler, %d owner errors), %d flux lines", c.name, L.conn.junctions, L.conn.qubit_squids, L.conn.coupler_squids,
+              L.conn.junction_owner_errors, L.conn.flux_lines);
+        // straps: feet on ground metal only, spans clear of every qubit island and junction region
+        int foot_on_island = 0, span_over_qubit = 0;
+        {
+            std::vector<std::pair<Rect, char>> isl;
+            for (const auto& [n, rs] : L.islands) for (const auto& r : rs) isl.push_back({r, n[0]});
+            std::sort(isl.begin(), isl.end(), [](const auto& a, const auto& b) { return a.first.x0 < b.first.x0; });
+            double wmax = 0; for (const auto& i : isl) wmax = std::max(wmax, i.first.w());
+            auto hits = [&](const Rect& q, bool qubits_only) {
+                auto it = std::lower_bound(isl.begin(), isl.end(), q.x0 - wmax - 1.0, [](const auto& a, double v) { return a.first.x0 < v; });
+                for (; it != isl.end() && it->first.x0 < q.x1; ++it) if (it->first.intersects(q) && (!qubits_only || it->second == 'Q')) return true;
+                return false;
+            };
+            for (const auto& st : L.straps) {
+                foot_on_island += hits(st.foot_a, false) || hits(st.foot_b, false);
+                bool over = hits(st.span, true);
+                for (const auto& j : L.jj) over = over || st.span.intersects(j);
+                span_over_qubit += over;
+            }
+        }
+        CHECK(foot_on_island == 0 && span_over_qubit == 0, "%s straps: %d with a foot on island metal, %d over a qubit or a junction region", c.name, foot_on_island, span_over_qubit);
+        // control-line gate (coarse mesh): XY and flux T1 limits with the coupler-mediated drive, crosstalk, I(Phi0/2)
+        const auto LB = line_budget(c.D, R, L, m, P.park_fc_GHz, MeshOptions{3.0, 50.0, 2.0});
+        std::printf("    %s\n", line_budget_summary(LB).c_str());
+        CHECK(LB.evaluated, "%s control lines not evaluated: %s", c.name, LB.note.c_str());
+        CHECK(LB.xy_ok(), "%s XY lines: T1 limit %.1fx (budget %.0fx), coupler %.1fx, crosstalk %.0f%% (%s), %.1f dBm; largest C(XY, coupler) %.3f fF", c.name,
+              std::min(LB.min_ratio_xy, 9999.0), kLineT1Margin, std::min(LB.ratio_coupler, 9999.0), 100 * std::min(LB.max_drive_crosstalk, 99.0), LB.worst_crosstalk.c_str(),
+              LB.drive_power_dBm, std::max(LB.meas.max_C_xy_coupler_fF, LB.data.max_C_xy_coupler_fF));
+        CHECK(LB.flux_ok(), "%s flux lines: I(Phi0/2) %.3g mA (limit %.0f), T1 limits capacitive %.1fx, loop %.1fx, common mode %.1fx", c.name,
+              std::min(LB.max_I_half_mA, 1e6), kMaxHalfFluxQuantum_mA, std::min(LB.min_ratio_flux_cap, 9999.0), std::min(LB.min_ratio_flux_loop, 9999.0),
+              std::min(LB.min_ratio_flux_cm, 9999.0));
         CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);
         CHECK(std::abs(P.park_gap_MHz) < 0.05, "%s parked exchange not re-nullable (%.3f MHz)", c.name, P.park_gap_MHz);
     }
@@ -3315,6 +3547,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
     {"layout_geometry", test_layout_geometry},
+    {"layout_checks", test_layout_checks},
     {"layout_presets", test_layout_presets},
     {"json_rfc", test_json_rfc},
     {"json_depth", test_json_depth},

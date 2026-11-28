@@ -100,7 +100,8 @@ inline LayoutCheck layout_section(const ChipDesign& D, const std::string& cells_
     out.placement_clean = L.problems.empty();
     out.mask_drc_clean = L.drc_clean();
     out.connectivity_clean = L.conn.clean();
-    const auto LB = line_budget(D, R, C, g_opt.smoke ? MeshOptions{3.0, 50.0, 2.0} : MeshOptions{1.5, 50.0, 1.6});
+    auto LB = line_budget(D, R, L, m, P.park_fc_GHz, g_opt.smoke ? MeshOptions{3.0, 50.0, 2.0} : MeshOptions{1.5, 50.0, 1.6});
+    if (LB.evaluated) line_budget_flux_crosstalk(LB, L, MeshOptions{3.0, 50.0, 2.0});
     out.lines_ok = LB.ok();
     out.within_tolerance = out.max_ec_err <= 0.03 && out.max_g_err <= 0.06 && std::abs(out.readout_c_err) <= 0.06;
     out.renull_ok = std::abs(P.park_gap_MHz) < 0.05;
@@ -108,7 +109,7 @@ inline LayoutCheck layout_section(const ChipDesign& D, const std::string& cells_
                 L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), L.jj.size(), L.bumps.size(), gds_path.c_str(), drc_summary(L).c_str());
     for (const auto& p : L.problems) std::printf("     %s\n", p.c_str());
     std::printf("   %s\n", connectivity_summary(L).c_str());
-    std::printf("   %s (reported, not gated)\n", line_budget_summary(LB).c_str());
+    std::printf("   %s\n", line_budget_summary(LB).c_str());
     std::printf("   extracted vs target: E_C within %.1f%%, couplings within %.1f%%, qubit-readout capacitance %+.1f%% (%.2f fF, target %.2f)\n",
                 100 * out.max_ec_err, 100 * out.max_g_err, 100 * out.readout_c_err, m.C_qr_fF, T.C_qr_fF);
     std::printf("   post-layout: g_qc %.1f MHz, readout g %.1f MHz (design %.1f), parked exchange re-nulled at %.3f GHz (residual gap %.3f MHz, ZZ %+.2f kHz)\n",

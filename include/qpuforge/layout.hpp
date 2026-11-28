@@ -18,6 +18,7 @@
 #include <set>
 #include <tuple>
 #include <fstream>
+#include <functional>
 
 namespace qpuforge {
 namespace layout {
@@ -182,10 +183,21 @@ inline std::string check_geometry(const std::vector<Conductor>& conds) {
     return "";
 }
 
-// panel_charge (optional): the charge on every panel (fF x 1 V) with conductor `excite` at 1 V and the others at 0.
-struct PanelCharge { Rect r; int cond; double q_fF; };
+// PanelSolution (optional output): the panels, and for every conductor k the charge on every panel (fF x 1 V) with
+// conductor k at 1 V and the others at 0. The charges of row k summed over the panels of conductor j give C(k, j)
+// before symmetrisation.
+struct PanelSolution {
+    std::vector<Panel> panels;
+    std::vector<std::vector<double>> q_fF;          // [excited conductor][panel]
+    // charge on every panel for the conductor potentials V (volts): the superposition of the rows
+    std::vector<double> charge(const std::vector<double>& V) const {
+        std::vector<double> q(panels.size(), 0.0);
+        for (std::size_t k = 0; k < q_fF.size() && k < V.size(); ++k) if (V[k] != 0) for (std::size_t i = 0; i < q.size(); ++i) q[i] += V[k] * q_fF[k][i];
+        return q;
+    }
+};
 inline CapacitanceMatrix extract_capacitance(const std::vector<Conductor>& conds, double eps_r = 11.45, const MeshOptions& mo = {},
-                                             int excite = -1, std::vector<PanelCharge>* panel_charge = nullptr) {
+                                             PanelSolution* sol = nullptr) {
     const auto t0 = std::chrono::steady_clock::now();
     if (const auto err = check_geometry(conds); !err.empty()) throw std::runtime_error("extract_capacitance: " + err);
     const auto P = mesh(conds, mo);
@@ -227,9 +239,9 @@ inline CapacitanceMatrix extract_capacitance(const std::vector<Conductor>& conds
         for (int i = 0; i < N; ++i) { double s = b[std::size_t(i)]; for (int j = 0; j < i; ++j) s -= A[std::size_t(i) * N + j] * b[std::size_t(j)]; b[std::size_t(i)] = s; }
         for (int i = N - 1; i >= 0; --i) { double s = b[std::size_t(i)]; for (int j = i + 1; j < N; ++j) s -= A[std::size_t(i) * N + j] * b[std::size_t(j)]; b[std::size_t(i)] = s / A[std::size_t(i) * N + i]; }
         for (int i = 0; i < N; ++i) Cr[std::size_t(k) * K + std::size_t(P[std::size_t(i)].cond)] += b[std::size_t(i)] / Kc * 1e15;
-        if (panel_charge && k == excite)
-            for (int i = 0; i < N; ++i) panel_charge->push_back({P[std::size_t(i)].r, P[std::size_t(i)].cond, b[std::size_t(i)] / Kc * 1e15});
+        if (sol) { sol->q_fF.emplace_back(std::size_t(N)); for (int i = 0; i < N; ++i) sol->q_fF.back()[std::size_t(i)] = b[std::size_t(i)] / Kc * 1e15; }
     }
+    if (sol) sol->panels = P;
     double mx = 0, asym = 0;
     for (int i = 0; i < K; ++i) for (int j = 0; j < K; ++j) { mx = std::max(mx, std::abs(Cr[std::size_t(i) * K + j])); asym = std::max(asym, std::abs(Cr[std::size_t(i) * K + j] - Cr[std::size_t(j) * K + i])); }
     C.asymmetry = mx > 0 ? asym / mx : 0;
@@ -1074,131 +1086,62 @@ inline void qubit_control_lines(double cx, double cy, std::vector<Rect>& fm, std
     cpw_path({{cx + xy_end, cy - xy_level}, {cx + xy_end + 20, cy - xy_level}}, 10, 6, xm, xh, false);
     xm.push_back(rect_c(cx + xy_end + 32, cy - xy_level, 36, 36)); xh.push_back(rect_c(cx + xy_end + 32, cy - xy_level, 52, 52));
 }
-// Control-line coupling of one qubit: star-cell geometry (qubit, couplers and buses truncated, readout claw) plus its
-// flux and XY lines up to their bump pads. The T1 limit of a coupling C_c into a line matched (Z0) at its far end:
-// 1/T1 = omega^2 C_c^2 Z0 / C_sigma, with C_c the standing-wave weighted capacitance for the shorted flux line.
-struct LineCoupling {
-    double C_flux_fF{0};        // effective (standing-wave weighted) qubit-flux-line capacitance
-    double C_flux_open_fF{0};   // plain capacitance to the same pieces (what an open line would couple)
-    double C_xy_fF{0}, C_sigma_fF{0}, T1_flux_us{0}, T1_xy_us{0};
-};
-inline LineCoupling line_coupling(const XmonParams& q, const CouplerGeom& c, double p, double f_GHz, const MeshOptions& mo, double Z0 = 50,
-                                  double xy_end = kXYEnd, double xy_level = kXYLevel) {
-    std::vector<Conductor> cs;
-    std::vector<Rect> holes;
-    Conductor Q; Q.name = "qubit"; xmon(q, 0, 0, Q.rects, holes); cs.push_back(Q);
-    for (int k = 0; k < 4; ++k) {
-        auto E = coupler_and_bus(q, c, p, k, 0, 0, false);
-        Conductor C; C.name = "coupler" + std::to_string(k); C.rects = E.coupler; cs.push_back(C);
-        if (!E.bus.empty()) { Conductor B; B.name = "bus" + std::to_string(k); B.rects = E.bus; cs.push_back(B); }
-        holes.insert(holes.end(), E.holes.begin(), E.holes.end());
-    }
-    Conductor R; R.name = "readout"; R.rects = readout_claw(q, 0, 0, 170, &holes); cs.push_back(R);
-    // flux line drawn open and cut short by its last two squares (the short and the square joining it, both at ground
-    // potential in the real line), so that it is a separate conductor
-    std::vector<Rect> fm, xm;
-    qubit_control_lines(0, 0, fm, holes, xm, holes, false, xy_end, xy_level);
-    const int n = int(std::lround(95 / 5.0));                       // stair squares 0..n (see qubit_control_lines)
-    Conductor F; F.name = "flux";
-    for (int k = 0; k < int(fm.size()); ++k) if (k < n - 1 || k > n) F.rects.push_back(fm[std::size_t(k)]);
-    cs.push_back(F);
-    Conductor X; X.name = "xy"; X.rects = xm; cs.push_back(X);
-    Conductor G; G.name = "ground"; G.ground = true;
-    const double ext = q.L + c.g_c + c.t_w + 200 + 100;
-    G.outline = {-ext, -ext, ext, ext}; G.holes = cell_ground_holes(holes, cs);
-    cs.push_back(G);
-    std::vector<PanelCharge> pq;
-    const auto M = extract_capacitance(cs, 11.45, mo, 0, &pq);
-    LineCoupling o;
-    const double w = 2 * 3.14159265358979 * f_GHz * 1e9;
-    // a point at path distance z from the short of a line matched at its far end sees Re Z = Z0 sin^2(beta z): the
-    // qubit's coupling to the shorted flux line is its capacitance to each piece of the line weighted by sin(beta z)
-    // (panel charges with the qubit at 1 V)
-    const double beta = w * std::sqrt(0.5 * (11.45 + 1)) / 299792458.0 * 1e-6;   // rad / um
-    const double ls = 95 * std::sqrt(2.0);
-    const int fi = M.index("flux");
-    for (const auto& pc : pq) {
-        if (pc.cond != fi) continue;
-        const double x = pc.r.cx(), y = pc.r.cy();
-        const double z = (y < -161 && x < -140) ? ls + (-156 - y) : std::max(0.0, ((-61 - x) + (-61 - y)) / std::sqrt(2.0));
-        o.C_flux_open_fF -= pc.q_fF; o.C_flux_fF -= pc.q_fF * std::sin(beta * z);
-    }
-    o.C_xy_fF = M.mutual("qubit", "xy"); o.C_sigma_fF = M.self("qubit");
-    auto t1 = [&](double cc) { return cc > 0 ? o.C_sigma_fF * 1e-15 / (w * w * cc * 1e-15 * cc * 1e-15 * Z0) * 1e6 : 1e300; };
-    o.T1_flux_us = t1(o.C_flux_fF); o.T1_xy_us = t1(o.C_xy_fF);
-    return o;
-}
-
-// Control-line budget of a chip: the line couplings of its measure and data cells, and for every qubit the T1 limit
-// of each line at the qubit's idle frequency against the qubit's design T1 (analyze()). The budget asks each line's
-// limit to be at least kLineT1Margin times the design T1, so that the lines take at most ~10 % of the T1 budget each.
-inline constexpr double kLineT1Margin = 10.0;
-struct LineBudget {
-    LineCoupling meas, data;
-    double min_ratio_flux{0}, min_ratio_xy{0}, min_T1_flux_us{0}, min_T1_xy_us{0};
-    int worst_flux_qubit{-1}, worst_xy_qubit{-1};
-    bool ok() const { return min_ratio_flux >= kLineT1Margin && min_ratio_xy >= kLineT1Margin; }
-};
-inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const CellSet& S, const MeshOptions& mo, double Z0 = 50) {
-    LineBudget B;
-    B.meas = line_coupling(S.meas, S.cg, S.pitch, 5.5, mo, Z0);
-    B.data = line_coupling(S.data, S.cg, S.pitch, 5.5, mo, Z0);
-    B.min_ratio_flux = B.min_ratio_xy = B.min_T1_flux_us = B.min_T1_xy_us = 1e300;
-    for (std::size_t i = 0; i < D.qubits.size() && i < R.q.size(); ++i) {
-        const LineCoupling& c = D.qubits[i].role != "data" ? B.meas : B.data;
-        const double w = 2 * 3.14159265358979 * R.q[i].f01 * 1e9;
-        auto t1 = [&](double cc) { return c.C_sigma_fF * 1e-15 / (w * w * cc * 1e-15 * cc * 1e-15 * Z0) * 1e6; };
-        const double tf = t1(c.C_flux_fF), tx = t1(c.C_xy_fF);
-        B.min_T1_flux_us = std::min(B.min_T1_flux_us, tf); B.min_T1_xy_us = std::min(B.min_T1_xy_us, tx);
-        if (tf / R.q[i].T1_us < B.min_ratio_flux) { B.min_ratio_flux = tf / R.q[i].T1_us; B.worst_flux_qubit = D.qubits[i].id; }
-        if (tx / R.q[i].T1_us < B.min_ratio_xy) { B.min_ratio_xy = tx / R.q[i].T1_us; B.worst_xy_qubit = D.qubits[i].id; }
-    }
-    return B;
-}
-inline std::string line_budget_summary(const LineBudget& B) {
-    char b[600];
-    std::snprintf(b, sizeof b, "control lines: XY %.3f/%.3f fF, flux %.3f/%.3f fF effective (%.2f/%.2f fF if open; measure/data); "
-                  "T1 limits >= %.2f ms (XY), %.2f ms (flux): %.1fx (Q%d) and %.1fx (Q%d) the design T1 (budget %.0fx: %s)",
-                  B.meas.C_xy_fF, B.data.C_xy_fF, B.meas.C_flux_fF, B.data.C_flux_fF, B.meas.C_flux_open_fF, B.data.C_flux_open_fF,
-                  B.min_T1_xy_us / 1e3, B.min_T1_flux_us / 1e3, B.min_ratio_xy, B.worst_xy_qubit, B.min_ratio_flux, B.worst_flux_qubit,
-                  kLineT1Margin, B.ok() ? "met" : "NOT met");
-    return b;
-}
-inline Json line_budget_json(const LineBudget& B) {
-    Json j = Json::object();
-    j.set("C_xy_measure_fF", B.meas.C_xy_fF); j.set("C_xy_data_fF", B.data.C_xy_fF);
-    j.set("C_flux_measure_fF", B.meas.C_flux_fF); j.set("C_flux_data_fF", B.data.C_flux_fF);
-    j.set("C_flux_open_measure_fF", B.meas.C_flux_open_fF); j.set("C_flux_open_data_fF", B.data.C_flux_open_fF);
-    j.set("min_T1_xy_us", B.min_T1_xy_us); j.set("min_T1_flux_us", B.min_T1_flux_us);
-    j.set("min_ratio_xy", B.min_ratio_xy); j.set("min_ratio_flux", B.min_ratio_flux);
-    j.set("worst_xy_qubit", B.worst_xy_qubit); j.set("worst_flux_qubit", B.worst_flux_qubit);
-    j.set("margin", kLineT1Margin); j.set("ok", B.ok());
-    return j;
-}
-
 // Width / space rules on the fabricated etch layer (layer 1). Metal is the outline minus etch, so the etch-space rule is
 // also the minimum metal (island and ground-plane) width, and the etch-width rule the minimum metal-to-metal gap.
 // Default: the 4 um process minimum that assemble_chip already uses for designed coupling gaps.
 struct DrcRules { double etch_min_width_um{4.0}, etch_min_space_um{4.0}; };
 inline constexpr double kRemoveFragmentUm2 = 2500;   // unreachable ground fragments below this area are etched away
 
-// Connectivity of the fabricated metal (LVS-lite), from detail::metal_map on the final etch layer:
+// Connectivity of the fabricated metal (LVS-lite), from detail::metal_map on the final etch layer.
+// Nets (metal components joined by the ground straps):
 //   - every island (qubit, coupler, bus, line) is its own conductor: no two islands share a metal component, and only
-//     the lines meant to end in a short (resonators R*, qubit flux lines FQ*, coupler flux lines FC*) touch the plane;
-//   - each shorted line reaches the ground plane (the component of the chip border), so it has a DC return;
-//   - no ground metal is cut off from the plane (a floating ground fragment is an unintended island);
-//   - each junction (layer 2) lands on metal at both ends of its long axis, on two different components.
+//     the lines meant to end in a short (resonators R*, qubit flux lines FQ*, coupler flux lines FC*) touch the ground;
+//   - each shorted line reaches the ground net, so it has a DC return; no ground metal is cut off from it;
+//   - each junction (layer 2) has an owner island (its qubit or coupler). It lands if one end of its long axis is on
+//     the owner's metal and the other on the ground net; every qubit and coupler island owns exactly one junction.
+// Ground quality (a strap is a modelled airbridge with inductance, so a net is not yet a ground):
+//   - plane metal is the metal component of the chip border, and every component that carries a ground bump
+//     (ChipLayout::ground_bumps: flip-chip bumps to the carrier's ground; none unless the layout draws them);
+//   - for the ground side of every SQUID and for every shorted line end: is it plane metal itself, and if not, the
+//     fewest straps in series to plane metal and their summed bridge length (ChipLayout::grounds);
+//   - per strap: how many of those circuits return through it (along their fewest-strap paths);
+//   - strapped fragments that hang on a single strap (a strap whose removal cuts them off: a bridge of the strap graph).
+// ground_ok() is the gate: the ground side of every qubit SQUID and every qubit flux-line short is plane metal with no
+// strap in the path; the ground on both sides of each qubit flux line's bump pad is that same metal component (the
+// line's return is continuous metal); every other strapped fragment keeps its connection when any one strap is
+// removed, and lies at most kMaxStrapDepth straps from plane metal.
+inline constexpr int kMaxStrapDepth = 2;
+struct GroundRef {
+    std::string name;         // SQ<id> (qubit SQUID), SC<a-b> (coupler SQUID), FQ<id>, FC<a-b>, R<id> (shorted line ends)
+    int comp{-1};             // metal component of its ground side (-1: no ground there)
+    bool on_plane{false};     // that component is plane metal (no strap in the path)
+    int straps{-1};           // fewest straps in series to plane metal (0 on it; -1: not reachable)
+    double span_um{0};        // summed bridge length (foot centre to foot centre) along that path
+};
 struct ConnectivityReport {
     int components{0}, islands{0}, islands_merged{0}, islands_on_plane{0};
     int shorted_lines{0}, shorted_lines_on_plane{0}, flux_lines{0}, flux_lines_on_plane{0};
     int floating_ground{0}, junctions{0}, junctions_landed{0};
-    int fills_reverted{0};                               // sliver fills undone because they cut ground off the plane (0: fills are no longer guarded)
+    int junction_owner_errors{0};                        // qubit/coupler islands without exactly one junction, junctions without such an owner
     int straps{0}, straps_landed{0}, strap_lines_crossed{0}, strap_couplers_crossed{0};   // ground straps (modelled airbridges), see place_ground_straps
     int fragments_removed{0};                            // small unreachable ground fragments etched away
-    bool clean() const {
+    // ground quality
+    int ground_bumps{0}, plane_components{0};
+    int qubit_squids{0}, qubit_squids_on_plane{0}, qubit_flux_on_plane{0}, flux_returns_continuous{0};
+    int coupler_squids{0}, coupler_squids_on_plane{0}, other_shorts{0}, other_shorts_on_plane{0};
+    int strapped_fragments{0}, fragments_on_one_strap{0}, cut_straps{0};
+    int max_strap_depth{0};                              // over all strapped fragments
+    int max_circuit_depth{0}; double max_circuit_span_um{0};   // over the SQUID grounds and shorted line ends
+    int max_returns_per_strap{0};
+    bool nets_clean() const {
         return islands_merged == 0 && islands_on_plane == 0 && shorted_lines_on_plane == shorted_lines && floating_ground == 0 &&
-               junctions_landed == junctions && straps_landed == straps;
+               junctions_landed == junctions && junction_owner_errors == 0 && straps_landed == straps;
     }
+    bool ground_ok() const {
+        return qubit_squids_on_plane == qubit_squids && qubit_flux_on_plane == flux_lines && flux_returns_continuous == flux_lines &&
+               fragments_on_one_strap == 0 && max_strap_depth <= kMaxStrapDepth;
+    }
+    bool clean() const { return nets_clean() && ground_ok(); }
 };
 using detail::DrcMarker;
 
@@ -1207,6 +1150,9 @@ struct ChipLayout {
     Rect outline;
     std::vector<std::pair<std::string, std::vector<Rect>>> islands;   // named metal islands (qubits, couplers, buses, lines)
     std::vector<Rect> holes, jj, bumps, etch;
+    std::vector<int> jj_owner;                         // per junction region: index of its qubit or coupler island (-1: none)
+    std::vector<int> bump_island;                      // per signal bump: index of the line island it feeds (-1: none)
+    std::vector<Rect> ground_bumps;                    // flip-chip bumps on ground metal, to the carrier's ground (GDS layer 6)
     std::vector<detail::Strap> straps;                 // ground straps (GDS layer 4: span, layer 5: feet)
     std::vector<std::pair<std::string, std::pair<double, double>>> labels;
     struct Resonator { int qubit; double f_GHz, target_um, drawn_um; int rows; };
@@ -1216,13 +1162,205 @@ struct ChipLayout {
     DrcRules rules;
     int slivers_filled{0};                              // ground-sliver fills added by the mask clean-up (fill_ground_slivers)
     ConnectivityReport conn;                            // metal connectivity of the final mask (see ConnectivityReport)
+    std::vector<GroundRef> grounds;                     // ground reference of every SQUID and shorted line end
+    std::vector<int> strap_returns;                     // per strap: circuits returning through it
     double etch_area_mm2{0};
+    int island(const std::string& n) const { for (std::size_t i = 0; i < islands.size(); ++i) if (islands[i].first == n) return int(i); return -1; }
     int drc_count(const std::string& rule_suffix) const {
         int n = 0; for (const auto& m : drc) if (m.rule.size() >= rule_suffix.size() && m.rule.compare(m.rule.size() - rule_suffix.size(), rule_suffix.size(), rule_suffix) == 0) ++n;
         return n;
     }
     bool drc_clean() const { return problems.empty() && drc.empty(); }
 };
+
+// Component of every island's metal (the component under the centre of its largest rectangle).
+inline std::vector<int> island_components(const ChipLayout& L, const detail::MetalMap& M) {
+    std::vector<int> v;
+    for (const auto& [name, rs] : L.islands) {
+        const Rect* big = &rs.front();
+        for (const auto& r : rs) if (r.area() > big->area()) big = &r;
+        v.push_back(M.at(big->cx(), big->cy()));
+    }
+    return v;
+}
+inline bool is_shorted_line(const std::string& n) { return n.rfind("FQ", 0) == 0 || n.rfind("FC", 0) == 0 || n[0] == 'R'; }
+
+// Fills L.conn, L.grounds and L.strap_returns from L.outline, L.etch, L.islands, L.jj (+ jj_owner), L.bumps
+// (+ bump_island), L.ground_bumps and L.straps. conn.fragments_removed is left as it is.
+inline void analyze_connectivity(ChipLayout& L) {
+    const detail::MetalMap M = detail::metal_map(L.outline, L.etch);
+    ConnectivityReport C; C.fragments_removed = L.conn.fragments_removed;
+    L.grounds.clear(); L.strap_returns.assign(L.straps.size(), 0);
+    C.components = M.n_comp;
+    // nets: metal components joined by the ground straps
+    detail::UnionFindLite uf(M.n_comp);
+    struct Edge { int a, b; double len; int strap; };
+    std::vector<Edge> edges;
+    for (std::size_t k = 0; k < L.straps.size(); ++k) {
+        const auto& st = L.straps[k];
+        const int a = M.at(st.foot_a.cx(), st.foot_a.cy()), b = M.at(st.foot_b.cx(), st.foot_b.cy());
+        C.straps++; C.strap_lines_crossed += st.lines_crossed; C.strap_couplers_crossed += st.couplers_crossed;
+        if (a >= 0 && b >= 0 && a != b) {
+            C.straps_landed++; uf.unite(a, b);
+            edges.push_back({a, b, std::hypot(st.foot_a.cx() - st.foot_b.cx(), st.foot_a.cy() - st.foot_b.cy()), int(k)});
+        }
+    }
+    const int plane0 = M.at(L.outline.x0 + 0.5, L.outline.y0 + 0.5);
+    auto net = [&](int c) { return c < 0 ? -1 : uf.find(c); };
+    const int plane = net(plane0);
+    const std::vector<int> icomp = island_components(L, M);
+    std::map<int, int> island_of;                  // net -> number of islands in it
+    for (int c : icomp) island_of[net(c)]++;
+    C.islands = int(L.islands.size());
+    for (std::size_t i = 0; i < L.islands.size(); ++i) {
+        const std::string& n = L.islands[i].first;
+        const bool fq = n.rfind("FQ", 0) == 0, line = is_shorted_line(n);
+        const int c = net(icomp[i]);
+        if (line) { C.shorted_lines++; if (c == plane) C.shorted_lines_on_plane++; }
+        else if (c == plane) C.islands_on_plane++;
+        if (fq) { C.flux_lines++; if (c == plane) C.flux_lines_on_plane++; }
+        // a conductor (qubit, coupler, bus, XY line) sharing its metal with any other island is a short; two shorted
+        // lines ending in the same enclosed pocket count under shorted lines that miss the plane instead
+        if (!line && island_of[c] > 1) C.islands_merged++;
+    }
+    std::set<int> nets; for (int c = 0; c < M.n_comp; ++c) nets.insert(net(c));
+    for (int n : nets) if (n != plane && !island_of.count(n)) C.floating_ground++;
+    // plane metal: the border component and every component under a ground bump
+    std::vector<char> is_plane(std::size_t(M.n_comp), 0);
+    if (plane0 >= 0) is_plane[std::size_t(plane0)] = 1;
+    C.ground_bumps = int(L.ground_bumps.size());
+    for (const auto& gb : L.ground_bumps) { const int c = M.at(gb.cx(), gb.cy()); if (c >= 0) is_plane[std::size_t(c)] = 1; }
+    for (char p : is_plane) C.plane_components += p;
+    // fewest straps from plane metal to every component (ties: shorter summed bridge length)
+    std::vector<std::vector<int>> adj(std::size_t(M.n_comp));
+    for (std::size_t e = 0; e < edges.size(); ++e) { adj[std::size_t(edges[e].a)].push_back(int(e)); adj[std::size_t(edges[e].b)].push_back(int(e)); }
+    std::vector<int> depth(std::size_t(M.n_comp), -1), via(std::size_t(M.n_comp), -1);
+    std::vector<double> span(std::size_t(M.n_comp), 0.0);
+    {
+        std::set<std::tuple<int, double, int>> pq;
+        for (int c = 0; c < M.n_comp; ++c) if (is_plane[std::size_t(c)]) { depth[std::size_t(c)] = 0; pq.insert({0, 0.0, c}); }
+        while (!pq.empty()) {
+            const auto [d, sp, c] = *pq.begin(); pq.erase(pq.begin());
+            if (d != depth[std::size_t(c)] || sp != span[std::size_t(c)]) continue;
+            for (int e : adj[std::size_t(c)]) {
+                const int o = edges[std::size_t(e)].a == c ? edges[std::size_t(e)].b : edges[std::size_t(e)].a;
+                const int nd = d + 1; const double ns = sp + edges[std::size_t(e)].len;
+                if (depth[std::size_t(o)] < 0 || nd < depth[std::size_t(o)] || (nd == depth[std::size_t(o)] && ns < span[std::size_t(o)] - 1e-9)) {
+                    depth[std::size_t(o)] = nd; span[std::size_t(o)] = ns; via[std::size_t(o)] = e; pq.insert({nd, ns, o});
+                }
+            }
+        }
+    }
+    // straps whose removal cuts a fragment off plane metal: bridges of the strap graph with plane metal as one node
+    {
+        const int root = M.n_comp;                                 // all plane components contracted
+        auto node = [&](int c) { return is_plane[std::size_t(c)] ? root : c; };
+        std::vector<std::vector<std::pair<int, int>>> g(std::size_t(M.n_comp) + 1);
+        for (std::size_t e = 0; e < edges.size(); ++e) {
+            const int a = node(edges[e].a), b = node(edges[e].b);
+            if (a == b) continue;
+            g[std::size_t(a)].push_back({b, int(e)}); g[std::size_t(b)].push_back({a, int(e)});
+        }
+        std::vector<int> tin(g.size(), -1), low(g.size(), 0);
+        std::vector<char> is_bridge(edges.size(), 0);
+        int timer = 0;
+        struct Frame { int v, pe; std::size_t i; };
+        std::vector<Frame> st{{root, -1, 0}};
+        tin[std::size_t(root)] = low[std::size_t(root)] = timer++;
+        while (!st.empty()) {
+            Frame& f = st.back();
+            if (f.i < g[std::size_t(f.v)].size()) {
+                const auto [to, e] = g[std::size_t(f.v)][f.i++];
+                if (e == f.pe) continue;
+                if (tin[std::size_t(to)] >= 0) low[std::size_t(f.v)] = std::min(low[std::size_t(f.v)], tin[std::size_t(to)]);
+                else { tin[std::size_t(to)] = low[std::size_t(to)] = timer++; st.push_back({to, e, 0}); }
+            } else {
+                const Frame done = f; st.pop_back();
+                if (!st.empty()) {
+                    const int pv = st.back().v;
+                    low[std::size_t(pv)] = std::min(low[std::size_t(pv)], low[std::size_t(done.v)]);
+                    if (low[std::size_t(done.v)] > tin[std::size_t(pv)]) is_bridge[std::size_t(done.pe)] = 1;
+                }
+            }
+        }
+        for (char bbr : is_bridge) C.cut_straps += bbr;
+        // fragments that depend on a single strap: not reachable from plane metal once the bridges are removed
+        std::vector<char> safe(g.size(), 0); std::vector<int> q{root}; safe[std::size_t(root)] = 1;
+        while (!q.empty()) { const int v = q.back(); q.pop_back(); for (const auto& [to, e] : g[std::size_t(v)]) if (!is_bridge[std::size_t(e)] && !safe[std::size_t(to)]) { safe[std::size_t(to)] = 1; q.push_back(to); } }
+        for (int c = 0; c < M.n_comp; ++c) {
+            if (is_plane[std::size_t(c)] || depth[std::size_t(c)] < 0) continue;
+            C.strapped_fragments++; C.max_strap_depth = std::max(C.max_strap_depth, depth[std::size_t(c)]);
+            if (!safe[std::size_t(c)]) C.fragments_on_one_strap++;
+        }
+    }
+    auto ground_ref = [&](const std::string& name, int comp) {
+        GroundRef g; g.name = name; g.comp = comp;
+        if (comp >= 0) { g.on_plane = is_plane[std::size_t(comp)] != 0; g.straps = depth[std::size_t(comp)]; g.span_um = span[std::size_t(comp)]; }
+        if (g.straps > 0) {
+            C.max_circuit_depth = std::max(C.max_circuit_depth, g.straps); C.max_circuit_span_um = std::max(C.max_circuit_span_um, g.span_um);
+            for (int c = comp; via[std::size_t(c)] >= 0 && !is_plane[std::size_t(c)];) {
+                const Edge& e = edges[std::size_t(via[std::size_t(c)])];
+                L.strap_returns[std::size_t(e.strap)]++;
+                c = e.a == c ? e.b : e.a;
+            }
+        }
+        L.grounds.push_back(g);
+        return g;
+    };
+    // junctions: owner island at one end, the ground net at the other; exactly one per qubit and coupler island
+    std::vector<int> owned(L.islands.size(), 0);
+    for (std::size_t k = 0; k < L.jj.size(); ++k) {
+        const Rect& j = L.jj[k];
+        C.junctions++;
+        const int o = k < L.jj_owner.size() ? L.jj_owner[k] : -1;
+        const bool owner_ok = o >= 0 && o < int(L.islands.size()) && (L.islands[std::size_t(o)].first[0] == 'Q' || L.islands[std::size_t(o)].first[0] == 'C');
+        if (!owner_ok) { C.junction_owner_errors++; continue; }
+        owned[std::size_t(o)]++;
+        const bool horiz = j.w() >= j.h();
+        const double d = 0.5;
+        const int a = horiz ? M.at(j.x0 - d, j.cy()) : M.at(j.cx(), j.y0 - d);
+        const int b = horiz ? M.at(j.x1 + d, j.cy()) : M.at(j.cx(), j.y1 + d);
+        const int oc = icomp[std::size_t(o)];
+        const int gside = a == oc ? b : (b == oc ? a : -1);
+        const bool landed = oc >= 0 && gside >= 0 && gside != oc && net(gside) == plane && net(oc) != plane;
+        if (landed) C.junctions_landed++;
+        const std::string& on = L.islands[std::size_t(o)].first;
+        const bool qubit = on[0] == 'Q';
+        const GroundRef g = ground_ref((qubit ? "SQ" : "SC") + on.substr(1), landed ? gside : -1);
+        if (qubit) { C.qubit_squids++; C.qubit_squids_on_plane += g.on_plane; } else { C.coupler_squids++; C.coupler_squids_on_plane += g.on_plane; }
+    }
+    for (std::size_t i = 0; i < L.islands.size(); ++i) {
+        const char t = L.islands[i].first[0];
+        if ((t == 'Q' || t == 'C') && owned[i] != 1) C.junction_owner_errors++;
+    }
+    // shorted line ends; for qubit flux lines also the ground around the bump pad (the line's return)
+    for (std::size_t i = 0; i < L.islands.size(); ++i) {
+        const std::string& n = L.islands[i].first;
+        if (!is_shorted_line(n)) continue;
+        const bool fq = n.rfind("FQ", 0) == 0;
+        // a line that ends open is a component of its own with no ground in it: it has no ground reference
+        const bool grounded = net(icomp[i]) == plane;
+        const GroundRef g = ground_ref(n, grounded ? icomp[i] : -1);
+        if (fq) C.qubit_flux_on_plane += g.on_plane; else { C.other_shorts++; C.other_shorts_on_plane += g.on_plane; }
+        if (!fq) continue;
+        bool cont = false;
+        for (std::size_t b = 0; b < L.bumps.size() && b < L.bump_island.size(); ++b) {
+            if (L.bump_island[b] != int(i)) continue;
+            const Rect ring = L.bumps[b].grow(11 + 3);             // 3 um outside the pad's 52 um cut-out
+            int metal = 0; cont = true;
+            for (const auto& pt : {std::pair{ring.x0, ring.y0}, std::pair{ring.cx(), ring.y0}, std::pair{ring.x1, ring.y0}, std::pair{ring.x1, ring.cy()},
+                                   std::pair{ring.x1, ring.y1}, std::pair{ring.cx(), ring.y1}, std::pair{ring.x0, ring.y1}, std::pair{ring.x0, ring.cy()}}) {
+                const int c = M.at(pt.first, pt.second);
+                if (c < 0) continue;
+                ++metal; if (c != icomp[i]) cont = false;
+            }
+            if (metal < 2) cont = false;
+        }
+        C.flux_returns_continuous += cont && grounded;
+    }
+    for (int r : L.strap_returns) C.max_returns_per_strap = std::max(C.max_returns_per_strap, r);
+    L.conn = C;
+}
 
 inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double eps_r = 11.45, double min_space_um = 10, const DrcRules& rules = {}) {
     using detail::cpw_path; using detail::stair;
@@ -1240,6 +1378,7 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         std::vector<Rect> qm, qh;
         xmon(X, cx, cy, qm, qh, &L.jj);
         L.islands.push_back({"Q" + std::to_string(q.id), qm});
+        L.jj_owner.resize(L.jj.size(), int(L.islands.size()) - 1);
         L.holes.insert(L.holes.end(), qh.begin(), qh.end());
         L.labels.push_back({"Q" + std::to_string(q.id), {cx - 60, cy - 90}});
         // readout: claw + diagonal exit + lead + serpentine, shorted end with a flip-chip coupling pad
@@ -1280,6 +1419,7 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         L.bumps.push_back(rect_c(pcx, pcy, 30, 30));
         L.resonators.push_back({q.id, f_r, target, used, rows});
         L.islands.push_back({"R" + std::to_string(q.id), rm});
+        L.bump_island.push_back(int(L.islands.size()) - 1);
         L.holes.insert(L.holes.end(), rh.begin(), rh.end());
         if (y > cy + 480) L.problems.push_back("resonator R" + std::to_string(q.id) + " exceeds its serpentine box");
         // flux line (inductive, shorted next to the SQUID) and XY line (open end at the (+x,-y) corner), both to bumps
@@ -1287,9 +1427,11 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         qubit_control_lines(cx, cy, fm, fh, xm, xh, true);
         L.bumps.push_back(rect_c(cx - 156, cy - 262, 30, 30));
         L.islands.push_back({"FQ" + std::to_string(q.id), fm});
+        L.bump_island.push_back(int(L.islands.size()) - 1);
         L.holes.insert(L.holes.end(), fh.begin(), fh.end());
         L.bumps.push_back(rect_c(cx + kXYEnd + 32, cy - kXYLevel, 30, 30));
         L.islands.push_back({"XY" + std::to_string(q.id), xm});
+        L.bump_island.push_back(int(L.islands.size()) - 1);
         L.holes.insert(L.holes.end(), xh.begin(), xh.end());
     }
     int nc = 0;
@@ -1305,12 +1447,14 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         auto E = coupler_and_bus(Xl, cs.cg, p, k, lo_q->x_um, lo_q->y_um, true, 200, Xh.L);
         const std::string tag = std::to_string(c.a) + "-" + std::to_string(c.b);
         L.islands.push_back({"C" + tag, E.coupler});
+        const int coupler_island = int(L.islands.size()) - 1;
         if (!E.bus.empty()) L.islands.push_back({"B" + tag, E.bus});
         L.holes.insert(L.holes.end(), E.holes.begin(), E.holes.end());
         // coupler SQUID on the pad's far side (local +x of the pad), flux line to a bump
         const double ycen = -cs.cg.y1 - cs.cg.w_body / 2 - cs.cg.pad / 2;
         const double xj0 = p / 2 + cs.cg.pad / 2, xj1 = xj0 + cs.cg.gap;
         L.jj.push_back(rot90({xj0, ycen - 6, xj1, ycen + 6}, k).shift(lo_q->x_um, lo_q->y_um));
+        L.jj_owner.push_back(coupler_island);
         std::vector<Rect> fm, fh, fm_l, fh_l;
         cpw_path({{xj1 + 70, ycen}, {xj1 + 8, ycen}}, 10, 6, fm_l, fh_l, true);
         fm_l.push_back(rect_c(xj1 + 82, ycen, 36, 36)); fh_l.push_back(rect_c(xj1 + 82, ycen, 52, 52));
@@ -1318,6 +1462,7 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         for (const auto& r : fh_l) fh.push_back(rot90(r, k).shift(lo_q->x_um, lo_q->y_um));
         L.bumps.push_back(rot90(rect_c(xj1 + 82, ycen, 30, 30), k).shift(lo_q->x_um, lo_q->y_um));
         L.islands.push_back({"FC" + tag, fm});
+        L.bump_island.push_back(int(L.islands.size()) - 1);
         L.holes.insert(L.holes.end(), fh.begin(), fh.end());
         const auto mid = rot90(rect_c(p / 2, ycen, 1, 1), k).shift(lo_q->x_um, lo_q->y_um);
         L.labels.push_back({"C" + tag, {mid.cx() - 40, mid.cy()}});
@@ -1363,25 +1508,15 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
     double area = 0;
     L.etch = detail::etch_of(L.holes, metal, &area);
     const auto I = detail::island_index(L.islands);
-    auto shorted = [](const std::string& n) { return n.rfind("FQ", 0) == 0 || n.rfind("FC", 0) == 0 || n[0] == 'R'; };
-    auto island_comps = [&](const detail::MetalMap& M) {
-        std::vector<int> v;
-        for (const auto& [name, rs] : L.islands) {
-            const Rect* big = &rs.front();
-            for (const auto& r : rs) if (r.area() > big->area()) big = &r;
-            v.push_back(M.at(big->cx(), big->cy()));
-        }
-        return v;
-    };
     // ground straps; ground fragments no strap can reach and smaller than kRemoveFragmentUm2 are etched away instead
     detail::MetalMap map1 = detail::metal_map(L.outline, L.etch);
     for (int round = 0; round < 3; ++round) {
         const int plane = map1.at(L.outline.x0 + 0.5, L.outline.y0 + 0.5);
-        const auto ic = island_comps(map1);
+        const auto ic = island_components(L, map1);
         std::vector<char> eligible(std::size_t(map1.n_comp), 1), has_island(std::size_t(map1.n_comp), 0);
         for (std::size_t i = 0; i < ic.size(); ++i) if (ic[i] >= 0) {
             has_island[std::size_t(ic[i])] = 1;
-            if (!shorted(L.islands[i].first)) eligible[std::size_t(ic[i])] = 0;
+            if (!is_shorted_line(L.islands[i].first)) eligible[std::size_t(ic[i])] = 0;
         }
         L.straps = detail::place_ground_straps(map1, I, eligible, plane);
         detail::UnionFindLite uf(map1.n_comp);
@@ -1401,47 +1536,7 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         L.etch = detail::etch_of(L.holes, metal, &area);
         map1 = detail::metal_map(L.outline, L.etch);
     }
-    // connectivity of the final mask
-    {
-        auto& C = L.conn;
-        C.components = map1.n_comp;
-        // nets: metal components joined by the ground straps
-        detail::UnionFindLite uf(map1.n_comp);
-        for (const auto& st : L.straps) {
-            const int a = map1.at(st.foot_a.cx(), st.foot_a.cy()), b = map1.at(st.foot_b.cx(), st.foot_b.cy());
-            C.straps++; C.strap_lines_crossed += st.lines_crossed; C.strap_couplers_crossed += st.couplers_crossed;
-            if (a >= 0 && b >= 0 && a != b) { C.straps_landed++; uf.unite(a, b); }
-        }
-        const int plane0 = map1.at(L.outline.x0 + 0.5, L.outline.y0 + 0.5);
-        auto net = [&](int c) { return c < 0 ? -1 : uf.find(c); };
-        const int plane = net(plane0);
-        std::map<int, int> island_of;                  // net -> number of islands in it
-        std::vector<int> isl_comp;
-        for (int c : island_comps(map1)) { isl_comp.push_back(net(c)); island_of[net(c)]++; }
-        C.islands = int(L.islands.size());
-        for (std::size_t i = 0; i < L.islands.size(); ++i) {
-            const std::string& n = L.islands[i].first;
-            const bool fq = n.rfind("FQ", 0) == 0, line = shorted(n);
-            const int c = isl_comp[i];
-            if (line) { C.shorted_lines++; if (c == plane) C.shorted_lines_on_plane++; }
-            else if (c == plane) C.islands_on_plane++;
-            if (fq) { C.flux_lines++; if (c == plane) C.flux_lines_on_plane++; }
-            // a conductor (qubit, coupler, bus, XY line) sharing its metal with any other island is a short; two shorted
-            // lines ending in the same enclosed pocket count under shorted lines that miss the plane instead
-            if (!line && island_of[c] > 1) C.islands_merged++;
-        }
-        std::set<int> nets; for (int c = 0; c < map1.n_comp; ++c) nets.insert(net(c));
-        for (int n : nets) if (n != plane && !island_of.count(n)) C.floating_ground++;
-        // a junction (qubit or coupler SQUID: grounded transmons) lands on an island at one end and on the plane at the other
-        for (const auto& j : L.jj) {
-            C.junctions++;
-            const bool horiz = j.w() >= j.h();
-            const double d = 0.5;
-            const int a = net(horiz ? map1.at(j.x0 - d, j.cy()) : map1.at(j.cx(), j.y0 - d));
-            const int b = net(horiz ? map1.at(j.x1 + d, j.cy()) : map1.at(j.cx(), j.y1 + d));
-            if (a >= 0 && b >= 0 && a != b && (a == plane || b == plane)) C.junctions_landed++;
-        }
-    }
+    analyze_connectivity(L);          // nets and ground quality of the final mask
     L.etch_area_mm2 = area * 1e-6;   // with overlaps between cut-outs counted twice (upper bound)
     // minimum width / space on the merged etch layer (what the mask actually contains)
     L.rules = rules;
@@ -1452,24 +1547,619 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
 
 inline std::string connectivity_summary(const ChipLayout& L) {
     const auto& C = L.conn;
-    char b[800];
-    std::snprintf(b, sizeof b, "metal connectivity %s: %d components; islands merged %d, on the plane %d; shorted lines reaching the plane %d/%d "
-                  "(qubit flux lines %d/%d); floating ground fragments %d; junctions landing island-to-plane %d/%d; ground straps %d "
-                  "(landed %d; crossing %d lines, %d coupler/bus strips); small fragments removed %d",
-                  C.clean() ? "clean" : "NOT clean", C.components, C.islands_merged, C.islands_on_plane, C.shorted_lines_on_plane, C.shorted_lines,
-                  C.flux_lines_on_plane, C.flux_lines, C.floating_ground, C.junctions_landed, C.junctions, C.straps, C.straps_landed,
-                  C.strap_lines_crossed, C.strap_couplers_crossed, C.fragments_removed);
+    char b[1600];
+    std::snprintf(b, sizeof b, "metal connectivity %s (nets %s, ground %s): %d components; islands merged %d, on the plane %d; shorted lines on the "
+                  "ground net %d/%d (qubit flux lines %d/%d); floating ground fragments %d; junctions landing owner-to-ground %d/%d (owner errors %d); "
+                  "ground straps %d (landed %d; crossing %d lines, %d coupler/bus strips); small fragments removed %d\n"
+                  "    ground: plane metal %d component(s), %d ground bumps; on plane metal with no strap in the path: qubit SQUID grounds %d/%d, "
+                  "qubit flux-line shorts %d/%d (return continuous to the bump pad %d/%d), coupler SQUID grounds %d/%d, other line shorts %d/%d; "
+                  "strapped fragments %d, on a single strap %d (cut straps %d), deepest %d straps (limit %d); circuits: deepest %d straps, "
+                  "longest summed bridge %.0f um, most returns through one strap %d",
+                  C.clean() ? "clean" : "NOT clean", C.nets_clean() ? "clean" : "NOT clean", C.ground_ok() ? "ok" : "NOT ok", C.components,
+                  C.islands_merged, C.islands_on_plane, C.shorted_lines_on_plane, C.shorted_lines, C.flux_lines_on_plane, C.flux_lines,
+                  C.floating_ground, C.junctions_landed, C.junctions, C.junction_owner_errors, C.straps, C.straps_landed, C.strap_lines_crossed,
+                  C.strap_couplers_crossed, C.fragments_removed, C.plane_components, C.ground_bumps, C.qubit_squids_on_plane, C.qubit_squids,
+                  C.qubit_flux_on_plane, C.flux_lines, C.flux_returns_continuous, C.flux_lines, C.coupler_squids_on_plane, C.coupler_squids,
+                  C.other_shorts_on_plane, C.other_shorts, C.strapped_fragments, C.fragments_on_one_strap, C.cut_straps, C.max_strap_depth,
+                  kMaxStrapDepth, C.max_circuit_depth, C.max_circuit_span_um, C.max_returns_per_strap);
     return b;
 }
 inline Json connectivity_json(const ChipLayout& L) {
     const auto& C = L.conn;
     Json j = Json::object();
-    j.set("clean", C.clean()); j.set("components", C.components); j.set("islands", C.islands); j.set("islands_merged", C.islands_merged);
+    j.set("clean", C.clean()); j.set("nets_clean", C.nets_clean()); j.set("ground_ok", C.ground_ok());
+    j.set("components", C.components); j.set("islands", C.islands); j.set("islands_merged", C.islands_merged);
     j.set("islands_on_plane", C.islands_on_plane); j.set("shorted_lines", C.shorted_lines); j.set("shorted_lines_on_plane", C.shorted_lines_on_plane);
     j.set("flux_lines", C.flux_lines); j.set("flux_lines_on_plane", C.flux_lines_on_plane); j.set("floating_ground", C.floating_ground);
-    j.set("junctions", C.junctions); j.set("junctions_landed", C.junctions_landed); j.set("sliver_fills_undone", C.fills_reverted);
+    j.set("junctions", C.junctions); j.set("junctions_landed", C.junctions_landed); j.set("junction_owner_errors", C.junction_owner_errors);
     j.set("ground_straps", C.straps); j.set("ground_straps_landed", C.straps_landed); j.set("strap_line_crossings", C.strap_lines_crossed); j.set("strap_coupler_crossings", C.strap_couplers_crossed);
     j.set("fragments_removed", C.fragments_removed);
+    Json g = Json::object();
+    g.set("plane_components", C.plane_components); g.set("ground_bumps", C.ground_bumps);
+    g.set("qubit_squids", C.qubit_squids); g.set("qubit_squids_on_plane_metal", C.qubit_squids_on_plane);
+    g.set("qubit_flux_shorts_on_plane_metal", C.qubit_flux_on_plane); g.set("qubit_flux_returns_continuous", C.flux_returns_continuous);
+    g.set("coupler_squids", C.coupler_squids); g.set("coupler_squids_on_plane_metal", C.coupler_squids_on_plane);
+    g.set("other_line_shorts", C.other_shorts); g.set("other_line_shorts_on_plane_metal", C.other_shorts_on_plane);
+    g.set("strapped_fragments", C.strapped_fragments); g.set("fragments_on_one_strap", C.fragments_on_one_strap); g.set("cut_straps", C.cut_straps);
+    g.set("max_strap_depth", C.max_strap_depth); g.set("max_strap_depth_allowed", kMaxStrapDepth);
+    g.set("max_circuit_strap_depth", C.max_circuit_depth); g.set("max_circuit_bridge_um", C.max_circuit_span_um);
+    g.set("max_returns_per_strap", C.max_returns_per_strap);
+    j.set("ground", g);
+    return j;
+}
+
+// ---------------------------------------------------------------- flux coupling: thin-film magnetostatics by duality
+// Model. The metal is a perfectly conducting film of zero thickness (penetration depth and kinetic inductance
+// neglected), carrying in-plane sheet currents; the etched regions are apertures. The field of such currents derives
+// from a magnetic scalar potential that is antisymmetric about the film plane: it is constant on every connected
+// aperture (no current there), and its normal derivative vanishes on the metal (no flux through a superconductor). That
+// is the electrostatic problem of conductors shaped like the apertures, in vacuum (Babinet duality), which
+// extract_capacitance solves (eps_r = 1). With psi the "potential" of an aperture:
+//   - the current flowing in the metal between two apertures is 2 (psi_a - psi_b);
+//   - the flux through an aperture is mu0 / (2 eps0) times its dual "charge", and the flux through a part of an
+//     aperture (a SQUID loop) is the same factor times the dual charge on that part (panel charges).
+// A shorted CPW has two gap apertures; a current I in its centre conductor is psi_1 - psi_2 = I / 2, and the split of
+// the return between the two grounds follows from flux conservation, Q_1 + Q_2 = 0. Apertures closed inside the
+// window are flux-conserving (Q = 0, "floating"); the apertures that hold a SQUID loop or leave the window belong to
+// the etch network around the qubits and couplers, which spans the chip and is held at psi = 0.
+// Check (unit test): the inductance per length of a long CPW comes out as mu0 K(k') / (4 K(k)).
+// Not in the model: the junction leads (thin; open at zero circulating current), the bump and the carrier chip (the
+// bump pad's cut-out is taken out of the window, so the line is fed at its pad), finite penetration depth, and
+// everything outside the window.
+namespace detail {
+inline bool clip_rect(const Rect& r, const Rect& w, Rect& o) {
+    o = {std::max(r.x0, w.x0), std::max(r.y0, w.y0), std::min(r.x1, w.x1), std::min(r.y1, w.y1)};
+    return o.x1 > o.x0 + 1e-9 && o.y1 > o.y0 + 1e-9;
+}
+// Connected components of a set of rectangles: overlap or a shared edge of positive length joins; corner contact does not.
+inline std::vector<int> rect_components(const std::vector<Rect>& rs, int* n_comp = nullptr) {
+    std::vector<std::size_t> order(rs.size());
+    for (std::size_t i = 0; i < rs.size(); ++i) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return rs[a].x0 < rs[b].x0; });
+    UnionFindLite uf(int(rs.size()));
+    const double eps = 1e-7;
+    for (std::size_t a = 0; a < order.size(); ++a) {
+        const Rect& A = rs[order[a]];
+        for (std::size_t b = a + 1; b < order.size() && rs[order[b]].x0 <= A.x1 + eps; ++b) {
+            const Rect& B = rs[order[b]];
+            const double ox = std::min(A.x1, B.x1) - std::max(A.x0, B.x0), oy = std::min(A.y1, B.y1) - std::max(A.y0, B.y0);
+            if (ox > -eps && oy > -eps && (ox > eps || oy > eps)) uf.unite(int(order[a]), int(order[b]));
+        }
+    }
+    std::vector<int> comp(rs.size());
+    std::map<int, int> ids;
+    for (std::size_t i = 0; i < rs.size(); ++i) { const int r = uf.find(int(i)); auto it = ids.find(r); if (it == ids.end()) it = ids.emplace(r, int(ids.size())).first; comp[i] = it->second; }
+    if (n_comp) *n_comp = int(ids.size());
+    return comp;
+}
+// dense linear solve (Gaussian elimination with partial pivoting); A row-major n x n
+inline std::vector<double> solve_dense(std::vector<double> A, std::vector<double> b, int n) {
+    for (int k = 0; k < n; ++k) {
+        int p = k; for (int i = k + 1; i < n; ++i) if (std::abs(A[std::size_t(i) * n + k]) > std::abs(A[std::size_t(p) * n + k])) p = i;
+        if (A[std::size_t(p) * n + k] == 0) throw std::runtime_error("solve_dense: singular system");
+        if (p != k) { for (int j = 0; j < n; ++j) std::swap(A[std::size_t(k) * n + j], A[std::size_t(p) * n + j]); std::swap(b[std::size_t(k)], b[std::size_t(p)]); }
+        for (int i = k + 1; i < n; ++i) {
+            const double f = A[std::size_t(i) * n + k] / A[std::size_t(k) * n + k];
+            if (f == 0) continue;
+            for (int j = k; j < n; ++j) A[std::size_t(i) * n + j] -= f * A[std::size_t(k) * n + j];
+            b[std::size_t(i)] -= f * b[std::size_t(k)];
+        }
+    }
+    for (int i = n - 1; i >= 0; --i) { double v = b[std::size_t(i)]; for (int j = i + 1; j < n; ++j) v -= A[std::size_t(i) * n + j] * b[std::size_t(j)]; b[std::size_t(i)] = v / A[std::size_t(i) * n + i]; }
+    return b;
+}
+} // namespace detail
+
+// flux through an aperture per unit dual charge: mu0 / (2 eps0) = 1 / (2 eps0^2 c^2), in pH per fF (x 1 A)
+inline double dual_flux_pH_per_fF() { return 1.0 / (2 * phys::eps0 * phys::eps0 * 299792458.0 * 299792458.0) * 1e-3; }
+
+// Mutual inductance between the flux line of qubit `qubit_id` and SQUID loops, from the assembled mask.
+// The window is the bounding box of the flux line (without its bump pad) and the qubit's SQUID loop, grown by `margin`;
+// with reach > 0 it also takes in every junction region within `reach` of the loop, to report the flux those loops
+// receive (crosstalk).
+// M_cm: the flux line also links the path of the qubit's own oscillating current (island -> SQUID -> ground, closed by
+// the displacement current across the qubit's gap). With that current's return spread evenly in angle around the island
+// and the returns of the far quadrants shared equally between the two ways round, the linked flux is the dual charge
+// on the etch around the qubit weighted by (theta / 2 pi - 1/2), theta the angle about the qubit centre measured from
+// the SQUID. It vanishes when the line's field is symmetric about the SQUID. A series inductance M_cm between the
+// junction current and a line of impedance Z0 limits T1 to Z0 L_J / (omega M_cm)^2.
+struct FluxCoupling {
+    bool ok{false};
+    std::string note;
+    double M_pH{0}, M_cm_pH{0};
+    double I_half_mA{1e300};                          // current for half a flux quantum, Phi0 / (2 M)
+    struct Other { std::string owner; double M_pH; };
+    std::vector<Other> others;                        // other SQUID loops in the window
+    double worst_other_ratio{0}; std::string worst_other;
+    int apertures{0}, panels{0}; double seconds{0};
+    Rect window;
+};
+inline FluxCoupling flux_coupling(const ChipLayout& L, int qubit_id, const MeshOptions& mo, double margin = 60, double reach = 0) {
+    FluxCoupling F;
+    const int iq = L.island("Q" + std::to_string(qubit_id)), ifq = L.island("FQ" + std::to_string(qubit_id));
+    if (iq < 0 || ifq < 0) { F.note = "no qubit or flux line"; return F; }
+    int own = -1;
+    for (std::size_t k = 0; k < L.jj.size() && k < L.jj_owner.size(); ++k) if (L.jj_owner[k] == iq) { own = int(k); break; }
+    if (own < 0) { F.note = "the qubit has no junction region"; return F; }
+    const Rect loop = L.jj[std::size_t(own)];
+    // the line without its bump pad
+    std::vector<Rect> pads;
+    for (std::size_t b = 0; b < L.bumps.size(); ++b) pads.push_back(L.bumps[b].grow(11 + 0.5));
+    std::vector<Rect> line;
+    for (const auto& r : L.islands[std::size_t(ifq)].second) {
+        bool pad = false;
+        for (std::size_t b = 0; b < L.bumps.size() && b < L.bump_island.size(); ++b) if (L.bump_island[b] == ifq && r.covers(L.bumps[b])) pad = true;
+        if (!pad) line.push_back(r);
+    }
+    if (line.empty()) { F.note = "the flux line has no metal besides its pad"; return F; }
+    std::vector<Rect> ext = line; ext.push_back(loop);
+    if (reach > 0) for (const auto& j : L.jj) if (std::hypot(j.cx() - loop.cx(), j.cy() - loop.cy()) <= reach) ext.push_back(j);
+    Rect W = bbox_of(ext).grow(margin);
+    W = {std::max(W.x0, L.outline.x0), std::max(W.y0, L.outline.y0), std::min(W.x1, L.outline.x1), std::min(W.y1, L.outline.y1)};
+    F.window = W;
+    // apertures: the etch in the window, without the cut-outs of the bump pads
+    std::vector<Rect> E;
+    for (const auto& r : L.etch) {
+        Rect o; if (!detail::clip_rect(r, W, o)) continue;
+        std::vector<Rect> pcs{o};
+        for (const auto& pd : pads) {
+            if (!pd.intersects(o)) continue;
+            std::vector<Rect> nx; for (const auto& pc : pcs) { auto sb = detail::subtract(pc, pd); nx.insert(nx.end(), sb.begin(), sb.end()); }
+            pcs.swap(nx);
+        }
+        for (const auto& pc : pcs) if (pc.w() > 1e-6 && pc.h() > 1e-6) E.push_back(pc);
+    }
+    if (E.empty()) { F.note = "no etch in the window"; return F; }
+    int n = 0;
+    const std::vector<int> comp = detail::rect_components(E, &n);
+    F.apertures = n;
+    auto aperture_at = [&](double x, double y) { for (std::size_t i = 0; i < E.size(); ++i) if (E[i].contains(x, y)) return comp[i]; return -1; };
+    enum { Floating = 0, Held = 1, Gap = 2 };
+    std::vector<int> type(std::size_t(n), Floating);
+    const double eb = 1e-6;
+    for (std::size_t i = 0; i < E.size(); ++i)
+        if (E[i].x0 <= W.x0 + eb || E[i].y0 <= W.y0 + eb || E[i].x1 >= W.x1 - eb || E[i].y1 >= W.y1 - eb) type[std::size_t(comp[i])] = Held;
+    std::vector<char> has_loop(std::size_t(n), 0);
+    for (const auto& j : L.jj) { const int a = aperture_at(j.cx(), j.cy()); if (a >= 0) { has_loop[std::size_t(a)] = 1; type[std::size_t(a)] = Held; } }
+    // the line's gap apertures: the etch bordering its metal
+    std::map<int, int> touch;
+    auto on_line = [&](double x, double y) { for (const auto& r : line) if (r.contains(x, y)) return true; return false; };
+    for (const auto& r0 : line) {
+        Rect r; if (!detail::clip_rect(r0, W, r)) continue;
+        const double d = 0.5;
+        for (double t : {0.25, 0.5, 0.75}) {
+            const std::array<std::pair<double, double>, 4> pts{{{r.x0 - d, r.y0 + t * r.h()}, {r.x1 + d, r.y0 + t * r.h()}, {r.x0 + t * r.w(), r.y0 - d}, {r.x0 + t * r.w(), r.y1 + d}}};
+            for (const auto& pt : pts) { if (on_line(pt.first, pt.second)) continue; const int a = aperture_at(pt.first, pt.second); if (a >= 0) touch[a]++; }
+        }
+    }
+    std::vector<std::pair<int, int>> gaps;                          // (contact samples, aperture), most contact first
+    for (const auto& [a, c] : touch) gaps.push_back({c, a});
+    std::sort(gaps.begin(), gaps.end(), [](const auto& x, const auto& y) { return x.first > y.first || (x.first == y.first && x.second < y.second); });
+    if (gaps.empty()) { F.note = "no etch borders the flux line"; return F; }
+    if (gaps.size() == 1) {
+        F.ok = true; F.note = "the etch around the flux line is one aperture: the line carries no current past its end (open, or its gaps merge)";
+        return F;
+    }
+    if (gaps.size() > 2) F.note = "more than two apertures border the flux line; the two with most contact are taken as its gaps";
+    const int ga = gaps[0].second, gb = gaps[1].second;
+    for (int g : {ga, gb}) if (!has_loop[std::size_t(g)]) type[std::size_t(g)] = Gap;
+    std::vector<Conductor> cs(static_cast<std::size_t>(n));
+    for (int k = 0; k < n; ++k) cs[std::size_t(k)].name = "a" + std::to_string(k);
+    for (std::size_t i = 0; i < E.size(); ++i) cs[std::size_t(comp[i])].rects.push_back(E[i]);
+    PanelSolution sol;
+    const CapacitanceMatrix C = extract_capacitance(cs, 1.0, mo, &sol);
+    F.panels = C.panels; F.seconds = C.seconds;
+    // potentials for 1 A in the centre conductor
+    std::vector<double> A(std::size_t(n) * n, 0.0), b(std::size_t(n), 0.0);
+    auto row_charge = [&](int row, int k) { for (int j = 0; j < n; ++j) A[std::size_t(row) * n + j] += C.at(k, j); };
+    for (int k = 0; k < n; ++k) {
+        if (k == ga || k == gb) continue;
+        if (type[std::size_t(k)] == Held) A[std::size_t(k) * n + k] = 1; else row_charge(k, k);
+    }
+    const bool fa = type[std::size_t(ga)] == Gap, fb = type[std::size_t(gb)] == Gap;
+    if (fa && fb) {
+        A[std::size_t(ga) * n + ga] = 1; A[std::size_t(ga) * n + gb] = -1; b[std::size_t(ga)] = 0.5;
+        row_charge(gb, ga); row_charge(gb, gb);
+    } else {                                           // a gap that is part of the held etch network: psi = 0 there
+        A[std::size_t(ga) * n + ga] = 1; b[std::size_t(ga)] = fa ? 0.5 : 0.0;
+        A[std::size_t(gb) * n + gb] = 1; b[std::size_t(gb)] = fb ? -0.5 : 0.0;
+        if (!fa && !fb) { F.ok = true; F.note = "both gaps of the flux line open into the etch around the qubit: no current path"; return F; }
+    }
+    const std::vector<double> V = detail::solve_dense(A, b, n);
+    const std::vector<double> q = sol.charge(V);
+    const double K = dual_flux_pH_per_fF();
+    auto loop_flux = [&](const Rect& lp) {
+        double s = 0;
+        for (std::size_t p = 0; p < sol.panels.size(); ++p) {
+            Rect o; if (!detail::clip_rect(sol.panels[p].r, lp, o)) continue;
+            s += q[p] * o.area() / sol.panels[p].r.area();
+        }
+        return K * s;
+    };
+    F.M_pH = std::abs(loop_flux(loop));
+    const Rect qb = bbox_of(L.islands[std::size_t(iq)].second);
+    const double qx = qb.cx(), qy = qb.cy(), th0 = std::atan2(loop.cy() - qy, loop.cx() - qx);
+    double cm = 0;
+    for (std::size_t p = 0; p < sol.panels.size(); ++p) {
+        if (type[std::size_t(sol.panels[p].cond)] != Held) continue;
+        double th = std::atan2(sol.panels[p].r.cy() - qy, sol.panels[p].r.cx() - qx) - th0;
+        while (th < 0) th += 2 * PI;
+        while (th >= 2 * PI) th -= 2 * PI;
+        cm += q[p] * (th / (2 * PI) - 0.5);
+    }
+    F.M_cm_pH = std::abs(K * cm);
+    F.I_half_mA = F.M_pH > 0 ? phys::Phi0 / 2 / (F.M_pH * 1e-12) * 1e3 : 1e300;
+    for (std::size_t k = 0; k < L.jj.size(); ++k) {
+        if (int(k) == own || !W.covers(L.jj[k])) continue;
+        const int o = k < L.jj_owner.size() ? L.jj_owner[k] : -1;
+        FluxCoupling::Other x; x.owner = o >= 0 ? L.islands[std::size_t(o)].first : "?"; x.M_pH = std::abs(loop_flux(L.jj[k]));
+        if (F.M_pH > 0 && x.M_pH / F.M_pH > F.worst_other_ratio) { F.worst_other_ratio = x.M_pH / F.M_pH; F.worst_other = x.owner; }
+        F.others.push_back(x);
+    }
+    F.ok = true;
+    return F;
+}
+
+// ---------------------------------------------------------------- control lines, from a window of the assembled mask
+// Window extraction around one qubit: the qubit, its XY line, its flux line (cut free of its short), and every other
+// qubit, coupler, bus and XY island in the window are conductors, clipped to the window; resonators and the other flux
+// lines are ground metal, and all ground (fragments and straps included) is one ideal conductor. Coupler pads are in
+// the window as drawn.
+struct ControlWindow {
+    bool ok{false};
+    std::string note;
+    int qubit{-1};
+    Rect window;
+    CapacitanceMatrix C;                                  // names: island names, "flux" (own flux line), "ground"
+    std::vector<std::pair<double, double>> flux_zq;       // own flux line: (path distance from the short in um, charge in fF with the qubit at 1 V) per panel
+    std::vector<std::string> clipped;                     // conductors cut by the window (their self-capacitance is not complete)
+    bool has(const std::string& n) const { return std::find(C.names.begin(), C.names.end(), n) != C.names.end(); }
+    double mutual(const std::string& a, const std::string& b) const { return has(a) && has(b) ? C.mutual(a, b) : 0.0; }
+};
+inline ControlWindow control_window(const ChipLayout& L, int qubit_id, const MeshOptions& mo, double margin = 200) {
+    ControlWindow O; O.qubit = qubit_id;
+    const std::string qn = "Q" + std::to_string(qubit_id), xn = "XY" + std::to_string(qubit_id), fn = "FQ" + std::to_string(qubit_id);
+    const int iq = L.island(qn), ix = L.island(xn), ifq = L.island(fn);
+    if (iq < 0) { O.note = "no qubit " + qn; return O; }
+    std::vector<Rect> ext = L.islands[std::size_t(iq)].second;
+    if (ix >= 0) ext.insert(ext.end(), L.islands[std::size_t(ix)].second.begin(), L.islands[std::size_t(ix)].second.end());
+    if (ifq >= 0) ext.insert(ext.end(), L.islands[std::size_t(ifq)].second.begin(), L.islands[std::size_t(ifq)].second.end());
+    Rect W = bbox_of(ext).grow(margin);
+    W = {std::max(W.x0, L.outline.x0), std::max(W.y0, L.outline.y0), std::min(W.x1, L.outline.x1), std::min(W.y1, L.outline.y1)};
+    O.window = W;
+    std::vector<Rect> holes;
+    for (const auto& h : L.holes) { Rect o; if (detail::clip_rect(h, W, o)) holes.push_back(o); }
+    std::vector<Rect> etch;
+    for (const auto& e : L.etch) { Rect o; if (detail::clip_rect(e, W, o)) etch.push_back(o); }
+    auto in_etch = [&](double x, double y) { for (const auto& e : etch) if (e.contains(x, y)) return true; return false; };
+    auto carve = [&](const Rect& m) {                    // metal that is ground: taken out of the cut-outs
+        std::vector<Rect> nh;
+        for (const auto& h : holes) { if (!h.intersects(m)) { nh.push_back(h); continue; } auto pcs = detail::subtract(h, m); nh.insert(nh.end(), pcs.begin(), pcs.end()); }
+        holes.swap(nh);
+    };
+    // own flux line: the rectangles that touch ground metal (the short) are ground; the rest, kept 3 um clear of them, is "flux"
+    std::vector<Rect> flux, shorts;
+    if (ifq >= 0) {
+        const auto& line = L.islands[std::size_t(ifq)].second;
+        auto ground_at = [&](double x, double y) {
+            if (!W.contains(x, y) || in_etch(x, y)) return false;
+            for (const auto& r : line) if (r.grow(1e-9).contains(x, y)) return false;
+            return true;
+        };
+        for (const auto& r0 : line) {
+            Rect r; if (!detail::clip_rect(r0, W, r)) continue;
+            bool touches = false;
+            const double d = 0.25;
+            for (double t : {0.1, 0.5, 0.9})
+                touches = touches || ground_at(r.x0 - d, r.y0 + t * r.h()) || ground_at(r.x1 + d, r.y0 + t * r.h()) ||
+                          ground_at(r.x0 + t * r.w(), r.y0 - d) || ground_at(r.x0 + t * r.w(), r.y1 + d);
+            (touches ? shorts : flux).push_back(r);
+        }
+        for (const auto& sh : shorts) {
+            std::vector<Rect> nx;
+            for (const auto& r : flux) { auto pcs = detail::subtract(r, sh.grow(3.0)); for (const auto& pc : pcs) if (pc.w() > 0.5 && pc.h() > 0.5) nx.push_back(pc); }
+            flux.swap(nx);
+        }
+    }
+    std::vector<Conductor> cs;
+    for (std::size_t i = 0; i < L.islands.size(); ++i) {
+        const std::string& n = L.islands[i].first;
+        if (int(i) == ifq) continue;
+        std::vector<Rect> rs; bool cut = false;
+        for (const auto& r0 : L.islands[i].second) { Rect r; if (detail::clip_rect(r0, W, r)) { rs.push_back(r); if (!W.covers(r0)) cut = true; } else cut = true; }
+        if (rs.empty()) continue;
+        if (is_shorted_line(n)) { for (const auto& r : rs) carve(r); continue; }
+        Conductor c; c.name = n; c.rects = rs; cs.push_back(c);
+        if (cut) O.clipped.push_back(n);
+    }
+    for (const auto& sh : shorts) carve(sh);
+    if (!flux.empty()) { Conductor c; c.name = "flux"; c.rects = flux; cs.push_back(c); }
+    Conductor G; G.name = "ground"; G.ground = true; G.outline = W; G.holes = holes;
+    cs.push_back(G);
+    PanelSolution sol;
+    try { O.C = extract_capacitance(cs, 11.45, mo, &sol); }
+    catch (const std::exception& e) { O.note = e.what(); return O; }
+    // path distance from the short along the flux line's metal (shortest path over touching panels)
+    if (!flux.empty() && !shorts.empty()) {
+        const int fi = O.C.index("flux"), qi = O.C.index(qn);
+        std::vector<std::size_t> fp;
+        for (std::size_t p = 0; p < sol.panels.size(); ++p) if (sol.panels[p].cond == fi) fp.push_back(p);
+        const std::size_t m = fp.size();
+        std::vector<double> z(m, 1e300);
+        std::set<std::pair<double, std::size_t>> pq;
+        for (std::size_t a = 0; a < m; ++a) {
+            const Rect& r = sol.panels[fp[a]].r;
+            for (const auto& sh : shorts) if (r.grow(1e-6).intersects(sh.grow(3.0))) z[a] = std::min(z[a], std::hypot(r.cx() - sh.cx(), r.cy() - sh.cy()));
+            if (z[a] < 1e299) pq.insert({z[a], a});
+        }
+        while (!pq.empty()) {
+            const auto [d, a] = *pq.begin(); pq.erase(pq.begin());
+            if (d > z[a]) continue;
+            const Rect ra = sol.panels[fp[a]].r.grow(1e-6);
+            for (std::size_t b2 = 0; b2 < m; ++b2) {
+                const Rect& rb = sol.panels[fp[b2]].r;
+                if (!ra.intersects(rb)) continue;
+                const double nd = d + std::hypot(ra.cx() - rb.cx(), ra.cy() - rb.cy());
+                if (nd < z[b2] - 1e-12) { z[b2] = nd; pq.insert({nd, b2}); }
+            }
+        }
+        for (std::size_t a = 0; a < m; ++a) O.flux_zq.push_back({z[a] < 1e299 ? z[a] : 0.0, -sol.q_fF[std::size_t(qi)][fp[a]]});
+    }
+    O.ok = true;
+    return O;
+}
+
+// Control-line budget of a chip. One window (control_window) and one flux-coupling solve (flux_coupling) for a
+// representative measure qubit and data qubit: the qubit of that role with the most couplers, nearest the chip centre.
+// For every qubit, at its own f01 and against its design T1 from analyze():
+//   XY line (open, matched Z0 at its far end): 1/T1 = omega^2 C_eff^2 Z0 / C_sigma with
+//     C_eff = C(XY, Q) + sum over couplers and buses n of C(XY, n) C(n, Q) / C_n * f^2 / (f^2 - f_n^2)
+//     (a coupler is a resonant node at its parked frequency f_n; a bus floats, f_n = 0; other qubits are held at 0 V);
+//   flux line, capacitive: the same formula with C_eff = sum over the line's panels of q sin(beta z), z the path
+//     distance from the short (a point of a shorted, matched line sees Re Z = Z0 sin^2(beta z)), beta at the qubit's f01;
+//   flux line, through the SQUID loop: Fermi's golden rule with the current noise 2 hbar omega / Z0 of the matched line
+//     and <1|dH/dPhi|0> = pi E_JSigma d phi_01 / (Phi0 r), r = sqrt(cos^2(pi f) + d^2 sin^2(pi f)), phi_01 =
+//     (2 E_C / E_J)^(1/4), at the design's flux bias f and SQUID asymmetry d. The device model has d = 0 and f = 0 on
+//     the committed chips (no loss through the loop at first order), so the limit is quoted for an assumed junction
+//     asymmetry of kAssumedSquidAsymmetry where the design's is smaller;
+//   flux line, common mode: T1 = Z0 L_J / (omega M_cm)^2 (FluxCoupling::M_cm_pH), L_J = (Phi0 / 2 pi)^2 / E_J.
+// For the representative qubits: the same C_eff from their XY line to each neighbouring qubit, at the neighbour's f01
+// and relative to the neighbour's own drive (drive crosstalk, amplitude ratio); the T1 limit of each coupler through the
+// XY line, C_c / (omega_c^2 C(XY, coupler)^2 Z0); the power on the chip for a kRabiMHz Rabi rate; I(Phi0/2) and the
+// flux that neighbouring SQUID loops receive.
+// Gates: every T1 limit at least kLineT1Margin times the design T1 (couplers: times the longest qubit design T1, the
+// device model has no coupler T1); drive crosstalk at most kMaxDriveCrosstalk; drive power at most kMaxDrivePower_dBm;
+// I(Phi0/2) at most kMaxHalfFluxQuantum_mA.
+inline constexpr double kLineT1Margin = 10.0, kAssumedSquidAsymmetry = 0.1, kMaxDriveCrosstalk = 0.1, kMaxDrivePower_dBm = -55.0,
+                        kMaxHalfFluxQuantum_mA = 2.0, kRabiMHz = 25.0;
+struct LineCell {
+    int qubit{-1};
+    ControlWindow win;
+    FluxCoupling flux;
+    double C_sigma_fF{0}, C_xy_fF{0}, C_flux_open_fF{0};
+    struct Mediator { std::string name; double C_x_fF, C_n_fF, f_GHz; };       // XY -> n (coupler or bus)
+    std::vector<Mediator> mediators;
+    double max_C_xy_coupler_fF{0}; std::string max_C_xy_coupler;
+    double C_xy_eff(const std::string& target, double f_GHz, const std::function<double(const std::string&, const std::string&)>& C_nt) const {
+        double c = win.mutual("XY" + std::to_string(qubit), target);
+        for (const auto& m : mediators) c += m.C_x_fF * C_nt(m.name, target) / m.C_n_fF * (m.f_GHz > 0 ? f_GHz * f_GHz / (f_GHz * f_GHz - m.f_GHz * m.f_GHz) : 1.0);
+        return c;
+    }
+    double C_flux_eff(double f_GHz) const {
+        const double beta = 2 * PI * f_GHz * 1e9 * std::sqrt(0.5 * (11.45 + 1)) / 299792458.0 * 1e-6;   // rad / um
+        double c = 0; for (const auto& [z, q] : flux_zq_()) c += q * std::sin(beta * z);
+        return c;
+    }
+    const std::vector<std::pair<double, double>>& flux_zq_() const { return win.flux_zq; }
+};
+struct LineBudget {
+    bool evaluated{false};
+    std::string note;
+    LineCell meas, data;
+    double f_coupler_GHz{0};
+    double min_ratio_xy{1e300}, min_ratio_flux_cap{1e300}, min_ratio_flux_loop{1e300}, min_ratio_flux_cm{1e300};
+    double min_T1_xy_us{1e300}, min_T1_flux_cap_us{1e300}, min_T1_flux_loop_us{1e300}, min_T1_flux_cm_us{1e300};
+    int worst_xy_qubit{-1}, worst_flux_cap_qubit{-1}, worst_flux_loop_qubit{-1}, worst_flux_cm_qubit{-1};
+    double min_T1_coupler_us{1e300}, ratio_coupler{1e300}; std::string worst_coupler;
+    double max_drive_crosstalk{0}; std::string worst_crosstalk;
+    double drive_power_dBm{-1e300};                      // worst (highest) power for the Rabi rate
+    double min_mediated_fraction{1e300}, max_mediated_fraction{-1e300};   // (C_eff - C_direct) / C_direct over the qubits
+    double max_I_half_mA{0}, min_M_pH{1e300}, max_flux_crosstalk{0}; std::string worst_flux_crosstalk;
+    bool xy_ok() const { return min_ratio_xy >= kLineT1Margin && ratio_coupler >= kLineT1Margin && max_drive_crosstalk <= kMaxDriveCrosstalk && drive_power_dBm <= kMaxDrivePower_dBm; }
+    bool flux_ok() const { return min_ratio_flux_cap >= kLineT1Margin && min_ratio_flux_loop >= kLineT1Margin && min_ratio_flux_cm >= kLineT1Margin && max_I_half_mA <= kMaxHalfFluxQuantum_mA; }
+    bool ok() const { return evaluated && xy_ok() && flux_ok(); }
+};
+inline double line_T1_us(double C_sigma_fF, double C_c_fF, double f_GHz, double Z0 = 50) {
+    const double w = 2 * PI * f_GHz * 1e9;
+    return C_c_fF != 0 ? C_sigma_fF * 1e-15 / (w * w * C_c_fF * 1e-15 * C_c_fF * 1e-15 * Z0) * 1e6 : 1e300;
+}
+// T1 limit through the SQUID loop (see LineBudget): M in pH, E_JSigma and E_C in GHz, flux in Phi0
+inline double flux_loop_T1_us(double M_pH, double EJsum_GHz, double EC_GHz, double d, double flux, double f_GHz, double Z0 = 50) {
+    const double r = std::sqrt(std::pow(std::cos(PI * flux), 2) + d * d * std::pow(std::sin(PI * flux), 2));
+    const double EJ = EJsum_GHz * r;
+    const double m01 = PI * phys::h * EJsum_GHz * 1e9 * d * std::pow(2 * EC_GHz / EJ, 0.25) / (phys::Phi0 * r);     // J / Wb
+    const double w = 2 * PI * f_GHz * 1e9, rate = std::pow(m01 * M_pH * 1e-12, 2) * 2 * w / (phys::hbar * Z0);
+    return rate > 0 ? 1e6 / rate : 1e300;
+}
+inline double flux_cm_T1_us(double M_cm_pH, double EJ_GHz, double f_GHz, double Z0 = 50) {
+    const double LJ = std::pow(phys::Phi0 / (2 * PI), 2) / (phys::h * EJ_GHz * 1e9), w = 2 * PI * f_GHz * 1e9;
+    return M_cm_pH > 0 ? Z0 * LJ / std::pow(w * M_cm_pH * 1e-12, 2) * 1e6 : 1e300;
+}
+// power (dBm) on an open-ended line for a Rabi rate f_R through C_eff: Omega = (2e / hbar) (C_eff / C_sigma) V n01, V = 2 V_in
+inline double drive_power_dBm(double C_eff_fF, double C_sigma_fF, double n01, double rabi_MHz = kRabiMHz, double Z0 = 50) {
+    if (C_eff_fF == 0 || n01 == 0) return 1e300;
+    const double V = 2 * PI * rabi_MHz * 1e6 * phys::hbar * C_sigma_fF / (2 * phys::e * std::abs(C_eff_fF) * n01);
+    return 10 * std::log10(V * V / (8 * Z0) / 1e-3);
+}
+inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const ChipLayout& L, const LayoutMetrics& m, double f_coupler_GHz,
+                              const MeshOptions& mo, double Z0 = 50) {
+    LineBudget B; B.f_coupler_GHz = f_coupler_GHz;
+    // representative qubits
+    Rect bb{1e300, 1e300, -1e300, -1e300};
+    for (const auto& q : D.qubits) { bb.x0 = std::min(bb.x0, q.x_um); bb.y0 = std::min(bb.y0, q.y_um); bb.x1 = std::max(bb.x1, q.x_um); bb.y1 = std::max(bb.y1, q.y_um); }
+    std::map<int, int> deg, index;
+    for (const auto& c : D.couplings) { deg[c.a]++; deg[c.b]++; }
+    for (std::size_t i = 0; i < D.qubits.size(); ++i) index[D.qubits[i].id] = int(i);
+    auto pick = [&](bool meas) {
+        int best = -1; double bd = 0; int bdeg = -1;
+        for (const auto& q : D.qubits) {
+            if ((q.role != "data") != meas) continue;
+            const double d = std::hypot(q.x_um - bb.cx(), q.y_um - bb.cy());
+            if (deg[q.id] > bdeg || (deg[q.id] == bdeg && d < bd - 1e-9)) { best = q.id; bd = d; bdeg = deg[q.id]; }
+        }
+        return best;
+    };
+    auto ends = [](const std::string& s) -> std::pair<int, int> {
+        const auto d = s.find('-'); if (d == std::string::npos) return {-1, -1};
+        return {std::stoi(s.substr(1, d - 1)), std::stoi(s.substr(d + 1))};
+    };
+    auto cell = [&](LineCell& c, bool meas) {
+        c.qubit = pick(meas);
+        if (c.qubit < 0) return false;
+        c.win = control_window(L, c.qubit, mo);
+        if (!c.win.ok) { B.note = c.win.note; return false; }
+        c.flux = flux_coupling(L, c.qubit, mo, 60, 0);
+        if (!c.flux.ok) { B.note = c.flux.note; return false; }
+        const std::string qn = "Q" + std::to_string(c.qubit), xn = "XY" + std::to_string(c.qubit);
+        c.C_sigma_fF = meas ? m.C_sigma_m : m.C_sigma_d;
+        c.C_xy_fF = c.win.mutual(xn, qn);
+        for (const auto& [z, q] : c.win.flux_zq) c.C_flux_open_fF += q;
+        for (const auto& n : c.win.C.names) {
+            if (n[0] != 'C' && n[0] != 'B') continue;
+            const bool cut = std::find(c.win.clipped.begin(), c.win.clipped.end(), n) != c.win.clipped.end();
+            LineCell::Mediator md; md.name = n; md.C_x_fF = c.win.mutual(xn, n);
+            md.C_n_fF = cut ? (n[0] == 'C' ? m.C_c : m.C_bus) : c.win.C.self(n);
+            md.f_GHz = n[0] == 'C' ? f_coupler_GHz : 0.0;
+            c.mediators.push_back(md);
+            if (n[0] == 'C' && std::abs(md.C_x_fF) > c.max_C_xy_coupler_fF) { c.max_C_xy_coupler_fF = std::abs(md.C_x_fF); c.max_C_xy_coupler = n; }
+        }
+        return true;
+    };
+    if (!cell(B.meas, true) || !cell(B.data, false)) return B;
+    // C(n, target): a coupler or bus to one of its own two qubits from the cell metrics (the window may clip it), else from the window
+    auto C_nt = [&](const LineCell& c) {
+        return [&, pc = &c](const std::string& n, const std::string& t) {
+            const auto [a, b] = ends(n);
+            const int tq = std::stoi(t.substr(1));
+            if (a == tq || b == tq) return n[0] == 'C' ? m.C_qc : m.C_qb;
+            return pc->win.mutual(n, t);
+        };
+    };
+    double T1max = 0; for (const auto& q : R.q) T1max = std::max(T1max, q.T1_us);
+    for (std::size_t i = 0; i < D.qubits.size() && i < R.q.size(); ++i) {
+        const bool meas = D.qubits[i].role != "data";
+        const LineCell& c = meas ? B.meas : B.data;
+        const auto& rq = R.q[i];
+        const double f = rq.f01;
+        // the cell's own-qubit couplings stand for this qubit's
+        const std::string qn = "Q" + std::to_string(c.qubit);
+        const double ceff = c.C_xy_eff(qn, f, C_nt(c));
+        const double txy = line_T1_us(c.C_sigma_fF, ceff, f, Z0), tcap = line_T1_us(c.C_sigma_fF, c.C_flux_eff(f), f, Z0);
+        const double d = std::max(std::abs(D.qubits[i].squid_d), kAssumedSquidAsymmetry);
+        const double EJsum = EJ_from_Rn_GHz(D.qubits[i].Rn_kOhm, D.gap_ueV);
+        const double tloop = flux_loop_T1_us(c.flux.M_pH, EJsum, rq.EC, d, D.qubits[i].flux, f, Z0), tcm = flux_cm_T1_us(c.flux.M_cm_pH, rq.EJ, f, Z0);
+        auto upd = [&](double t, double& mt, double& mr, int& wq) { mt = std::min(mt, t); if (t / rq.T1_us < mr) { mr = t / rq.T1_us; wq = D.qubits[i].id; } };
+        upd(txy, B.min_T1_xy_us, B.min_ratio_xy, B.worst_xy_qubit);
+        upd(tcap, B.min_T1_flux_cap_us, B.min_ratio_flux_cap, B.worst_flux_cap_qubit);
+        upd(tloop, B.min_T1_flux_loop_us, B.min_ratio_flux_loop, B.worst_flux_loop_qubit);
+        upd(tcm, B.min_T1_flux_cm_us, B.min_ratio_flux_cm, B.worst_flux_cm_qubit);
+        B.drive_power_dBm = std::max(B.drive_power_dBm, drive_power_dBm(ceff, c.C_sigma_fF, rq.n01));
+        if (c.C_xy_fF != 0) {
+            const double mf = (ceff - c.C_xy_fF) / c.C_xy_fF;
+            B.min_mediated_fraction = std::min(B.min_mediated_fraction, mf); B.max_mediated_fraction = std::max(B.max_mediated_fraction, mf);
+        }
+    }
+    for (const LineCell* c : {&B.meas, &B.data}) {
+        const LineCell& other = c == &B.meas ? B.data : B.meas;
+        std::set<std::string> targets;                       // neighbouring qubits: in the window, or at the far end of a coupler or bus in it
+        for (const auto& n : c->win.C.names) {
+            if (n[0] == 'Q') targets.insert(n);
+            if (n[0] == 'C' || n[0] == 'B') { const auto [a, b] = ends(n); targets.insert("Q" + std::to_string(a)); targets.insert("Q" + std::to_string(b)); }
+        }
+        targets.erase("Q" + std::to_string(c->qubit));
+        for (const auto& n : targets) {
+            {                                                                      // drive crosstalk onto a neighbouring qubit
+                const int id = std::stoi(n.substr(1));
+                if (!index.count(id)) continue;
+                const auto& rq = R.q[std::size_t(index[id])];
+                const bool nmeas = D.qubits[std::size_t(index[id])].role != "data";
+                const LineCell& own = nmeas == (c == &B.meas) ? *c : other;       // the neighbour's own drive: its role's cell
+                const double there = c->C_xy_eff(n, rq.f01, C_nt(*c));
+                const double self = own.C_xy_eff("Q" + std::to_string(own.qubit), rq.f01, C_nt(own));
+                const double x = self != 0 ? std::abs(there / self) : 1e300;
+                if (x > B.max_drive_crosstalk) { B.max_drive_crosstalk = x; B.worst_crosstalk = "XY" + std::to_string(c->qubit) + " -> " + n; }
+            }
+        }
+        for (const auto& n : c->win.C.names) {
+            if (n[0] == 'C') {                                                     // coupler decay into the XY line
+                const double t = line_T1_us(m.C_c, c->win.mutual("XY" + std::to_string(c->qubit), n), f_coupler_GHz, Z0);
+                if (t < B.min_T1_coupler_us) { B.min_T1_coupler_us = t; B.worst_coupler = n; }
+            }
+        }
+        B.max_I_half_mA = std::max(B.max_I_half_mA, c->flux.I_half_mA); B.min_M_pH = std::min(B.min_M_pH, c->flux.M_pH);
+    }
+    B.ratio_coupler = T1max > 0 ? B.min_T1_coupler_us / T1max : 1e300;
+    B.evaluated = true;
+    return B;
+}
+// Flux the neighbouring SQUID loops receive from the representative qubits' flux lines (crosstalk, as a fraction of the
+// own loop's): a second, larger flux-coupling window per cell. Kept apart from line_budget because of its cost.
+inline void line_budget_flux_crosstalk(LineBudget& B, const ChipLayout& L, const MeshOptions& mo, double reach = 700) {
+    for (LineCell* c : {&B.meas, &B.data}) {
+        if (c->qubit < 0) continue;
+        const FluxCoupling F = flux_coupling(L, c->qubit, mo, 60, reach);
+        c->flux.others = F.others; c->flux.worst_other = F.worst_other; c->flux.worst_other_ratio = F.worst_other_ratio;
+        if (F.worst_other_ratio > B.max_flux_crosstalk) { B.max_flux_crosstalk = F.worst_other_ratio; B.worst_flux_crosstalk = "FQ" + std::to_string(c->qubit) + " -> " + F.worst_other; }
+    }
+}
+inline std::string line_budget_summary(const LineBudget& B) {
+    if (!B.evaluated) return "control lines: not evaluated (" + B.note + ")";
+    auto x = [](double v) { return std::min(v, 9999.0); };
+    char b[2400];
+    std::snprintf(b, sizeof b,
+                  "control lines %s (windows around Q%d measure / Q%d data, couplers at %.3f GHz):\n"
+                  "    XY %s: C(XY, qubit) %.4f / %.4f fF; largest C(XY, coupler) %.4f / %.4f fF (%s / %s); coupler- and bus-mediated part of the drive "
+                  "%+.0f%% .. %+.0f%%; T1 limit >= %.3g ms = %.1fx the design T1 (Q%d); coupler T1 limit %.3g ms = %.1fx (%s); drive crosstalk <= %.0f%% "
+                  "(%s); %.0f MHz Rabi at <= %.1f dBm\n"
+                  "    flux %s: M %.3f / %.3f pH, I(Phi0/2) %.3g / %.3g mA (limit %.0f); flux to other SQUID loops <= %.1f%% of the own (%s); "
+                  "T1 limits: capacitive (%.2f / %.2f fF open) >= %.3g ms = %.1fx (Q%d); through the loop at asymmetry >= %.2f %.3g ms = %.1fx (Q%d); "
+                  "common mode (M_cm %.3f / %.3f pH) %.3g ms = %.1fx (Q%d); budget %.0fx",
+                  B.ok() ? "ok" : "NOT ok", B.meas.qubit, B.data.qubit, B.f_coupler_GHz,
+                  B.xy_ok() ? "ok" : "NOT ok", B.meas.C_xy_fF, B.data.C_xy_fF, B.meas.max_C_xy_coupler_fF, B.data.max_C_xy_coupler_fF,
+                  B.meas.max_C_xy_coupler.c_str(), B.data.max_C_xy_coupler.c_str(), 100 * B.min_mediated_fraction, 100 * B.max_mediated_fraction,
+                  B.min_T1_xy_us / 1e3, x(B.min_ratio_xy), B.worst_xy_qubit, B.min_T1_coupler_us / 1e3, x(B.ratio_coupler), B.worst_coupler.c_str(),
+                  100 * x(B.max_drive_crosstalk), B.worst_crosstalk.c_str(), kRabiMHz, B.drive_power_dBm,
+                  B.flux_ok() ? "ok" : "NOT ok", B.meas.flux.M_pH, B.data.flux.M_pH, x(B.meas.flux.I_half_mA), x(B.data.flux.I_half_mA), kMaxHalfFluxQuantum_mA,
+                  100 * B.max_flux_crosstalk, B.worst_flux_crosstalk.empty() ? "not evaluated" : B.worst_flux_crosstalk.c_str(),
+                  B.meas.C_flux_open_fF, B.data.C_flux_open_fF, B.min_T1_flux_cap_us / 1e3, x(B.min_ratio_flux_cap), B.worst_flux_cap_qubit,
+                  kAssumedSquidAsymmetry, std::min(B.min_T1_flux_loop_us / 1e3, 1e9), x(B.min_ratio_flux_loop), B.worst_flux_loop_qubit,
+                  B.meas.flux.M_cm_pH, B.data.flux.M_cm_pH, std::min(B.min_T1_flux_cm_us / 1e3, 1e9), x(B.min_ratio_flux_cm), B.worst_flux_cm_qubit, kLineT1Margin);
+    return b;
+}
+inline Json line_budget_json(const LineBudget& B) {
+    Json j = Json::object();
+    j.set("evaluated", B.evaluated); j.set("ok", B.ok());
+    if (!B.evaluated) { j.set("note", B.note); return j; }
+    auto fin = [](double v) { return std::min(v, 1e12); };
+    j.set("xy_ok", B.xy_ok()); j.set("flux_ok", B.flux_ok()); j.set("margin", kLineT1Margin);
+    j.set("measure_qubit", B.meas.qubit); j.set("data_qubit", B.data.qubit); j.set("coupler_f_GHz", B.f_coupler_GHz);
+    j.set("C_xy_measure_fF", B.meas.C_xy_fF); j.set("C_xy_data_fF", B.data.C_xy_fF);
+    j.set("max_C_xy_coupler_measure_fF", B.meas.max_C_xy_coupler_fF); j.set("max_C_xy_coupler_data_fF", B.data.max_C_xy_coupler_fF);
+    j.set("mediated_drive_fraction_min", B.min_mediated_fraction); j.set("mediated_drive_fraction_max", B.max_mediated_fraction);
+    j.set("min_T1_xy_us", fin(B.min_T1_xy_us)); j.set("min_ratio_xy", fin(B.min_ratio_xy)); j.set("worst_xy_qubit", B.worst_xy_qubit);
+    j.set("min_T1_coupler_xy_us", fin(B.min_T1_coupler_us)); j.set("ratio_coupler_xy", fin(B.ratio_coupler)); j.set("worst_coupler", B.worst_coupler);
+    j.set("max_drive_crosstalk", fin(B.max_drive_crosstalk)); j.set("worst_drive_crosstalk", B.worst_crosstalk); j.set("max_drive_crosstalk_allowed", kMaxDriveCrosstalk);
+    j.set("rabi_MHz", kRabiMHz); j.set("drive_power_dBm", B.drive_power_dBm); j.set("max_drive_power_dBm", kMaxDrivePower_dBm);
+    j.set("M_measure_pH", B.meas.flux.M_pH); j.set("M_data_pH", B.data.flux.M_pH);
+    j.set("M_cm_measure_pH", B.meas.flux.M_cm_pH); j.set("M_cm_data_pH", B.data.flux.M_cm_pH);
+    j.set("I_half_flux_quantum_measure_mA", fin(B.meas.flux.I_half_mA)); j.set("I_half_flux_quantum_data_mA", fin(B.data.flux.I_half_mA));
+    j.set("max_I_half_flux_quantum_mA", kMaxHalfFluxQuantum_mA);
+    j.set("max_flux_crosstalk", B.max_flux_crosstalk); j.set("worst_flux_crosstalk", B.worst_flux_crosstalk);
+    j.set("C_flux_open_measure_fF", B.meas.C_flux_open_fF); j.set("C_flux_open_data_fF", B.data.C_flux_open_fF);
+    j.set("min_T1_flux_capacitive_us", fin(B.min_T1_flux_cap_us)); j.set("min_ratio_flux_capacitive", fin(B.min_ratio_flux_cap)); j.set("worst_flux_capacitive_qubit", B.worst_flux_cap_qubit);
+    j.set("assumed_squid_asymmetry", kAssumedSquidAsymmetry);
+    j.set("min_T1_flux_loop_us", fin(B.min_T1_flux_loop_us)); j.set("min_ratio_flux_loop", fin(B.min_ratio_flux_loop)); j.set("worst_flux_loop_qubit", B.worst_flux_loop_qubit);
+    j.set("min_T1_flux_common_mode_us", fin(B.min_T1_flux_cm_us)); j.set("min_ratio_flux_common_mode", fin(B.min_ratio_flux_cm)); j.set("worst_flux_common_mode_qubit", B.worst_flux_cm_qubit);
     return j;
 }
 
@@ -1497,6 +2187,7 @@ inline void write_gds(const ChipLayout& L, const std::string& path, const std::s
     for (const auto& r : L.jj) s.polys.push_back(poly(r, 2));
     for (const auto& r : L.bumps) s.polys.push_back(poly(r, 3));
     for (const auto& st : L.straps) { s.polys.push_back(poly(st.span, 4)); s.polys.push_back(poly(st.foot_a, 5)); s.polys.push_back(poly(st.foot_b, 5)); }
+    for (const auto& r : L.ground_bumps) s.polys.push_back(poly(r, 6));
     s.polys.push_back(poly(L.outline, 10));
     for (const auto& [t, xy] : L.labels) s.texts.push_back({20, xy.first, xy.second, t});
     gds::write(path, "QPUFORGE", {s});

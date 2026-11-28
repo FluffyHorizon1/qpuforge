@@ -831,8 +831,8 @@ struct SurgeryResult {
     double leak_events_per_shot{0};
 };
 
-// Pauli-frame Monte Carlo of a surgery experiment. The noise sampling is run_memory_frame's (same model, same order of
-// random draws per operation), and so is the determinism contract: per-shot generator from frame_shot_seed(seed, shot),
+// Pauli-frame Monte Carlo of a surgery experiment. The noise sampling is run_memory_frame's (frame_detail::sample_shot,
+// shared; no heralds or impacts), and so is the determinism contract: per-shot generator from frame_shot_seed(seed, shot),
 // shots in fixed blocks of kFrameBlock whose tallies are added in block order. For a single-patch schedule this gives
 // the same logical errors as run_memory_frame shot for shot (tested). Each observable is decoded with its own exact
 // matching decoder.
@@ -849,7 +849,6 @@ inline SurgeryResult run_surgery_frame(const SurgerySetup& M, long shots, std::u
         Xoshiro256 rng(0);
         std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
         std::vector<int> fired; DecodeScratch ws;
-        auto randomize = [&](int q) { x[std::size_t(q)] = rng.uniform() < 0.5; z[std::size_t(q)] = rng.uniform() < 0.5; };
 #pragma omp for schedule(dynamic, 1)
         for (long b = 0; b < nblocks; ++b) {
             Tally& T_ = part[std::size_t(b)];
@@ -859,72 +858,8 @@ inline SurgeryResult run_surgery_frame(const SurgerySetup& M, long shots, std::u
                 rng = Xoshiro256(frame_shot_seed(seed, std::uint64_t(s)));
                 std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0);
                 std::fill(L.begin(), L.end(), 0);
-                int nleaked = 0;
-                for (const auto& fm : F.moments) {
-                    for (const auto& o : fm.ops) {
-                        if (nleaked == 0 || !F.leakage) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                        else {
-                            const bool la = L[std::size_t(o.a)] != 0;
-                            if (o.op == Op::CZ) {
-                                const bool lb = L[std::size_t(o.b)] != 0;
-                                if (!la && !lb) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                                else if (la != lb) {
-                                    const int leaked = la ? o.a : o.b, other = la ? o.b : o.a;
-                                    if (rng.uniform() < 0.5) z[std::size_t(other)] ^= 1;
-                                    if (F.transport > 0 && rng.uniform() < F.transport) { L[std::size_t(leaked)] = 0; randomize(leaked); L[std::size_t(other)] = 1; }
-                                }
-                            } else if (o.op == Op::MEASURE) {
-                                if (la) flips[std::size_t(o.cbit)] = o.ref >= 0 ? std::uint8_t(1 ^ o.ref) : std::uint8_t(rng.uniform() < 0.5);
-                                else frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                            } else if (o.op == Op::RESET) {
-                                if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                                else if (F.reset_removes_leakage) { L[std::size_t(o.a)] = 0; --nleaked; frame_detail::apply_op(o, x.data(), z.data(), flips.data()); }
-                            } else if (!la) frame_detail::apply_op(o, x.data(), z.data(), flips.data());
-                        }
-                        if (o.p > 0 && rng.uniform() < o.p) {
-                            if (o.op == Op::MEASURE) flips[std::size_t(o.cbit)] ^= 1;
-                            else if (o.op == Op::RESET) x[std::size_t(o.a)] ^= 1;
-                        }
-                        if (F.leakage) {
-                            if (o.op == Op::CZ && o.pleak > 0 && !L[std::size_t(o.mover)] && rng.uniform() < o.pleak) {
-                                const int other = o.mover == o.a ? o.b : o.a;
-                                L[std::size_t(o.mover)] = 1; ++nleaked; T_.leak_ev += 1;
-                                if (!L[std::size_t(other)]) randomize(other);
-                            } else if ((o.op == Op::SX || o.op == Op::X) && F.leak_1q > 0 && !L[std::size_t(o.a)] && rng.uniform() < F.leak_1q) {
-                                L[std::size_t(o.a)] = 1; ++nleaked; T_.leak_ev += 1;
-                            }
-                        }
-                    }
-                    if (F.p1 > 0) for (int q : fm.ctrl1) if (rng.uniform() < F.p1) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
-                    for (const auto& c2 : fm.ctrl2) if (c2.p > 0 && rng.uniform() < c2.p) {
-                        const int k = 1 + int(rng.uniform() * 15);
-                        if (k % 4) frame_detail::apply_pauli(k % 4, c2.a, x.data(), z.data());
-                        if (k / 4) frame_detail::apply_pauli(k / 4, c2.b, x.data(), z.data());
-                    }
-                    for (const auto& t : fm.zz) {
-                        const double r = rng.uniform();
-                        if (r < t.pa) z[std::size_t(t.a)] ^= 1;
-                        else if (r < t.pa + t.pb) z[std::size_t(t.b)] ^= 1;
-                        else if (r < t.pa + t.pb + t.pab) { z[std::size_t(t.a)] ^= 1; z[std::size_t(t.b)] ^= 1; }
-                    }
-                    for (const auto& dq : fm.deco) {
-                        const double r = rng.uniform();
-                        if (r < dq.px) x[std::size_t(dq.q)] ^= 1;
-                        else if (r < dq.px + dq.py) { x[std::size_t(dq.q)] ^= 1; z[std::size_t(dq.q)] ^= 1; }
-                        else if (r < dq.px + dq.py + dq.pz) z[std::size_t(dq.q)] ^= 1;
-                    }
-                    if (F.leakage) {
-                        for (int q : fm.dqlr) {
-                            if (L[std::size_t(q)] && rng.uniform() < F.dqlr_eff) { L[std::size_t(q)] = 0; --nleaked; randomize(q); }
-                            if (F.dqlr_err > 0 && rng.uniform() < F.dqlr_err) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
-                        }
-                        if (nleaked > 0)
-                            for (int q = 0; q < F.n; ++q)
-                                if (L[std::size_t(q)] && rng.uniform() < 1 - std::exp(-fm.duration_ns * F.seep_rate[std::size_t(q)])) {
-                                    L[std::size_t(q)] = 0; --nleaked; randomize(q);
-                                }
-                    }
-                }
+                double leak_d = 0, leak_m = 0;   // leaked time: not reported by the surgery runner
+                frame_detail::sample_shot(F, M.is_data, rng, x, z, flips, L, T_.leak_ev, leak_d, leak_m);
                 fired.clear();
                 for (std::size_t d = 0; d < M.view.detectors.size(); ++d) {
                     std::uint8_t v = 0; for (int c : M.view.detectors[d]) v ^= flips[std::size_t(c)];

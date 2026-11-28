@@ -106,12 +106,11 @@ measurement and the CNOT these differences are rare; a joint decoder would have 
 
 ## Monte Carlo
 
-`run_surgery_frame` samples the frame program exactly as `run_memory_frame` does (same draws per operation in the same
-order) and keeps its determinism contract (docs/design/deterministic-mc.md): each shot reseeds from
+`run_surgery_frame` samples the frame program with the same per-shot function as `run_memory_frame`
+(`frame_detail::sample_shot` in `qec.hpp`; the surgery runner uses neither heralds nor impacts) and keeps its determinism contract (docs/design/deterministic-mc.md): each shot reseeds from
 `frame_shot_seed(seed, shot)`, shots are grouped in blocks of `kFrameBlock`, and block tallies are added in block order.
 The result depends only on the setup, the shot count and the seed. For a single-patch schedule it reproduces
-`run_memory_frame` shot for shot (tested). The sampling loop is a copy, kept separate so that changes to the memory
-runner (for example heralded leakage) do not silently change the surgery numbers; the equality test catches drift.
+`run_memory_frame` shot for shot (tested), so a change to the shared sampler changes both runners together.
 
 ## Chips
 

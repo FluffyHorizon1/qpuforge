@@ -12,4 +12,5 @@
 #include "pulse.hpp"
 #include "characterise.hpp"
 #include "presets.hpp"
+#include "materials.hpp"
 #include "surgery.hpp"

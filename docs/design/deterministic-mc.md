@@ -4,7 +4,8 @@ Status: **adopted in 0.4.0.** The prototype below (on `feat/deterministic-mc`, r
 was ported onto the 0.4 `run_memory_frame`, which adds `FrameRunOptions`, the decode-method choice and the syndrome and
 decoder statistics. They follow the same rule: the integer counts (errors, detections per round, defect counts) are
 exact in any order, and the leaked-time sums go through the fixed block order. `decode_us_per_shot` is a
-wall-clock measurement and stays machine-dependent. Every committed review output was regenerated with it
+wall-clock measurement and stays machine-dependent. Every committed review output except the historical Alpha-1 v1.0
+review (`results/alpha1_review.*`, pre-PR #2 model, not regenerated) was regenerated with it from `802ceb7`
 (`results/PROVENANCE.md`), so `openmp_threads` in their provenance is informational. The rest of this note is the
 design record as written for the prototype; its check counts refer to that branch.
 

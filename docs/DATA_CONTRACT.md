@@ -28,6 +28,8 @@ qpuforge now reads the sidecar. The reader is `include/qpuforge/materials.hpp`, 
 
 Not implemented: the `conditions` of a value are not interpreted, so Q and tanδ are not scaled to the qubit's `f01` or `T_eff_mK` (open question 3); there is no participation weighting, and a sidecar sets the one chip-wide `Q_dielectric` (question 1); `--materials` is also read by `run`, `budget`, `fab`, `qec`, `cz`, `synth-chip` and `hwgate` (one shared loader; `layout` and `gds` refuse it), and it applies in memory only, so a sidecar cannot yet be saved into a chip JSON (question 6). See `docs/design/q16-materials-ingestion.md`.
 
+Decided by Finnian Bond, 2026-11-28 (relayed by Forge PM; `docs/design/q16-materials-ingestion.md` §6): question 6 is answered by a loader plus `qpuforge materials apply --out` (D2); a sidecar gap keeps each `Rn_kOhm` fixed (D1); `provenance` becomes an enumerated field on v0 itself (D4); atomforge CI runs this reader (D3); the first non-null values come from a hand-written Alpha-1 sidecar, the DFT bridge later (D5). Until those branches merge, the rules above are what `main` does.
+
 Tests: the `materials` group (label `unit`, 25 checks) and 17 CLI guards (`cli_materials*`, `cli_loss_tangent*`, `cli_usage_materials`; `ctest -N | grep -cE 'cli_.*materials|cli_loss_tangent'`): `analyze --materials` with a values, a placeholder and a loss-tangent sidecar and a refused one, the same flag on `run`, `budget`, `fab`, `qec`, `cz`, `synth-chip` and `hwgate`, and the refusals by `layout` and `gds`. The fixtures are in `tests/data/`. `materials-contract-CuAu.json` is byte for byte what atomforge's `materials_contract_json()` writes for the synthetic Cu–Au search result and fixed options of its `tests/test_materials_contract.cpp`.
 
 ---
@@ -224,7 +226,7 @@ Units in this file must be explicit on every quantity. Recommended conventions, 
 3. **At what temperature and frequency is tanδ quoted?** qpuforge T1 uses the qubit `f01` (several GHz) and `T_eff_mK` (~35–45 mK). DFT loss estimates are often 0 K or 300 K. The `conditions` object is required for a reason; the method is not chosen.
 4. **Which material is first?** The READMEs name Al/AlOx barriers, Nb/Ta surface oxides, TiN, Si, and TLS defects. EAM cannot start those systems; the DFT bridge is a prerequisite. Ni–Al is the documented EAM failure, but it is not itself a QPU-stack dielectric.
 5. **Can `junction_gap_ueV` ever come from atomforge?** It is a superconducting gap, not a ground-state DFT total energy. If it stays a literature / measured input, the schema should keep it reserved or drop it from v0.
-6. **Should accepted contract values be copied into design JSON by hand, or is a loader in scope later?** This draft assumes hand copy until someone designs a reader. Do not add an API in advance of that decision.
+6. **Should accepted contract values be copied into design JSON by hand, or is a loader in scope later?** This draft assumes hand copy until someone designs a reader. Do not add an API in advance of that decision. *Decided 2026-11-28 (Finnian Bond): a loader, and `materials apply --out` to save the result (see Implementation status).*
 7. **How should failed or qualitative EAM structures be marked** so they are not silently used as DFT inputs (Ni–Al B2 is the example in `results/NiAl/report.json`)?
 8. **File location and ownership:** this proposal lives at `docs/DATA_CONTRACT.md` in qpuforge. Still open: should a copy or link also live in atomforge, next to atomforge `results/`, or next to a qpuforge design folder?
 

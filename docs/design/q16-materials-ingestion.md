@@ -1,7 +1,8 @@
 # Design note: the atomforge → qpuforge materials path (q16)
 
-Status: **assessment and plan.** Phase 1 is implemented on `feat/materials-flag-all-commands` (this change). Phases 2–5 are
-proposals; none of them is started. Assessed against qpuforge `main` at `5495bce` (PRs #20, #22, #25, #26 merged) and atomforge
+Status: **assessment and decided plan.** Phase 1 is implemented on `feat/materials-flag-remaining`. Decisions D1–D5 were
+**decided by Finnian Bond, 2026-11-28 (relayed by Forge PM)**; section 6 records them and section 5 is now the chosen
+build order. Phases 2–5 are planned, not yet merged. Assessed against qpuforge `main` at `5495bce` (PRs #20, #22, #25, #26 merged) and atomforge
 `main` at `b6f6d35` (PR #17 merged), 28 November 2026.
 
 ## 1. Summary
@@ -16,7 +17,7 @@ What was still missing on the qpuforge side, and what this design covers:
 | # | Gap | Where | Phase |
 |---|---|---|---|
 | G1 | `--materials` was read by `analyze` only; `run`, `budget`, `fab`, `qec`, `cz`, `synth-chip`, `hwgate` ignored it **silently** (checked: `fab chip --materials s.json` ran as if the flag were absent). The values never reached the emulators or the logical-error runs | CLI | **1 (done)** |
-| G2 | Applying a `junction_gap_ueV` moves every qubit frequency (a chip stores `Rn_kOhm`, not `E_J`); the report line did not say so | reader report | **1 (done: note on the line)**; policy is decision D1 |
+| G2 | Applying a `junction_gap_ueV` moves every qubit frequency (a chip stores `Rn_kOhm`, not `E_J`); the report line did not say so | reader report | **1 (done: note on the line)**; D1 decided: keep fixed-Rn |
 | G3 | A sidecar can only be applied in memory; there is no way to save the result, so a reviewed number cannot be traced to a sidecar | CLI / chip JSON | 2 |
 | G4 | No cross-repo test: the qpuforge fixture is a byte copy of atomforge output at `ee734f9`; atomforge's CI never runs qpuforge's reader | CI | 3 |
 | G5 | Stale documentation: atomforge's README links the contract at branch commit `f64238f`; qpuforge's `DATA_CONTRACT.md` quotes atomforge `ee734f9` | docs | 3 |
@@ -72,7 +73,7 @@ per-quantity lines first. `analyze`, `run`, `budget`, `fab`, `qec`, `cz`, `synth
 changed gap would move; silently ignoring was the failure, so they say no. Without `--materials` nothing changes: no
 committed output moves. The `junction_gap_ueV` report line now says the frequencies scale with the gap.
 
-### Phase 2: save an applied sidecar (G3), proposal
+### Phase 2: save an applied sidecar (G3), decided (D2: build it)
 
 `qpuforge materials apply chip.json sidecar.json --out chip2.json [--loss-tangent]` writes the chip with the accepted values
 and a `materials_source` block (`tool`, `commit`, `schema`, SHA-256 of the sidecar, per-quantity provenance) so a reviewed
@@ -81,28 +82,32 @@ chip names its origin. Alternatives:
 | Option | For | Against |
 |---|---|---|
 | A. Keep in-memory only (today) | no new output format | not reproducible from the chip file; each command needs the sidecar path |
-| B. `materials apply --out` (proposed) | explicit, diffable, one new file; chips stay valid JSON for old readers if `materials_source` is ignored | `design_from_json` must accept or skip a new block; touches `device.hpp` |
+| B. `materials apply --out` (**chosen**, D2) | explicit, diffable, one new file; chips stay valid JSON for old readers if `materials_source` is ignored | `design_from_json` must accept or skip a new block; touches `device.hpp` |
 | C. Writer in atomforge that emits a chip JSON | one step for the user | couples the repos (atomforge would need `ChipDesign`) — rejected |
 | D. Library dependency (FetchContent) | one code path | contract says the repos are companions, not a code dependency — rejected |
 
-### Phase 3: cross-repo test and doc sync (G4, G5)
+### Phase 3: cross-repo test and doc sync (G4, G5), decided (D3: add the atomforge CI job)
 
 * qpuforge: a `tools/refresh_materials_fixture.sh` that regenerates `tests/data/materials-contract-CuAu.json` from a given
   atomforge commit and records the commit in the fixture's test header; the existing byte-for-byte check then catches an
   atomforge writer change when the fixture is refreshed.
-* atomforge CI job (non-blocking at first): check out qpuforge `main`, build `qpuforge`, generate the synthetic sidecar the
+* atomforge CI job (non-blocking at first, `continue-on-error`; qpuforge ref is a workflow input defaulting to `main`, so a
+  broken qpuforge `main` cannot block an atomforge merge): check out qpuforge, build `qpuforge`, generate the synthetic sidecar the
   test already builds, run `qpuforge analyze … --materials`, require exit 0 and the three `skipped` lines. This is the only
   test that fails when either side changes alone.
 * atomforge README link: point at qpuforge `docs/DATA_CONTRACT.md` on `main` instead of commit `f64238f` (an atomforge PR).
 * Alternative considered: a shared JSON Schema file in both repos. Cheaper to check, but a second source of truth next to
   the reader; rejected for now.
 
-### Phase 4: tighter validation (G6)
+### Phase 4: tighter validation (G6), decided (D4: enumerate provenance now, in v0)
 
-* `provenance` is an enumerated set (`assumed`, `measured`, `dft-loss-tangent`, `participation-weighted`, `placeholder`).
-  A number with any other provenance is an error. Because v0 allows additive fields only, a stricter provenance rule is
-  a behaviour change for existing writers (atomforge writes only `placeholder` today, so no break); decide whether it is
-  v0.1 or waits for v1 (D4).
+* `provenance` is an enumerated set on `forge.materials.v0` itself (no v0.1, no v1 wait): the four values of the contract's
+  §3.2 example (`assumed`, `measured`, `dft-loss-tangent`, `participation-weighted`), `placeholder` (what atomforge
+  writes), and `literature` (contract open question 5 names a literature value for the gap). `assumed` is the label for a
+  hand estimate. Any other string is an error; a number without a provenance is an error; `literature` and `measured`
+  name their source in a `reference` string. atomforge writes only `placeholder`, so no writer breaks; hand-written
+  sidecars without a provenance on a number do.
+* Values outside a physical range are rejected, not only non-positive ones (bounds in `DATA_CONTRACT.md`).
 * Warn (not error) when `conditions.f_GHz` differs from the qubit's `f01` by more than a tolerance, or `T_K` from
   `T_eff_mK`, because `Q = 1/tanδ` is only meaningful under the uniform-loss model.
 * `contains_placeholders` must agree with the `placeholders` list and the per-quantity status.
@@ -110,6 +115,8 @@ chip names its origin. Alternatives:
 
 ### Phase 5: real producers and per-element loss (G7), depends on other work
 
+* D5 decided **both**: first a hand-written Alpha-1 sidecar (`provenance: "assumed"`, every number explained in its `reason`
+  and none presented as a sourced value), so the whole path is exercised now; later the DFT bridge writes sidecars.
 * atomforge side: a07/a08 (DFT `ExternalPotential` bridge) gives energies in eV; it still gives no loss tangent. A
   tanδ needs a separate model (TLS density × dipole moment, or measured), so the first non-null quantity will more likely be
   `provenance: "assumed"` / `"measured"` from a person than `dft-loss-tangent` from the code.
@@ -117,18 +124,33 @@ chip names its origin. Alternatives:
   (per-qubit/per-resonator Q), hence **forge.materials.v1** and a version policy: the reader keeps v0 and reads v1
   explicitly; a v1 file is never silently down-converted.
 
-## 5. Phased PR plan
+## 5. Build order (decided 2026-11-28)
 
-| PR | Repo | Content | Risk |
-|---|---|---|---|
-| 1 | qpuforge | `--materials` on every design-consuming command, `layout`/`gds` refuse; gap note; 6 CLI tests; docs. **Open** | low: no output changes without the flag |
-| 2 | qpuforge | `materials apply --out` + `materials_source` block | medium: `design_from_json` / `design_to_json` |
-| 3a | qpuforge | fixture refresh script, DATA_CONTRACT status refresh | low |
-| 3b | atomforge | cross-repo CI job, README link | low (CI only) |
-| 4 | qpuforge | provenance enum, conditions warnings, placeholder consistency | low–medium: behaviour change for hand-written sidecars |
-| 5 | both | v1 schema, per-element Q, after q17 and a07/a08 | high; separate design note |
+Each item is a new branch stacked on the one before it (qpuforge unless noted); none is merged without Finnian.
 
-## 6. Decisions for Finnian
+| # | Branch | Repo | Content | Risk |
+|---|---|---|---|---|
+| 1 | `feat/materials-flag-remaining` | qpuforge | `--materials` on every design-consuming command, `layout`/`gds` refuse; gap note; CLI tests; docs (done) | low: no output changes without the flag |
+| 2 | `feat/materials-provenance-enum` | qpuforge | provenance enum in v0, `reference` for literature/measured, range checks, `placeholders`/`contains_placeholders` consistency (D4) | low–medium: hand-written sidecars without provenance now fail |
+| 3 | `feat/materials-apply-out` | qpuforge | `materials apply --out` + `materials_source` block, fixed-Rn kept (D1, D2) | medium: `design_from_json` / `design_to_json` |
+| 4 | `data/alpha1-sidecar-handwritten` | qpuforge | hand-written Alpha-1 sidecar, `assumed`, load-and-validate test (D5, first half) | low |
+| 5 | `ci/qpuforge-reader-crosscheck` | atomforge | non-blocking CI job: build qpuforge at a pinned ref, read the sidecar atomforge emits (D3) | low (CI only) |
+| 6 | (later) | qpuforge | q18 opt-in flux-noise term, then the q17 FEM reference | see the q17/q18 note |
+| 7 | (later) | both | DFT bridge writes sidecars (D5, second half); v1 schema and per-element Q after q17 and a07/a08 | high; separate design note |
+
+Not scheduled yet: the `conditions` warnings and the fixture refresh script (phase 3a).
+
+## 6. Decisions (decided by Finnian Bond, 2026-11-28, relayed by Forge PM)
+
+| # | Question | Decision |
+|---|---|---|
+| D1 | Gap semantics: fixed `Rn_kOhm` (f01 moves) or retune `Rn_kOhm` (f01 fixed)? | **Keep fixed-Rn.** A sidecar gap changes `E_J` at fixed `Rn_kOhm`; the report line says the frequencies move. `materials apply --out` keeps every `Rn_kOhm` too |
+| D2 | Persist an applied sidecar into a chip JSON? | **Yes:** build `materials apply --out` (phase 2) |
+| D3 | atomforge CI job that runs qpuforge's reader? | **Yes** (phase 3), non-blocking, qpuforge ref pinned by a parameter |
+| D4 | Enumerate `provenance` in v0 or only in v1? | **Now, in v0** (phase 4) |
+| D5 | First real quantity: hand-written sidecar or DFT bridge? | **Both:** a hand-written Alpha-1 sidecar first, the DFT bridge writing sidecars later |
+
+The options as they were put (kept for the record):
 
 * **D1, gap semantics.** A sidecar gap currently changes `E_J` at fixed `Rn_kOhm`, so every f01 moves (Alpha-1 v1.1, 180 → 190
   µeV: qubit 0 5.81 → 5.975 GHz, the design leaves its frequency plan). The alternative is to keep f01 fixed and retune

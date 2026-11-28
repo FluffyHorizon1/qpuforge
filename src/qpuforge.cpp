@@ -200,6 +200,9 @@ static std::string suggest(const std::string& word, const std::vector<std::strin
         if (d <= tol && d < best_d) { best_d = d; best = c; }
         if (w.size() >= 3 && n.size() > w.size() && n.compare(0, w.size(), w) == 0) { ++prefixes; prefix = c; }
     }
+    // A typed prefix beats a two-edit guess: "--burst-rad" is --burst-radius, not --burst-rate, and "--herald-r" is
+    // --herald-rule, not the flag --herald. An ambiguous prefix ("--herald-f") gets no suggestion; the usage lists them.
+    if (prefixes >= 1 && best_d >= 2) return prefixes == 1 ? prefix : "";
     if (!best.empty()) return best;
     return prefixes == 1 ? prefix : "";
 }
@@ -944,8 +947,8 @@ static const std::vector<Command>& commands() {
           choice("--basis", "Z|X|both|z|x"), integer("--statevector", 0), choice_list("--off", kNoiseSources),
           choice("--decoder", "exact|uf|union-find|legacy|greedy"), choice("--leakage-removal", "lrr|dqlr|lrr+dqlr|none"),
           text("--cache"), flag("--herald"), real("--herald-fidelity", 0, 1), real("--herald-false", 0, 1),
-          real("--herald-factor", 0), choice("--herald-rule", "footprint|detector"),
-          flag("--bursts"), real("--burst-rate"), real("--burst-tau-ms"), real("--burst-t1-us"), real("--burst-tphi-us"),
+          real("--herald-factor", 0, 1), choice("--herald-rule", "footprint|detector"),
+          flag("--bursts"), real("--burst-rate", 0), real("--burst-tau-ms", 0), real("--burst-t1-us"), real("--burst-tphi-us"),
           flag("--veto"), integer("--veto-window", 1), real("--veto-radius", 0), real("--veto-false", 0, 1),
           real("--impact-p", 0, 1), real("--burst-radius", 0)}},
         {"synth-chip", cmd_synth, {"<chip.json>", "<data.json>"},

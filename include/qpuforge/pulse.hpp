@@ -377,6 +377,9 @@ struct CZCalibration {
     double f_int_GHz{0}, excursion_MHz{0}, fc_on_GHz{0}, t_rise_ns{0}, t_flat_ns{0}, t_cz_ns{0};
     double err_coherent{0}, leakage{0}, cphase_err{0};
     double err_flux_local{0}, err_flux_quasistatic{0}, leak_spectators{0}, err_residual{0};
+    bool distortion_modeled{false};   // ChipDesign::flux_line.enabled (q18): err_distortion is part of err_ctrl
+    double flux_eps_eff{0};           // effective fractional flux-step error over the hold (|static + averaged tails|)
+    double err_distortion{0};         // flux-line distortion error, on top of err_residual (0 unless modeled)
     double err_ctrl{0};           // Pauli-type error handed to the emulators (T1/Tphi during the gate are simulated there)
     double err_total{0};          // average gate infidelity incl. decoherence during the gate, for reporting
     std::vector<std::pair<int, double>> spectators;   // (spectator qubit id, |11>-|20> transfer probability per CZ)
@@ -417,6 +420,25 @@ inline double flux_noise_variance(double A_uPhi0) {
     const double A = A_uPhi0 * 1e-6;
     const double ln_ir = std::abs(std::log(2 * PI * 1.0 * 10e-6));
     return 2 * A * A * ln_ir;
+}
+
+// q18 fast path (docs/design/flux-line-distortion.md): the residual step error of the flux lines, averaged over the
+// hold of the CZ. A tail a*exp(-t/tau) averages to a*(tau/T)*(1 - exp(-T/tau)) over a hold of T ns; the static offset
+// is taken as is. Both lines (mover and coupler) are given the same fractional error.
+inline double flux_line_eps_eff(const FluxLineSpec& L, double t_hold_ns) {
+    double e = L.static_offset;
+    const double T = std::max(t_hold_ns, 1e-9);
+    for (const auto& t : L.tails) e += t.amplitude * (t.tau_ns / T) * (1 - std::exp(-T / t.tau_ns));
+    return std::abs(e);
+}
+// Infidelity of a fractional error eps on both flux steps, from the stored quasi-static curvature of 1 - F in flux
+// (curv = c_mover + c_coupler, per Phi0^2): 1/2 (c_m (eps dPhi_m)^2 + c_c (eps dPhi_c)^2) <= 1/2 curv (eps max|dPhi|)^2.
+// The bound is used because the cache stores only the sum; it is the "worst pair" column of the q18 sensitivity table.
+// `curv` is the raw curvature (CZCalibration::err_flux_quasistatic before calibrate_chip_cz scales it by sigma^2 / 2).
+// Both idle fluxes are 0 (mover at its sweet spot, coupler parked at f_max), so the steps are flux1_int and fluxc_on.
+inline double flux_distortion_err(double curv, const CZPulse& P, double eps) {
+    const double dphi = std::max(std::abs(P.flux1_int), std::abs(P.fluxc_on));
+    return 0.5 * std::max(0.0, curv) * (eps * dphi) * (eps * dphi);
 }
 
 // Coherent calibrations depend only on the pair's frequencies/anharmonicities and the coupler design: memoised in
@@ -544,6 +566,11 @@ inline std::vector<CZCalibration> calibrate_chip_cz(const ChipDesign& D, ChipRep
         const double var_theta = std::pow(2 * PI * dfdphi * t_eff, 2) * sig2;     // rad^2 (GHz*ns = cycles)
         const double pz = 0.5 * (1 - std::exp(-0.5 * var_theta));
         c.err_flux_local = 0.8 * pz;
+        if (D.flux_line.enabled) {   // q18, opt-in: from the raw curvature, before it is scaled to the noise variance
+            c.distortion_modeled = true;
+            c.flux_eps_eff = flux_line_eps_eff(D.flux_line, c.t_flat_ns);
+            c.err_distortion = flux_distortion_err(c.err_flux_quasistatic, c.pulse, c.flux_eps_eff);
+        }
         c.err_flux_quasistatic *= 0.5 * sig2;
         // spectator crossings: the mover sweeps through the |11>-|20> point of each other neighbour s with
         // f_s - alpha_m between f_int and f_idle; Landau-Zener transfer with that pair's parked residual gap, twice per CZ
@@ -571,6 +598,7 @@ inline std::vector<CZCalibration> calibrate_chip_cz(const ChipDesign& D, ChipRep
         }
         c.err_residual = D.coupler.residual_ctrl_err;
         c.err_ctrl = std::max(0.0, c.err_coherent - c.leakage) + c.err_flux_local + c.err_flux_quasistatic + c.err_residual;
+        if (c.distortion_modeled) c.err_ctrl += c.err_distortion;   // additive, after the unchanged sum (off: same bits)
         auto rates = [&](const QubitReport& q) { return 1e6 / q.T1_us + (std::isfinite(q.Tphi_us) ? 1e6 / q.Tphi_us : 0.0); };
         c.err_total = c.err_ctrl + c.leakage + c.leak_spectators + 0.8 * (c.t_cz_ns * 1e-9 / 2) * (rates(qm) + rates(qt));
     }
@@ -608,6 +636,7 @@ inline Json cz_calibration_json(const std::vector<CZCalibration>& cal) {
         o.set("err_coherent", c.err_coherent); o.set("leakage", c.leakage); o.set("cphase_err_rad", c.cphase_err);
         o.set("err_flux_local", c.err_flux_local); o.set("err_flux_quasistatic", c.err_flux_quasistatic);
         o.set("leak_spectators", c.leak_spectators); o.set("err_residual", c.err_residual);
+        if (c.distortion_modeled) { o.set("flux_eps_eff", c.flux_eps_eff); o.set("err_distortion", c.err_distortion); }   // q18, only when on
         o.set("err_ctrl", c.err_ctrl); o.set("err_total", c.err_total);
         arr.push(o);
     }

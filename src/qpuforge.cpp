@@ -80,6 +80,10 @@ static const UsageBlock kUsageCommands[] = {
      "                lattice surgery: logical ZZ / XX measurement between two patches or the three-patch CNOT;\n"
      "                noiseless tableau check of detectors and observables, then logical error per operation\n"
      "                (Pauli-frame Monte Carlo, exact matching per observable); --shots 0 runs the check only\n"},
+    {"materials",
+     "  qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]\n"
+     "                writes a copy of the chip with the sidecar's accepted values and a materials_source block\n"
+     "                (sidecar SHA-256, producer, provenance per quantity); each qubit keeps its Rn_kOhm, so a new gap moves f01\n"},
     {"new", "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gamma1|gen0 [--distance D]   named designs\n"},
     {"new", "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"},
     {"", "  qpuforge --version | -V                           print the version and exit (first argument only)\n"},
@@ -705,6 +709,11 @@ static int cmd_cz(const Args& a) {
     double mt = 0, me = 0, ml = 0; for (const auto& c : cal) { mt += c.t_cz_ns; me += c.err_total; ml += c.leakage + c.leak_spectators; }
     const double n = std::max<std::size_t>(cal.size(), 1);
     std::printf("  mean: t_cz %.1f ns, CZ error %.2e (incl. decoherence), leakage %.1e per CZ\n", mt / n, me / n, ml / n);
+    if (D.flux_line.enabled) {   // q18, opt-in (tunable_coupler.flux_line): included in ctrl and total above
+        double md = 0, wd = 0, me2 = 0; for (const auto& c : cal) { md += c.err_distortion; wd = std::max(wd, c.err_distortion); me2 += c.flux_eps_eff; }
+        std::printf("  flux-line distortion (opt-in, on top of residual %.1e): eps_eff %.1e mean, error %.2e mean / %.2e worst pair\n",
+                    D.coupler.residual_ctrl_err, me2 / n, md / n, wd);
+    }
     if (const auto out = a.text("--out"); !out.empty()) { write_json_file(out, cz_calibration_json(cal)); std::printf("  wrote %s\n", out.c_str()); }
     return 0;
 }

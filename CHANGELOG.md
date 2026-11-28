@@ -33,6 +33,21 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 `forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
 
 ### Added
+- q17, FEM reference cross-check scaffold (decided by Finnian Bond 2026-11-28: both Elmer and Palace; deviation
+  reported first, tolerance enforced later). `fem.hpp` (not in `qpuforge.hpp`; include it with `layout.hpp`):
+  `FemReference`, the `qpuforge.fem_crosscheck.v0` reader / writer (`reference_from_json`, `reference_to_json`,
+  `load_reference`), `import_elmer` (`CapacitanceMatrix.dat`, lumped → Maxwell), `import_palace` (`terminal-C.csv`),
+  `FemTolerance` (`enforced = false`), `compare_fem`, `circuit_of`, `comparison_summary`, `comparison_json`.
+  `docs/DATA_CONTRACT.md` §6. Test group `fem` (label layout) with synthetic fixtures in `tests/data/fem/`. No solver
+  is a build dependency; no committed number changes.
+- q18, opt-in flux-line distortion term (docs/design/flux-line-distortion.md; decided by Finnian Bond 2026-11-28:
+  additive to `residual_ctrl_err`, off by default, no regeneration). `device.hpp`: `FluxTail`, `FluxLineSpec`,
+  `ChipDesign::flux_line` (design JSON `tunable_coupler.flux_line`, written only when enabled). `pulse.hpp`:
+  `flux_line_eps_eff`, `flux_distortion_err`, `CZCalibration::distortion_modeled`, `flux_eps_eff`, `err_distortion`
+  (added to `err_ctrl`, hence `err_2q_ctrl`, when on; `cz_calibration_json` writes the two values only when on).
+  `qpuforge cz` prints the term when on. Off, every output is unchanged; the CZ cache key and `CZModel::kVersion` are
+  unchanged. Test group `flux_line` (label pulse; its checks are not in `results/test_output.txt`, which is not
+  regenerated).
 - `layout.hpp`:
   - `detail::place_ground_straps` (`detail::Strap`, `detail::IslandIndex`, `detail::island_index`,
     `detail::foot_comp`, `detail::UnionFindLite`; `kStrapW`, `kStrapMaxSpan`, `kStrapLinePenalty`,
@@ -158,6 +173,24 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   four `pulse_cz` checks and one `layout` check, the decoding work two `fault_enumeration` checks. The strict CLI (#24)
   adds CTest guards, not validation checks.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
+- `materials.hpp`: `provenance` is an enumerated field on `forge.materials.v0` (decision D4, Finnian Bond,
+  2026-11-28): `placeholder`, `assumed`, `literature`, `measured`, `dft-loss-tangent`, `participation-weighted`. A
+  number must carry one, and `literature` / `measured` must name their source in `reference` (new member
+  `MaterialsQuantity::reference`, printed on the report line). Values must lie in a physical range (`Q_dielectric`
+  1e3–1e10, `loss_tangent` 1e-10–1e-3, `junction_gap_ueV` 10–3000 µeV). `produced_by.tool` is required, every
+  `placeholders` entry must name a quantity in the file, and `contains_placeholders` must agree with the quantities.
+  atomforge's writer already meets every rule. The `materials` group has 29 checks (4 new), 504 validation checks in
+  all; `results/test_output.txt` still records the 500-check run of `main` named in `results/PROVENANCE.md`.
+- CLI: `qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]` (decision D2) writes
+  a copy of the chip with the sidecar's accepted values and a `materials_source` block: the sidecar's file name and
+  SHA-256, its `produced_by` and `system`, the loss-tangent opt-in, the gap policy and one entry per quantity (applied,
+  before, after, provenance, reference). Each qubit keeps its `Rn_kOhm` (D1), so a new gap moves `f01`, as it does in
+  memory. A chip that already has a `materials_source` keeps it as `previous`. `design_from_json` ignores the block, so
+  the copy loads anywhere; `--out` naming an input file, a missing `--out` or another action than `apply` is refused,
+  and nothing is written when a check fails. `materials.hpp` gains `materials_apply_file`, `materials_source_json`,
+  `MaterialsApplyResult` and `materials_detail::sha256_hex` / `read_file`. The `materials` group has 34 checks (5 new),
+  509 in all; CLI guards `cli_materials_apply*` and new `cli_exit_status` / `cli_help_command` lines.
+- The `layout` / `gds` refusal of `--materials` now points at `qpuforge materials apply`.
 
 ### Fixed
 - CLI: each command accepts only the options it reads. An unknown or misspelt option (`--shot 1000`, `-grid`, or another
@@ -266,6 +299,9 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
   written; they used to return as if it had been written.
 - The materials reader changes nothing else: chip JSON files and the output of `qpuforge analyze` without
   `--materials` are as before.
+- Stricter sidecar validation (D4): a hand-written sidecar whose numbers have no `provenance`, an unknown one, or a
+  `literature` / `measured` value without `reference` is now rejected (`std::runtime_error`), as is a value outside the
+  ranges above, a sidecar without `produced_by.tool`, or inconsistent `placeholders` / `contains_placeholders`.
 
 ### Known issues
 - **Not ready to merge: open review findings** (details in docs/design/mask-connectivity.md):

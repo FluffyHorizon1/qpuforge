@@ -230,7 +230,9 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
 * Materials sidecar (`forge.materials.v0`, `materials.hpp`, [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md)): the
   placeholder file exactly as atomforge writes it leaves Alpha-1 v1.1 unchanged. Sidecar values of Q_dielectric and the
   junction gap reach `analyze()`: T1_diel matches 2πf/Q to 1e-12 and E_J scales with the gap. The loss tangent becomes
-  Q = 1/tanδ only on request. Wrong schemas, units, values and unknown quantities are rejected.
+  Q = 1/tanδ only on request. Wrong schemas, units, values, unknown quantities and unknown or missing provenance are
+  rejected. `materials apply --out` writes a chip equal to the in-memory application, every `Rn_kOhm` kept, with a
+  `materials_source` block (SHA-256 of the sidecar, checked against the FIPS 180-4 vectors).
 * The new groups also pass under AddressSanitizer and UndefinedBehaviorSanitizer.
 
 ## Example: 3×3 chip design study (`examples/design_study.cpp`)

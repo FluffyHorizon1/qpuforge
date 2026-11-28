@@ -2,6 +2,7 @@
 #include "qpuforge/qpuforge.hpp"
 #include "qpuforge/layout.hpp"
 #include "qpuforge/gds.hpp"
+#include "qpuforge/fem.hpp"
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -1997,7 +1998,7 @@ static void test_layout_presets() {
 static std::string test_data(const char* name) { return std::string(QPUFORGE_TEST_DATA) + "/" + name; }
 // a minimal sidecar around the members of `quantities`
 static std::string sidecar_text(const std::string& quantities, const std::string& schema = "\"forge.materials.v0\"") {
-    return "{\"schema\": " + schema + ", \"quantities\": {" + quantities + "}}";
+    return "{\"schema\": " + schema + ", \"produced_by\": {\"tool\": \"test\"}, \"quantities\": {" + quantities + "}}";
 }
 // reading `text` must throw std::runtime_error with `needle` in the message
 static bool sidecar_rejected(const std::string& text, const char* needle) {
@@ -2059,7 +2060,7 @@ static void test_materials() {
           "T1 must combine the new dielectric rate with Purcell decay (%.3f vs %.3f us)", q1.T1_us, q0.T1_us);
     {   // Q alone: the frequencies stay put, so every T1_diel scales exactly with Q
         ChipDesign E = A0;
-        apply_materials(materials_from_json(Json::parse(sidecar_text(R"("Q_dielectric": {"value": 1.2e7, "unit": "dimensionless"})"))), E);
+        apply_materials(materials_from_json(Json::parse(sidecar_text(R"("Q_dielectric": {"value": 1.2e7, "unit": "dimensionless", "provenance": "assumed"})"))), E);
         const auto RE = analyze(E);
         double worst = 0; bool same_f = RE.q.size() == R0.q.size();
         for (std::size_t i = 0; same_f && i < RE.q.size(); ++i) {
@@ -2086,7 +2087,7 @@ static void test_materials() {
         CHECK(std::abs(RG.q[0].T1_diel_us / T1_tan - 1) < 1e-12, "T1_diel from the loss tangent %.6f vs %.6f us", RG.q[0].T1_diel_us, T1_tan);
         ChipDesign H = A0;    // a Q_dielectric with a value wins, opt-in or not
         const auto rh = apply_materials(materials_from_json(Json::parse(sidecar_text(
-            R"("loss_tangent": {"value": 1e-6, "unit": "dimensionless"}, "Q_dielectric": {"value": 2e6, "unit": "dimensionless"})"))), H, MaterialsApplyOptions{true});
+            R"("loss_tangent": {"value": 1e-6, "unit": "dimensionless", "provenance": "assumed"}, "Q_dielectric": {"value": 2e6, "unit": "dimensionless", "provenance": "assumed"})"))), H, MaterialsApplyOptions{true});
         CHECK(H.Q_dielectric == 2e6 && rh.applied() == 1 && !rh.lines[0].applied, "a given Q_dielectric must win over loss_tangent (Q %.6g)", H.Q_dielectric);
     }
     // (d) malformed sidecars are rejected, each with its own message
@@ -2116,6 +2117,103 @@ static void test_materials() {
           "a maps_to naming another field must throw (loss_tangent is converted, never copied)");
     CHECK(sidecar_rejected(R"({"schema": "forge.materials.v0"})", "quantities must be an object") &&
           sidecar_rejected(sidecar_text(R"("Q_dielectric": 3e6)"), "must be an object"), "a missing quantities block or a bare number must throw");
+    // (e) provenance is enumerated on v0 (decision D4), values have physical ranges, placeholder bookkeeping must agree
+    {
+        const auto accepted = [](const std::string& text) {
+            try { materials_from_json(Json::parse(text)); return true; }
+            catch (const std::runtime_error& e) { std::printf("  unexpectedly rejected: %s\n", e.what()); return false; }
+        };
+        const auto qd = [](const std::string& value, const std::string& extra) {
+            return sidecar_text("\"Q_dielectric\": {\"value\": " + value + ", \"unit\": \"dimensionless\"" + extra + "}");
+        };
+        bool every = true;
+        for (const char* p : {"assumed", "dft-loss-tangent", "participation-weighted"})
+            every = every && accepted(qd("1e6", std::string(", \"provenance\": \"") + p + "\""));
+        for (const char* p : {"literature", "measured"})
+            every = every && accepted(qd("1e6", std::string(", \"provenance\": \"") + p + "\", \"reference\": \"lab notebook 7\""));
+        every = every && accepted(qd("null", ", \"provenance\": \"placeholder\"")) && accepted(qd("null", ""));
+        CHECK(every, "every enumerated provenance must be accepted (a null value may omit it)");
+        CHECK(sidecar_rejected(qd("1e6", ", \"provenance\": \"guess\""), "unknown provenance \"guess\" (forge.materials.v0 allows placeholder, assumed, literature") &&
+              sidecar_rejected(qd("null", ", \"provenance\": \"DFT\""), "unknown provenance \"DFT\"") &&
+              sidecar_rejected(qd("1e6", ""), "a value needs a provenance") &&
+              sidecar_rejected(qd("1e6", ", \"provenance\": \"literature\""), "needs a reference") &&
+              sidecar_rejected(qd("1e6", ", \"provenance\": \"measured\", \"reference\": \"\""), "needs a reference") &&
+              sidecar_rejected(qd("1e6", ", \"provenance\": \"assumed\", \"reference\": 7"), "reference must be a string"),
+              "an unknown or missing provenance, or a literature/measured value without a reference, must throw");
+        const std::string a = ", \"provenance\": \"assumed\"";
+        const auto gap = [&](const std::string& v) { return sidecar_text("\"junction_gap_ueV\": {\"value\": " + v + ", \"unit\": \"ueV\"" + a + "}"); };
+        const auto lt = [&](const std::string& v) { return sidecar_text("\"loss_tangent\": {\"value\": " + v + ", \"unit\": \"dimensionless\"" + a + "}"); };
+        CHECK(sidecar_rejected(qd("500", a), "value 500 is out of range [1000, 1e+10] dimensionless") && sidecar_rejected(qd("2e10", a), "out of range") &&
+              sidecar_rejected(gap("5"), "value 5 is out of range [10, 3000] ueV") && sidecar_rejected(gap("1.8e5"), "out of range") &&
+              sidecar_rejected(lt("0.01"), "out of range [1e-10, 0.001]") && sidecar_rejected(lt("1e-12"), "out of range") &&
+              accepted(qd("1e3", a)) && accepted(qd("1e10", a)) && accepted(gap("10")) && accepted(gap("3000")) && accepted(lt("1e-10")) && accepted(lt("1e-3")),
+              "values outside the physical ranges must throw, the bounds themselves are accepted");
+        const std::string ph = R"("Q_dielectric": {"value": null, "unit": "dimensionless", "provenance": "placeholder"})";
+        const auto top = [&](const std::string& extra, const std::string& q) {
+            return "{\"schema\": \"forge.materials.v0\", \"produced_by\": {\"tool\": \"test\"}, " + extra + "\"quantities\": {" + q + "}}";
+        };
+        CHECK(sidecar_rejected(top(R"("placeholders": ["quantities.loss_tangent"], )", ph), "placeholders lists \"quantities.loss_tangent\", which is not a quantity") &&
+              sidecar_rejected(top(R"("placeholders": ["Q_dielectric"], )", ph), "which is not a quantity") &&
+              sidecar_rejected(top(R"("contains_placeholders": false, )", ph), "contains_placeholders is false but a quantity is a placeholder") &&
+              sidecar_rejected(top(R"("contains_placeholders": true, )", q_ok.substr(0, q_ok.size() - 1) + a + "}"), "contains_placeholders is true but no quantity") &&
+              sidecar_rejected(top(R"("contains_placeholders": "yes", )", ph), "contains_placeholders must be true or false") &&
+              sidecar_rejected(R"({"schema": "forge.materials.v0", "quantities": {}})", "produced_by.tool is missing") &&
+              sidecar_rejected(R"({"schema": "forge.materials.v0", "produced_by": {"commit": "x"}, "quantities": {}})", "produced_by.tool is missing") &&
+              accepted(top(R"("placeholders": ["quantities.Q_dielectric"], "contains_placeholders": true, )", ph)),
+              "placeholder bookkeeping must agree with the quantities, and the producer must be named");
+    }
+    // (f) materials apply --out (decision D2): the written chip carries the applied values, keeps every Rn_kOhm (D1) and
+    //     names its sidecar in a materials_source block that design_from_json() ignores
+    {
+        CHECK(materials_detail::sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" &&
+              materials_detail::sha256_hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" &&
+              materials_detail::sha256_hex(std::string(1000, 'a')) == "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3",
+              "SHA-256 test vectors (FIPS 180-4 'abc', empty, 1000 x 'a')");
+        const std::string chip = temp_path("apply_in.json"), out = temp_path("apply_out.json"), out2 = temp_path("apply_out2.json");
+        save_design(A0, chip);
+        const std::string sidecar = test_data("materials-values.json");
+        const auto r = materials_apply_file(chip, sidecar, out);
+        const ChipDesign W = load_design(out), In = load_design(chip);   // compare with the chip as read from the file
+        ChipDesign CI = In;
+        apply_materials(V, CI);
+        bool same_rn = W.qubits.size() == In.qubits.size();
+        for (std::size_t i = 0; same_rn && i < W.qubits.size(); ++i) same_rn = W.qubits[i].Rn_kOhm == In.qubits[i].Rn_kOhm;
+        const auto RW = analyze(W), RC = analyze(CI);
+        const bool same_json = json_text(design_to_json(W)) == json_text(design_to_json(CI));
+        CHECK(W.Q_dielectric == 1e6 && W.gap_ueV == 190 && same_rn && same_json && RW.q[0].f01 == RC.q[0].f01 && RW.q[0].f01 != R0.q[0].f01 &&
+              r.report.applied() == 2,
+              "materials apply --out: the written chip equals the in-memory application (%d), every Rn_kOhm kept (%d), f01 %.4f -> %.4f GHz (in memory %.4f)",
+              int(same_json), int(same_rn), R0.q[0].f01, RW.q[0].f01, RC.q[0].f01);
+        const Json written = Json::parse(materials_detail::read_file(out));
+        const Json& ms = written["materials_source"];
+        const std::string sha = materials_detail::sha256_hex(materials_detail::read_file(sidecar));
+        bool lines = ms["quantities"].size() == 3;
+        for (std::size_t i = 0; lines && i < 3; ++i) {
+            const Json& l = ms["quantities"][i];
+            lines = l["quantity"].str() == rv.lines[i].quantity && l["applied"].boolean() == rv.lines[i].applied && l["after"].num() == rv.lines[i].after;
+        }
+        CHECK(ms["tool"].str() == "qpuforge materials apply" && ms["schema"].str() == "forge.materials.v0" && ms["sidecar"].str() == sidecar &&
+              ms["sidecar_sha256"].str() == sha && ms["produced_by"]["tool"].str() == "hand-written test fixture" && lines &&
+              ms["quantities"][0]["provenance"].str() == "assumed" && ms["quantities"][1]["provenance"].is_null() &&
+              !ms["loss_tangent_opt_in"].boolean() && ms["gap_policy"].str().find("fixed Rn_kOhm") == 0 && !ms.has("previous"),
+              "materials_source names the sidecar (sha256 %s), its producer and each quantity's provenance", sha.c_str());
+        materials_apply_file(out, test_data("materials-loss-tangent.json"), out2, MaterialsApplyOptions{true});
+        const Json chained = Json::parse(materials_detail::read_file(out2));
+        const ChipDesign W2 = load_design(out2);
+        CHECK(W2.Q_dielectric == 1.0 / 2.5e-7 && W2.gap_ueV == 190 && chained["materials_source"]["loss_tangent_opt_in"].boolean() &&
+              chained["materials_source"]["previous"]["sidecar_sha256"].str() == sha,
+              "a second apply keeps the first materials_source as `previous`");
+        bool overwrite = false, bad_left_nothing = false;
+        try { materials_apply_file(chip, sidecar, chip); } catch (const std::runtime_error& e) { overwrite = std::string(e.what()).find("would overwrite an input file") != std::string::npos; }
+        const std::string bad = temp_path("apply_bad_sidecar.json"), never = temp_path("apply_never.json");
+        { std::ofstream f(bad); f << sidecar_text(R"("Q_dielectric": {"value": 1e6, "unit": "dimensionless", "provenance": "guess"})"); }
+        std::remove(never.c_str());
+        try { materials_apply_file(chip, bad, never); } catch (const std::runtime_error& e) {
+            bad_left_nothing = std::string(e.what()).find(bad + ": materials sidecar: Q_dielectric: unknown provenance") == 0 && !std::ifstream(never);
+        }
+        CHECK(overwrite && bad_left_nothing, "apply refuses to overwrite its input (%d) and writes nothing for a bad sidecar (%d)", int(overwrite), int(bad_left_nothing));
+        for (const auto& f : {chip, out, out2, bad}) std::remove(f.c_str());
+    }
     {   // file errors name the file; a hand-built sidecar with a bad value throws before the design is touched
         bool missing = false, named = false, threw = false;
         try { load_materials(temp_path("no_such_sidecar.json")); } catch (const std::runtime_error& e) { missing = std::string(e.what()).find("cannot open") != std::string::npos; }
@@ -2392,6 +2490,203 @@ static void test_surgery_cnot() {
     }
 }
 
+// q18 (docs/design/flux-line-distortion.md): the opt-in flux-line distortion term. Off by default and then invisible
+// (no key written, the same bits); on, it is added on top of residual_ctrl_err and reaches err_2q_ctrl (what the
+// emulators read). No pulse simulation here: the Alpha-1 v1.1 calibrations come from a copy of results/cz_cache.json.
+static void test_flux_line() {
+    std::puts("[pulse] q18 flux-line distortion term: opt-in, additive to residual_ctrl_err, sensitivity table from the cz cache");
+    auto dump = [](const Json& j) { std::ostringstream os; j.dump(os); return os.str(); };
+    // design files: off by default, not written when off, round trip when on, malformed tails refused
+    {
+        CHECK(!alpha1_v11(3).flux_line.enabled && !alpha1(3).flux_line.enabled && !beta1(5).flux_line.enabled, "flux_line is off in every preset");
+        CHECK(!design_to_json(alpha1_v11(3))["tunable_coupler"].has("flux_line"), "flux_line not written when off");
+        auto D = alpha1_v11(3);
+        D.flux_line.enabled = true; D.flux_line.static_offset = 3e-4; D.flux_line.tails = {{2e-3, 15.0}, {-5e-4, 400.0}};
+        const auto B = design_from_json(Json::parse(dump(design_to_json(D))));
+        CHECK(B.flux_line.enabled && B.flux_line.static_offset == 3e-4 && B.flux_line.tails.size() == 2 &&
+              B.flux_line.tails[1].amplitude == -5e-4 && B.flux_line.tails[1].tau_ns == 400.0, "flux_line round trip");
+        const auto off = design_from_json(Json::parse(R"({"tunable_coupler": {"flux_line": {"enabled": false, "static_offset": 1e-3}}})"));
+        CHECK(!off.flux_line.enabled && !design_to_json(off)["tunable_coupler"].has("flux_line"), "enabled:false reads as off and is not written back");
+        bool threw = false;
+        try { design_from_json(Json::parse(R"({"tunable_coupler": {"flux_line": {"enabled": true, "tails": [{"amplitude": 1e-3, "tau_ns": 0}]}}})")); }
+        catch (const std::exception&) { threw = true; }
+        CHECK(threw, "a tail with tau_ns <= 0 is refused");
+    }
+    // effective error over the hold: closed forms
+    {
+        FluxLineSpec L; L.enabled = true; L.static_offset = -2e-4;
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 2e-4) < 1e-18, "static offset taken as is (magnitude)");
+        L.static_offset = 0; L.tails = {{1e-3, 1e6}};
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 1e-3) < 1e-7, "slow tail ~ its amplitude over the hold");
+        L.tails = {{1e-3, 0.5}};
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 1e-3 * 0.5 / 30) < 1e-12, "fast tail averages to a*tau/T");
+        L.tails = {{1e-3, 20.0}};
+        CHECK(std::abs(flux_line_eps_eff(L, 40) - 1e-3 * 0.5 * (1 - std::exp(-2.0))) < 1e-15, "a*(tau/T)(1-exp(-T/tau))");
+        L.static_offset = 1e-3 * 0.5 * (1 - std::exp(-2.0)); L.tails = {{-1e-3, 20.0}};
+        CHECK(flux_line_eps_eff(L, 40) < 1e-15, "a static offset cancels an opposite averaged tail");
+    }
+    // the sensitivity table of docs/design/q17-q18-feasibility.md, from the committed calibrations (16 pair classes)
+    const std::string cache_src = std::string(QPUFORGE_SOURCE_DIR) + "/results/cz_cache.json";
+    std::vector<CZCalibration> ents;
+    {
+        std::ifstream f(cache_src); std::stringstream ss; ss << f.rdbuf();
+        const Json j = Json::parse(ss.str());
+        for (const auto& kv : j["entries"].items()) ents.push_back(cz_coherent_from_json(kv.second));
+        CHECK(ents.size() == 16, "cz cache has the 16 Alpha-1 v1.1 pair classes (%zu)", ents.size());
+        for (double eps : {1e-4, 3e-4, 1e-3}) {
+            std::vector<double> e;
+            for (const auto& c : ents) e.push_back(flux_distortion_err(c.err_flux_quasistatic, c.pulse, eps));
+            std::sort(e.begin(), e.end());
+            const double med = 0.5 * (e[7] + e[8]), worst = e.back();
+            std::printf("  eps %.0e: median %.2e, worst pair %.2e (upper bound: both lines at the larger step)\n", eps, med, worst);
+            const double s = (eps / 1e-4) * (eps / 1e-4);
+            CHECK(std::abs(med / s - 4.82e-5) < 0.01e-5 && std::abs(worst / s - 9.78e-5) < 0.01e-5, "table at eps %.0e", eps);
+        }
+    }
+    // through calibrate_chip_cz (cached, no simulation): off = the same bits, on = additive and reaches err_2q_ctrl
+    {
+        const std::string cache = temp_path("flux_line_cz_cache.json");
+        std::filesystem::copy_file(cache_src, cache, std::filesystem::copy_options::overwrite_existing);
+        const auto D0 = load_design(std::string(QPUFORGE_SOURCE_DIR) + "/designs/alpha1-v11/alpha1_v11.json");
+        auto run = [&](const ChipDesign& D, ChipReport& R) { R = analyze(D); return calibrate_chip_cz(D, R, false, cache); };
+        ChipReport R0, Rz, Rd, Ron;
+        const auto c0 = run(D0, R0);
+        auto Dz = D0; Dz.flux_line.enabled = true;                               // on, zero error
+        auto Dd = D0; Dd.flux_line.enabled = false; Dd.flux_line.static_offset = 1e-3;   // configured but off
+        auto Don = D0; Don.flux_line.enabled = true; Don.flux_line.static_offset = 3e-4; Don.flux_line.tails = {{1e-3, 200.0}};
+        const auto cz = run(Dz, Rz), cd = run(Dd, Rd), con = run(Don, Ron);
+        CHECK(dump(cz_calibration_json(cd)) == dump(cz_calibration_json(c0)), "off (even with values set): calibration JSON byte-identical");
+        CHECK(dump(cz_calibration_json(c0)).find("err_distortion") == std::string::npos, "off: no err_distortion key");
+        bool same = c0.size() == cz.size() && c0.size() == con.size() && !c0.empty();
+        bool additive = same, pairs_ok = true, leak_same = true;
+        double worst = 0;
+        for (std::size_t i = 0; same && i < c0.size(); ++i) {
+            same = same && cz[i].err_ctrl == c0[i].err_ctrl && cz[i].err_total == c0[i].err_total && cz[i].err_distortion == 0.0;
+            const double d = con[i].err_distortion;
+            worst = std::max(worst, d);
+            additive = additive && d > 0 && con[i].err_residual == c0[i].err_residual && con[i].err_flux_quasistatic == c0[i].err_flux_quasistatic &&
+                       std::abs((con[i].err_ctrl - c0[i].err_ctrl) - d) < 1e-15 && std::abs((con[i].err_total - c0[i].err_total) - d) < 1e-15;
+            const double eps = flux_line_eps_eff(Don.flux_line, con[i].t_flat_ns);
+            additive = additive && con[i].flux_eps_eff == eps && eps > 3e-4 && eps < 1.3e-3;
+        }
+        for (std::size_t k = 0; k < R0.pairs.size(); ++k) {
+            const auto& p0 = R0.pairs[k]; const auto& p1 = Ron.pairs[k];
+            if (!p0.designed) continue;
+            pairs_ok = pairs_ok && p1.err_2q_ctrl > p0.err_2q_ctrl && Rz.pairs[k].err_2q_ctrl == p0.err_2q_ctrl;
+            leak_same = leak_same && p1.leak_2q == p0.leak_2q;
+        }
+        std::printf("  Alpha-1 v1.1, static 3e-4 + tail 1e-3 @ 200 ns: worst-pair err_distortion %.2e on top of residual %.1e\n",
+                    worst, D0.coupler.residual_ctrl_err);
+        CHECK(same, "enabled with zero error: err_ctrl / err_total bit-identical to off");
+        CHECK(additive, "on: err_distortion added on top of the unchanged terms (residual_ctrl_err not carved out)");
+        CHECK(pairs_ok && leak_same, "on: err_2q_ctrl (emulator input) grows, leak_2q unchanged; zero error leaves err_2q_ctrl alone");
+        const auto n0 = noise_model(D0, R0), n1 = noise_model(Don, Ron);
+        bool nm = !n0.err_2q_pair.empty();
+        for (const auto& [k, v] : n1.err_2q_pair) nm = nm && v > n0.err_2q_pair.at(k);
+        CHECK(nm, "on: the emulators' per-pair control error includes the term");
+        CHECK(dump(cz_calibration_json(con)).find("\"err_distortion\"") != std::string::npos, "on: err_distortion written to the calibration JSON");
+        std::error_code ec; std::filesystem::remove(cache, ec);
+    }
+}
+
+// q17 (docs/design/q17-q18-feasibility.md): FEM reference cross-check scaffold. Importers for Elmer and Palace
+// exports, the qpuforge.fem_crosscheck.v0 format, and the model-vs-reference deviation, which is reported against the
+// stated tolerance and never enforced. Fixtures in tests/data/fem are SYNTHETIC (no solver run); no solver is needed.
+static void test_fem() {
+    std::puts("[layout] q17 FEM cross-check scaffold: Elmer / Palace importers, fem_crosscheck.v0, reported deviation");
+    using namespace layout;
+    const std::string dir = std::string(QPUFORGE_TEST_DATA) + "/fem/";
+    auto slurp = [](const std::string& p) { std::ifstream f(p); std::stringstream ss; ss << f.rdbuf(); return ss.str(); };
+    auto dump = [](const Json& j) { std::ostringstream os; j.dump(os); return os.str(); };
+    const std::vector<std::string> names{"qa", "coupler", "bus", "qb"};
+    const auto E = fem::import_elmer(slurp(dir + "pair_elmer_CapacitanceMatrix.dat"), names, "synthetic");
+    const auto P = fem::import_palace(slurp(dir + "pair_palace_terminal-C.csv"), names, "synthetic");
+    const auto J = fem::load_reference(dir + "pair_reference.json");
+    {
+        double d = 0;
+        for (int i = 0; i < 4; ++i) for (int k = 0; k < 4; ++k) d = std::max({d, std::abs(E.at(i, k) - J.at(i, k)), std::abs(P.at(i, k) - J.at(i, k))});
+        std::printf("  Elmer (lumped, flipped) and Palace (Maxwell) fixtures vs the v0 JSON: max |dC| %.1e fF\n", d);
+        CHECK(d < 1e-10, "both importers give the committed Maxwell matrix (%.2e fF)", d);
+        CHECK(E.solver == "elmer" && P.solver == "palace" && J.solver == "palace" && J.cell == "pair" && J.mesh.has("note"), "solver / cell / provenance carried");
+        CHECK(E.at(0, 1) < 0 && E.at(0, 0) == J.at(0, 0) && E.asymmetry == 0, "Elmer lumped off-diagonals flipped to Maxwell, diagonal kept");
+        const auto R2 = fem::reference_from_json(Json::parse(dump(fem::reference_to_json(P))));
+        bool same = R2.names == P.names && R2.C_fF.size() == P.C_fF.size() && R2.solver == "palace";
+        for (std::size_t k = 0; same && k < P.C_fF.size(); ++k) same = std::abs(R2.C_fF[k] - P.C_fF[k]) <= 1e-9 * std::abs(P.C_fF[k]);
+        CHECK(same, "fem_crosscheck.v0 round trip");
+        // the Maxwell convention read as is: the same matrix written with negative off-diagonals
+        std::string mx;
+        for (int i = 0; i < 4; ++i) { for (int k = 0; k < 4; ++k) { char b[40]; std::snprintf(b, sizeof b, "%.9e ", J.at(i, k) * 1e-15); mx += b; } mx += "\n"; }
+        const auto Em = fem::import_elmer(mx, names, "", false);
+        CHECK(std::abs(Em.at(1, 3) - J.at(1, 3)) < 1e-9, "Elmer file in the Maxwell convention (lumped = false)");
+    }
+    // malformed inputs are refused with a message
+    {
+        auto refused = [](auto&& f) { try { f(); } catch (const std::exception&) { return true; } return false; };
+        CHECK(refused([&] { fem::import_elmer("1e-13 2e-15\n2e-15 1e-13\n", names); }), "Elmer: row length vs names");
+        CHECK(refused([&] { fem::import_elmer("1e-13 x\n2e-15 1e-13\n", {"a", "b"}); }), "Elmer: non-number");
+        CHECK(refused([&] { fem::import_elmer("1e-13 -2e-15\n-2e-15 1e-13\n", {"a", "b"}); }), "Elmer: Maxwell file read as lumped is caught");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n2, 1e-13, -1e-15\n1, -1e-15, 1e-13\n", {"a", "b"}); }), "Palace: terminal index order");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n1, 1e-13, -1e-15\n2, -1e-15\n", {"a", "b"}); }), "Palace: column count");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n1, 1e-13, -1e-15\n2, -1e-15, 1e-13\n", {"a", "a"}); }), "duplicate conductor name");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n1, 1e-13, -1e-14\n2, -1e-15, 1e-13\n", {"a", "b"}); }), "asymmetry above 5 %%");
+        CHECK(refused([&] { fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v1"})")); }), "wrong schema");
+        CHECK(refused([&] { fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v0", "solver": {"name": "comsol"}, "conductors": ["a"], "maxwell_fF": [[1]]})")); }),
+              "unknown solver");
+        CHECK(refused([&] { fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v0", "solver": {"name": "elmer"}, "units": "pF", "conductors": ["a"], "maxwell_fF": [[1]]})")); }),
+              "units other than fF");
+        const auto ok = fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v0", "solver": {"name": "elmer"}, "conductors": ["a", "b"], "maxwell_fF": [[10, -1], [-1.0001, 12]]})"));
+        CHECK(ok.asymmetry > 0 && ok.at(0, 1) == ok.at(1, 0), "small asymmetry kept as an indicator, matrix symmetrised");
+    }
+    // deviation: a model 1 % above the reference everywhere -> dC +1 %, dE_C and dG = 1/1.01 - 1; ground is model-only
+    {
+        CapacitanceMatrix M; M.n = 5; M.names = {"qa", "coupler", "bus", "qb", "ground"};
+        M.C_fF.assign(25, 0.0);
+        for (int i = 0; i < 4; ++i) for (int k = 0; k < 4; ++k) M.C_fF[std::size_t(i) * 5 + std::size_t(k)] = 1.01 * J.at(i, k);
+        for (int i = 0; i < 4; ++i) { M.C_fF[std::size_t(i) * 5 + 4] = M.C_fF[std::size_t(4) * 5 + std::size_t(i)] = -50; }
+        M.C_fF[24] = 400;
+        const auto c = fem::compare_fem(M, J);
+        std::printf("  %s\n", fem::comparison_summary(c).c_str());
+        const double r = 1 / 1.01 - 1;
+        CHECK(c.shared.size() == 4 && c.model_only == std::vector<std::string>{"ground"} && c.C.size() == 10 && c.EC.size() == 4 && c.G.size() == 6,
+              "shared conductors / ground dropped (0 V boundary = sub-matrix)");
+        CHECK(std::abs(c.max_rel_C - 0.01) < 1e-12 && std::abs(c.max_rel_EC - r) < 1e-12 && std::abs(c.max_rel_G - r) < 1e-12,
+              "deviations %.3e / %.3e / %.3e", c.max_rel_C, c.max_rel_EC, c.max_rel_G);
+        CHECK(c.within() && !c.tol.enforced, "1 %% is within the stated 2/2/5 %% tolerance, which is reported only");
+        fem::FemTolerance tight; tight.rel_C = tight.rel_EC = tight.rel_G = 0.005;
+        const auto t = fem::compare_fem(M, J, tight);
+        const Json tj = fem::comparison_json(t);
+        CHECK(!t.within() && !tj.get("within_tolerance", true) && !tj["tolerance"].get("enforced", true) &&
+              fem::comparison_summary(t).find("outside, reported only") != std::string::npos,
+              "outside a tighter tolerance: reported (JSON and summary), not a failure");
+        // E_C from the reference agrees with layout::triple_circuit on a 3x3 matrix (same convention)
+        std::array<double, 9> C3{}; for (int i = 0; i < 3; ++i) for (int k = 0; k < 3; ++k) C3[std::size_t(i) * 3 + std::size_t(k)] = J.at(i == 2 ? 3 : i, k == 2 ? 3 : k);
+        std::vector<double> sub(9); for (int k = 0; k < 9; ++k) sub[std::size_t(k)] = C3[std::size_t(k)];
+        std::vector<double> ec, g; fem::circuit_of(sub, 3, ec, g);
+        const auto tc = triple_circuit(C3);
+        CHECK(std::abs(ec[0] - tc.EC_m) < 1e-12 && std::abs(ec[1] - tc.EC_c) < 1e-12 && std::abs(g[1] - tc.G_mc) < 1e-12 && std::abs(g[2] - tc.G_md) < 1e-12,
+              "E_C / G convention of layout::triple_circuit");
+        bool threw = false;
+        try { auto Jx = J; Jx.names[1] = "nope"; fem::compare_fem(M, Jx); } catch (const std::exception&) { threw = true; }
+        CHECK(threw, "a reference conductor missing from the model cell is an error");
+    }
+    // end to end with a real MoM extraction (two pads in a ground cut-out): its own export, through Palace's CSV, is a
+    // zero deviation, and the ground conductor is dropped
+    {
+        Conductor a; a.name = "a"; a.rects = {{-150, -50, -50, 50}};
+        Conductor b; b.name = "b"; b.rects = {{50, -50, 150, 50}};
+        Conductor G; G.name = "ground"; G.ground = true; G.outline = {-300, -200, 300, 200}; G.holes = {{-200, -100, 200, 100}};
+        const auto M = extract_capacitance({a, b, G}, 11.45, MeshOptions{2.0, 40, 1.6});
+        std::string csv = "i, C[i][1] (F), C[i][2] (F)\n";
+        for (int i = 0; i < 2; ++i) { char l[128]; std::snprintf(l, sizeof l, "%d, %.12e, %.12e\n", i + 1, M.at(i, 0) * 1e-15, M.at(i, 1) * 1e-15); csv += l; }
+        auto ref = fem::import_palace(csv, {"a", "b"}); ref.cell = "two_pad";
+        const auto c = fem::compare_fem(M, ref);
+        std::printf("  MoM two-pad cell (%d panels, C_aa %.2f fF, C_ab %.3f fF) vs its own Palace-format export: %s\n", M.panels, M.at(0, 0), -M.at(0, 1),
+                    fem::comparison_summary(c).c_str());
+        CHECK(std::abs(c.max_rel_C) < 1e-9 && std::abs(c.max_rel_EC) < 1e-9 && std::abs(c.max_rel_G) < 1e-9 && c.model_only == std::vector<std::string>{"ground"},
+              "MoM vs its own export: zero deviation");
+    }
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -2433,6 +2728,8 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"streaming_uf", test_streaming_uf},
     {"surgery", test_surgery},
     {"surgery_cnot", test_surgery_cnot},
+    {"flux_line", test_flux_line},
+    {"fem", test_fem},
 };
 
 // test_qpuforge            run every test

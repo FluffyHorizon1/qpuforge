@@ -9,6 +9,29 @@ The two repositories are programme companions, not a code dependency. There is n
 
 ---
 
+## Implementation status
+
+*Added Saturday 28 November 2026 on branch `scs-bot/materials-reader` (qpuforge 0.4 integration, `25139c7`). The writer it reads is atomforge's `include/atomforge/materials.hpp` (`ee734f9`). Sections 1–5 are the proposal as filed; where they say that no reader exists, this section replaces them.*
+
+qpuforge now reads the sidecar. The reader is `include/qpuforge/materials.hpp`, included by `qpuforge.hpp`; `device.hpp` is unchanged (§3.3). `load_materials()` / `materials_from_json()` read and check a file, and `apply_materials()` writes the accepted values into a `ChipDesign` and returns one report line per quantity: applied or skipped, and why. `qpuforge analyze chip.json --materials sidecar.json [--loss-tangent]` applies a sidecar to the design in memory, prints those lines, then prints the device report. The chip JSON file is not changed.
+
+| Quantity | Unit string | Written to | Accepted value |
+|---|---|---|---|
+| `Q_dielectric` | `dimensionless` | `ChipDesign::Q_dielectric` (`materials.Q_dielectric`) | null, or finite and > 0 |
+| `junction_gap_ueV` | `ueV` | `ChipDesign::gap_ueV` (`materials.junction_gap_ueV`) | null, or finite and > 0 |
+| `loss_tangent` | `dimensionless` | `ChipDesign::Q_dielectric` = 1 / `loss_tangent` | null, or finite and > 0 |
+
+- `loss_tangent` is used only on request (`--loss-tangent`, `MaterialsApplyOptions::use_loss_tangent`) and only when `Q_dielectric` is null or absent. The conversion is the uniform-loss relation of §2.2, and the report line says so. A `Q_dielectric` with a value always wins.
+- A null value changes nothing and is reported as skipped. This covers atomforge's placeholders (value null, `status` and `provenance` "placeholder", listed in `placeholders`). A placeholder that carries a number is an error, and `qpuforge_default_for_reference` is never read. atomforge's placeholder sidecar leaves Alpha-1 v1.1 unchanged.
+- Errors (`std::runtime_error`, raised before the design is touched): a schema other than `forge.materials.v0`; an unknown quantity; `Rn_spread_pct` or an environment field under `quantities` (§2.1: they stay in the chip JSON); a missing or different unit (exactly `dimensionless` and `ueV`, as in the §3.2 example and atomforge's writer, not `µeV`); a value that is neither null nor a positive finite number; a `maps_to` naming another field. `loss_tangent` keeps `maps_to: null`: it is converted, never copied.
+- Ignored, as additive fields on v0: `structures_ref`, `atomforge_computed`, `not_in_contract`, `open_stack`, `notes` and any other top-level block, and a quantity's other members (`reason`, `relation`, `conditions`). An unknown *quantity* is an error, not ignored, so that a number qpuforge cannot map is never dropped silently.
+
+Not implemented: the `conditions` of a value are not interpreted, so Q and tanδ are not scaled to the qubit's `f01` or `T_eff_mK` (open question 3); there is no participation weighting, and a sidecar sets the one chip-wide `Q_dielectric` (question 1); only `analyze` takes `--materials`, so the other sub-commands still need the values copied into the chip JSON by hand (question 6).
+
+Tests: the `materials` group (label `unit`, 25 checks) and five CLI guards (`cli_materials*`, `cli_usage_materials`). The fixtures are in `tests/data/`. `materials-contract-CuAu.json` is byte for byte what atomforge's `materials_contract_json()` writes for the synthetic Cu–Au search result and fixed options of its `tests/test_materials_contract.cpp`.
+
+---
+
 ## 1. What atomforge outputs today
 
 All of this is produced by `include/atomforge/io.hpp` and `src/main.cpp` (`atomforge search <A> <B> [--out DIR]`). The energy model on `main` is `ZhouEAM` (`include/atomforge/potential.hpp`), named `"Zhou04-EAM"` in the report.

@@ -72,5 +72,6 @@ the commands below to reproduce them.
 - **GDS dates:** the GDS files carry the real write date. `BF49_layout.png` and `GF97_layout.png` are rendered from
   them by `tools/gds_preview.py`.
 - **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all tests, one process,
-  `OMP_NUM_THREADS=1`) built from this commit. It reports 321 checks passed, 0 failed (2026-11-28). The suite total
-  had been written as 319; the program counts 321.
+  `OMP_NUM_THREADS=1`) after this branch was merged with main's materials reader. It reports 346 checks passed,
+  0 failed (2026-11-28): 321 from the 0.4 suite, which is two more than the 319 quoted before that count was
+  rechecked, plus the 25 `materials` checks.

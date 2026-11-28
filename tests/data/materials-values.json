@@ -1,0 +1,37 @@
+{
+  "schema": "forge.materials.v0",
+  "produced_by": {
+    "tool": "hand-written test fixture",
+    "commit": "none",
+    "potential_or_method": "assumed values, not a materials result",
+    "timestamp": "2026-11-27T00:00:00+00:00"
+  },
+  "system": ["Al", "O"],
+  "quantities": {
+    "Q_dielectric": {
+      "value": 1000000,
+      "unit": "dimensionless",
+      "maps_to": "ChipDesign.materials.Q_dielectric",
+      "provenance": "assumed",
+      "conditions": {"T_K": 0.01, "f_GHz": 5.0}
+    },
+    "loss_tangent": {
+      "value": null,
+      "unit": "dimensionless",
+      "relation": "If the uniform-loss model in device.hpp holds, Q_dielectric = 1 / loss_tangent.",
+      "maps_to": null
+    },
+    "junction_gap_ueV": {
+      "value": 190,
+      "unit": "ueV",
+      "maps_to": "ChipDesign.materials.junction_gap_ueV",
+      "provenance": "assumed"
+    }
+  },
+  "not_in_contract": {
+    "Rn_spread_pct": "Process spread used by fab_monte_carlo(); not an atomistic output.",
+    "environment": "T_eff_mK, flux_noise_uPhi0, charge_noise_e, Tphi_other_us stay in chip JSON."
+  },
+  "open_stack": [],
+  "notes": ["Test fixture in the section 3.2 layout of docs/DATA_CONTRACT.md. The numbers are assumed, not computed."]
+}

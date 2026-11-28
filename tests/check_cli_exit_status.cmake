@@ -75,6 +75,11 @@ expect_status(1 surgery --op yy)
 expect_status(1 surgery --d 3,4)
 expect_status(1 surgery --readout X)                 # zz reads each patch in its input basis
 expect_status(1 surgery --post 0)
+expect_status(0 surgery --op zz --d 3 --gap 3 --decoder joint --shots 0 --samples 1)   # routing strip
+expect_status(1 surgery --gap 2)                     # the strip length is odd
+expect_status(1 surgery --gap 0)
+expect_status(1 surgery --gap 17)
+expect_status(1 surgery --decoder exact)             # qec's decoder names are not surgery's
 # analyze: the materials options
 expect_status(1 analyze "${MISSING}" --loss-tangent)
 expect_status(1 analyze "${MISSING}" --materials "")

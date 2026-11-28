@@ -10,8 +10,10 @@
 // count that is not a multiple of the block size, in both memory bases and with two decode methods, including the setup
 // (parallel fault enumeration -> DEM) and the 0.4 syndrome statistics; the same memory decoded with union-find (batch and
 // streaming), with heralded leakage, and with per-shot impact injection and a calibrated veto; run_surgery_frame on a
-// d = 3 lattice-surgery ZZ measurement with leakage on (three observables, each with its own decoder); and the
-// trajectory emulator's sampled XEB (a double reduction).
+// d = 3 lattice-surgery ZZ measurement with leakage on (three observables, each with its own decoder), the same shots
+// through run_surgery_decoders with every surgery decoder (joint matching, union-find, two-pass correlated), and an
+// XX measurement through a routing strip decoded jointly; and the trajectory emulator's sampled XEB (a double
+// reduction).
 #include "qpuforge/qpuforge.hpp"
 #include <cstdio>
 #include <cstring>
@@ -101,12 +103,29 @@ static std::string surgery_digest() {
             const int mover = D.qubits[std::size_t(a)].role == "data" ? b : a;
             nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, 2e-3};
         }
-        return std::make_shared<SurgerySetup>(prepare_surgery(D, R, nm, E, 'Z'));
+        return std::make_shared<SurgerySetup>(prepare_surgery(D, R, nm, E, 'Z', true));   // with the correlated decoder's tables
     }();
     const auto r = run_surgery_frame(*setup, 3000, 23);   // 2 full blocks + a partial one
     std::string out = "surgery";
     for (std::size_t k = 0; k < r.names.size(); ++k) out += " " + std::to_string(r.errors[k]);
     out += " any=" + std::to_string(r.any_errors) + " def=" + hex(r.mean_defects) + " lev=" + hex(r.leak_events_per_shot) + " ";
+    // every decoder on the same shots (decode_ns is wall time and is left out), with the setup's joint model
+    double pj = 0; for (const auto& e : setup->jdem.edges) pj += e.p;
+    out += "jdem=" + std::to_string(setup->jdem.edges.size()) + ":" + hex(pj) + ":" + std::to_string(setup->correlated_pairs) + " dec=";
+    for (const auto& q : run_surgery_decoders(*setup, 3000, 29, {SurgeryDecoder::Separate, SurgeryDecoder::Joint, SurgeryDecoder::SeparateUF, SurgeryDecoder::JointUF,
+                                                                SurgeryDecoder::Correlated})) {
+        for (long e : q.errors) out += std::to_string(e) + ",";
+        out += std::to_string(q.any_errors) + "/" + std::to_string(q.differ) + "/" + std::to_string(q.any_fixed) + "/" + std::to_string(q.any_broken) + ";";
+    }
+    // routing strip: XX through a strip of length 3, Z-basis inputs (the conserved Z_A Z_B crosses the strip), joint decoder
+    static const auto routed = [] {
+        const auto E = surgery_parity(3, 'X', '0', '1', {}, 3);
+        const auto D = surgery_chip(E.sched.lat, "beta1");
+        const auto R = analyze(D);
+        return std::make_shared<SurgerySetup>(prepare_surgery(D, R, noise_model(D, R), E, 'Z'));
+    }();
+    const auto rr = run_surgery_frame(*routed, 3000, 31, SurgeryDecoder::Joint);
+    out += " strip=" + std::to_string(rr.errors[0]) + "/" + std::to_string(rr.any_errors) + "/" + hex(rr.mean_defects) + " ";
     return out;
 }
 

@@ -20,9 +20,22 @@
 // Rn_spread_pct and the environment fields (T_eff_mK, flux_noise_uPhi0, charge_noise_e, Tphi_other_us) are not part of
 // the contract: they stay in the chip JSON, and a sidecar that lists one under `quantities` is rejected.
 //
+// Provenance is an enumerated field on v0 (decision D4, docs/design/q16-materials-ingestion.md §6):
+//   placeholder             not computed; value must be null (what atomforge writes today)
+//   assumed                 a hand estimate by a person; the quantity's `reason` should say why
+//   literature              a published value; `reference` names the source
+//   measured                measured on hardware; `reference` names the measurement
+//   dft-loss-tangent        computed by a DFT loss workflow
+//   participation-weighted  weighted by FEM participation ratios
+// A number must carry a provenance from this list; a null value may omit it. Numbers must lie in a physical range:
+//   Q_dielectric [1e3, 1e10], loss_tangent [1e-10, 1e-3], junction_gap_ueV [10, 3000] ueV.
+// The top level must name its producer (produced_by.tool), every `placeholders` entry must name a quantity in the file,
+// and `contains_placeholders`, when present, must be a boolean that agrees with the quantities.
+//
 // Errors throw std::runtime_error before the design is touched: a schema other than "forge.materials.v0", an unknown
-// quantity, a missing or wrong unit, a value that is neither null nor a positive finite number, or a maps_to naming
-// another field. Other top-level blocks (structures_ref, atomforge_computed, not_in_contract, notes, ...) and other
+// quantity, a missing or wrong unit, a value that is neither null nor a positive finite number or that is out of range,
+// a missing or unknown provenance, a literature/measured value without a reference, a maps_to naming another field, a
+// missing producer, or inconsistent placeholder bookkeeping. Other top-level blocks (structures_ref, atomforge_computed, not_in_contract, notes, ...) and other
 // members of a quantity (reason, conditions, relation, ...) are ignored: the contract keeps additive fields on v0.
 #pragma once
 #include "device.hpp"
@@ -44,6 +57,7 @@ struct MaterialsQuantity {
     std::string unit;
     std::string maps_to;               // empty: null or absent
     std::string provenance, status;    // empty: absent
+    std::string reference;             // source of a literature or measured value; empty: absent
     bool placeholder{false};           // status or provenance "placeholder", or listed in the top-level `placeholders`
 };
 
@@ -86,15 +100,30 @@ inline constexpr const char* kSchema = "forge.materials.v0";
 
 inline std::string fmt(double v) { char b[32]; std::snprintf(b, sizeof b, "%.6g", v); return b; }
 
-struct Known { const char* name; const char* unit; const char* maps_to; const char* field; };
+struct Known { const char* name; const char* unit; const char* maps_to; const char* field; double lo, hi; };
 inline const Known* known(const std::string& name) {
     static const Known k[] = {
-        {"Q_dielectric", "dimensionless", "ChipDesign.materials.Q_dielectric", "materials.Q_dielectric"},
-        {"loss_tangent", "dimensionless", nullptr, "materials.Q_dielectric"},   // maps_to is null in the contract
-        {"junction_gap_ueV", "ueV", "ChipDesign.materials.junction_gap_ueV", "materials.junction_gap_ueV"},
+        {"Q_dielectric", "dimensionless", "ChipDesign.materials.Q_dielectric", "materials.Q_dielectric", 1e3, 1e10},
+        {"loss_tangent", "dimensionless", nullptr, "materials.Q_dielectric", 1e-10, 1e-3},   // maps_to is null in the contract
+        {"junction_gap_ueV", "ueV", "ChipDesign.materials.junction_gap_ueV", "materials.junction_gap_ueV", 10, 3000},
     };
     for (const auto& e : k) if (name == e.name) return &e;
     return nullptr;
+}
+
+// The enumerated provenance values of forge.materials.v0 (D4).
+inline const std::vector<std::string>& provenances() {
+    static const std::vector<std::string> p{"placeholder", "assumed", "literature", "measured", "dft-loss-tangent", "participation-weighted"};
+    return p;
+}
+inline bool known_provenance(const std::string& p) {
+    for (const auto& e : provenances()) if (p == e) return true;
+    return false;
+}
+inline std::string provenance_list() {
+    std::string out;
+    for (const auto& e : provenances()) out += (out.empty() ? "" : ", ") + e;
+    return out;
 }
 
 inline void check_name(const std::string& name) {
@@ -111,9 +140,17 @@ inline void check_quantity(const MaterialsQuantity& q) {
     if (!q.maps_to.empty() && (!k.maps_to || q.maps_to != k.maps_to))
         fail(q.name + ": maps_to \"" + q.maps_to + "\" does not match the contract (" +
              (k.maps_to ? "\"" + std::string(k.maps_to) + "\"" : std::string("null")) + ")");
+    if (!q.provenance.empty() && !known_provenance(q.provenance))
+        fail(q.name + ": unknown provenance \"" + q.provenance + "\" (forge.materials.v0 allows " + provenance_list() + ")");
     if (!q.value) return;
     if (q.placeholder) fail(q.name + ": a placeholder must have value null, got " + fmt(*q.value));
     if (!std::isfinite(*q.value) || !(*q.value > 0)) fail(q.name + ": value must be null or a positive finite number, got " + fmt(*q.value));
+    if (*q.value < k.lo || *q.value > k.hi)
+        fail(q.name + ": value " + fmt(*q.value) + " is out of range [" + fmt(k.lo) + ", " + fmt(k.hi) + "] " + k.unit);
+    if (q.provenance.empty())
+        fail(q.name + ": a value needs a provenance (" + provenance_list() + ")");
+    if ((q.provenance == "literature" || q.provenance == "measured") && q.reference.empty())
+        fail(q.name + ": provenance \"" + q.provenance + "\" needs a reference naming its source");
 }
 
 // Optional string member: absent or null gives "".
@@ -176,11 +213,27 @@ inline MaterialsSidecar materials_from_json(const Json& j) {
         q.maps_to = opt_str(v, "maps_to", where);
         q.provenance = opt_str(v, "provenance", where);
         q.status = opt_str(v, "status", where);
+        q.reference = opt_str(v, "reference", where);
         q.placeholder = q.status == "placeholder" || q.provenance == "placeholder";
         for (const auto& p : listed) q.placeholder = q.placeholder || p == "quantities." + name;
         check_quantity(q);
         S.quantities.push_back(q);
     }
+    for (const auto& p : listed) {   // placeholder bookkeeping must agree with the quantities
+        const std::string prefix = "quantities.";
+        if (p.compare(0, prefix.size(), prefix) != 0 || !S.find(p.substr(prefix.size())))
+            fail("placeholders lists \"" + p + "\", which is not a quantity in this file");
+    }
+    bool any_placeholder = false;
+    for (const auto& q : S.quantities) any_placeholder = any_placeholder || q.placeholder;
+    if (j.has("contains_placeholders")) {
+        const Json& c = j["contains_placeholders"];
+        if (c.type() != Json::Type::Bool) fail("contains_placeholders must be true or false");
+        if (c.boolean() != any_placeholder)
+            fail(std::string("contains_placeholders is ") + (c.boolean() ? "true" : "false") + " but " +
+                 (any_placeholder ? "a quantity is a placeholder" : "no quantity is a placeholder"));
+    }
+    if (S.produced_by.tool.empty()) fail("produced_by.tool is missing (a sidecar names the tool or person that wrote it)");
     return S;
 }
 
@@ -231,7 +284,7 @@ inline MaterialsReport apply_materials(const MaterialsSidecar& S, ChipDesign& D,
             (is_gap ? gap : Q) = *q.value;
             L.applied = true;
             L.after = *q.value;
-            L.note = q.provenance.empty() ? "no provenance given" : "provenance " + q.provenance;
+            L.note = "provenance " + q.provenance + (q.reference.empty() ? "" : " (" + q.reference + ")");
             if (is_gap && *q.value != D.gap_ueV)
                 L.note += "; each qubit keeps its Rn_kOhm, so E_J and f01 scale with the gap (Ambegaokar-Baratoff)";
         }

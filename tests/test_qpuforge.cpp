@@ -1974,7 +1974,7 @@ static void test_layout_presets() {
 static std::string test_data(const char* name) { return std::string(QPUFORGE_TEST_DATA) + "/" + name; }
 // a minimal sidecar around the members of `quantities`
 static std::string sidecar_text(const std::string& quantities, const std::string& schema = "\"forge.materials.v0\"") {
-    return "{\"schema\": " + schema + ", \"quantities\": {" + quantities + "}}";
+    return "{\"schema\": " + schema + ", \"produced_by\": {\"tool\": \"test\"}, \"quantities\": {" + quantities + "}}";
 }
 // reading `text` must throw std::runtime_error with `needle` in the message
 static bool sidecar_rejected(const std::string& text, const char* needle) {
@@ -2036,7 +2036,7 @@ static void test_materials() {
           "T1 must combine the new dielectric rate with Purcell decay (%.3f vs %.3f us)", q1.T1_us, q0.T1_us);
     {   // Q alone: the frequencies stay put, so every T1_diel scales exactly with Q
         ChipDesign E = A0;
-        apply_materials(materials_from_json(Json::parse(sidecar_text(R"("Q_dielectric": {"value": 1.2e7, "unit": "dimensionless"})"))), E);
+        apply_materials(materials_from_json(Json::parse(sidecar_text(R"("Q_dielectric": {"value": 1.2e7, "unit": "dimensionless", "provenance": "assumed"})"))), E);
         const auto RE = analyze(E);
         double worst = 0; bool same_f = RE.q.size() == R0.q.size();
         for (std::size_t i = 0; same_f && i < RE.q.size(); ++i) {
@@ -2063,7 +2063,7 @@ static void test_materials() {
         CHECK(std::abs(RG.q[0].T1_diel_us / T1_tan - 1) < 1e-12, "T1_diel from the loss tangent %.6f vs %.6f us", RG.q[0].T1_diel_us, T1_tan);
         ChipDesign H = A0;    // a Q_dielectric with a value wins, opt-in or not
         const auto rh = apply_materials(materials_from_json(Json::parse(sidecar_text(
-            R"("loss_tangent": {"value": 1e-6, "unit": "dimensionless"}, "Q_dielectric": {"value": 2e6, "unit": "dimensionless"})"))), H, MaterialsApplyOptions{true});
+            R"("loss_tangent": {"value": 1e-6, "unit": "dimensionless", "provenance": "assumed"}, "Q_dielectric": {"value": 2e6, "unit": "dimensionless", "provenance": "assumed"})"))), H, MaterialsApplyOptions{true});
         CHECK(H.Q_dielectric == 2e6 && rh.applied() == 1 && !rh.lines[0].applied, "a given Q_dielectric must win over loss_tangent (Q %.6g)", H.Q_dielectric);
     }
     // (d) malformed sidecars are rejected, each with its own message
@@ -2093,6 +2093,51 @@ static void test_materials() {
           "a maps_to naming another field must throw (loss_tangent is converted, never copied)");
     CHECK(sidecar_rejected(R"({"schema": "forge.materials.v0"})", "quantities must be an object") &&
           sidecar_rejected(sidecar_text(R"("Q_dielectric": 3e6)"), "must be an object"), "a missing quantities block or a bare number must throw");
+    // (e) provenance is enumerated on v0 (decision D4), values have physical ranges, placeholder bookkeeping must agree
+    {
+        const auto accepted = [](const std::string& text) {
+            try { materials_from_json(Json::parse(text)); return true; }
+            catch (const std::runtime_error& e) { std::printf("  unexpectedly rejected: %s\n", e.what()); return false; }
+        };
+        const auto qd = [](const std::string& value, const std::string& extra) {
+            return sidecar_text("\"Q_dielectric\": {\"value\": " + value + ", \"unit\": \"dimensionless\"" + extra + "}");
+        };
+        bool every = true;
+        for (const char* p : {"assumed", "dft-loss-tangent", "participation-weighted"})
+            every = every && accepted(qd("1e6", std::string(", \"provenance\": \"") + p + "\""));
+        for (const char* p : {"literature", "measured"})
+            every = every && accepted(qd("1e6", std::string(", \"provenance\": \"") + p + "\", \"reference\": \"lab notebook 7\""));
+        every = every && accepted(qd("null", ", \"provenance\": \"placeholder\"")) && accepted(qd("null", ""));
+        CHECK(every, "every enumerated provenance must be accepted (a null value may omit it)");
+        CHECK(sidecar_rejected(qd("1e6", ", \"provenance\": \"guess\""), "unknown provenance \"guess\" (forge.materials.v0 allows placeholder, assumed, literature") &&
+              sidecar_rejected(qd("null", ", \"provenance\": \"DFT\""), "unknown provenance \"DFT\"") &&
+              sidecar_rejected(qd("1e6", ""), "a value needs a provenance") &&
+              sidecar_rejected(qd("1e6", ", \"provenance\": \"literature\""), "needs a reference") &&
+              sidecar_rejected(qd("1e6", ", \"provenance\": \"measured\", \"reference\": \"\""), "needs a reference") &&
+              sidecar_rejected(qd("1e6", ", \"provenance\": \"assumed\", \"reference\": 7"), "reference must be a string"),
+              "an unknown or missing provenance, or a literature/measured value without a reference, must throw");
+        const std::string a = ", \"provenance\": \"assumed\"";
+        const auto gap = [&](const std::string& v) { return sidecar_text("\"junction_gap_ueV\": {\"value\": " + v + ", \"unit\": \"ueV\"" + a + "}"); };
+        const auto lt = [&](const std::string& v) { return sidecar_text("\"loss_tangent\": {\"value\": " + v + ", \"unit\": \"dimensionless\"" + a + "}"); };
+        CHECK(sidecar_rejected(qd("500", a), "value 500 is out of range [1000, 1e+10] dimensionless") && sidecar_rejected(qd("2e10", a), "out of range") &&
+              sidecar_rejected(gap("5"), "value 5 is out of range [10, 3000] ueV") && sidecar_rejected(gap("1.8e5"), "out of range") &&
+              sidecar_rejected(lt("0.01"), "out of range [1e-10, 0.001]") && sidecar_rejected(lt("1e-12"), "out of range") &&
+              accepted(qd("1e3", a)) && accepted(qd("1e10", a)) && accepted(gap("10")) && accepted(gap("3000")) && accepted(lt("1e-10")) && accepted(lt("1e-3")),
+              "values outside the physical ranges must throw, the bounds themselves are accepted");
+        const std::string ph = R"("Q_dielectric": {"value": null, "unit": "dimensionless", "provenance": "placeholder"})";
+        const auto top = [&](const std::string& extra, const std::string& q) {
+            return "{\"schema\": \"forge.materials.v0\", \"produced_by\": {\"tool\": \"test\"}, " + extra + "\"quantities\": {" + q + "}}";
+        };
+        CHECK(sidecar_rejected(top(R"("placeholders": ["quantities.loss_tangent"], )", ph), "placeholders lists \"quantities.loss_tangent\", which is not a quantity") &&
+              sidecar_rejected(top(R"("placeholders": ["Q_dielectric"], )", ph), "which is not a quantity") &&
+              sidecar_rejected(top(R"("contains_placeholders": false, )", ph), "contains_placeholders is false but a quantity is a placeholder") &&
+              sidecar_rejected(top(R"("contains_placeholders": true, )", q_ok.substr(0, q_ok.size() - 1) + a + "}"), "contains_placeholders is true but no quantity") &&
+              sidecar_rejected(top(R"("contains_placeholders": "yes", )", ph), "contains_placeholders must be true or false") &&
+              sidecar_rejected(R"({"schema": "forge.materials.v0", "quantities": {}})", "produced_by.tool is missing") &&
+              sidecar_rejected(R"({"schema": "forge.materials.v0", "produced_by": {"commit": "x"}, "quantities": {}})", "produced_by.tool is missing") &&
+              accepted(top(R"("placeholders": ["quantities.Q_dielectric"], "contains_placeholders": true, )", ph)),
+              "placeholder bookkeeping must agree with the quantities, and the producer must be named");
+    }
     {   // file errors name the file; a hand-built sidecar with a bad value throws before the design is touched
         bool missing = false, named = false, threw = false;
         try { load_materials(temp_path("no_such_sidecar.json")); } catch (const std::runtime_error& e) { missing = std::string(e.what()).find("cannot open") != std::string::npos; }

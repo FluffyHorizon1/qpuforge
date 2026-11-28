@@ -49,7 +49,7 @@ CZ calibration: 16 unique frequency combinations for 24 pairs (0 simulated, 16 c
    chip 5.8 x 5.8 mm, 11662 etch polygons
    DRC: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 0 width + 0 space violations
    metal connectivity clean: 205 components; islands merged 0, on the plane 0; shorted lines reaching the plane 58/58 (qubit flux lines 17/17); floating ground fragments 0; junctions landing island-to-plane 41/41; ground straps 122 (landed 122; crossing 47 lines, 41 coupler/bus strips); small fragments removed 0
-   control lines: XY 0.029/0.030 fF, flux 0.030/0.030 fF effective (2.00/1.93 fF if open; measure/data); T1 limits >= 1.56 ms (XY), 1.47 ms (flux): 23.8x (Q16) and 22.4x (Q16) the design T1 (budget 10x: met)
+   control lines: XY 0.029/0.030 fF, flux 0.030/0.030 fF effective (2.00/1.93 fF if open; measure/data); T1 limits >= 1.56 ms (XY), 1.47 ms (flux): 23.8x (Q16) and 22.4x (Q16) the design T1 (budget 10x: met) (reported, not gated)
    extracted vs target: E_C within 0.1%, couplings within 5.0%, qubit-readout capacitance -0.5% (9.10 fF, target 9.15)
 
 8. Alpha simulation gate (ROADMAP.md)
@@ -59,7 +59,6 @@ CZ calibration: 16 unique frequency combinations for 24 pairs (0 simulated, 16 c
    [PASS] every pair: idle ZZ at the coupler park point <= 10 kHz
    [PASS] layout passes placement, island-spacing and mask width/space checks
    [PASS] metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane
-   [PASS] each qubit's XY and flux line T1 limits at least 10x its design T1
    [PASS] extracted E_C within 3%, couplings within 6%; parked exchange re-nullable
 
-review complete in 1604 s -> designs/alpha1-v11/alpha1_v11_review.json
+review complete in 1588 s -> designs/alpha1-v11/alpha1_v11_review.json

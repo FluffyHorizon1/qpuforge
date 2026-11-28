@@ -8,9 +8,9 @@
     {
       "name": "Median T1 (us)",
       "criterion": ">= 50",
-      "value": 67.1554606676,
+      "value": 67.1554606742,
       "threshold": 50,
-      "worst": 22.2685537684,
+      "worst": 22.2685537706,
       "evaluated": true,
       "pass": true,
       "note": ""
@@ -18,9 +18,9 @@
     {
       "name": "Median T2 echo (us)",
       "criterion": ">= 40",
-      "value": 60.2958225916,
+      "value": 60.2958225814,
       "threshold": 40,
-      "worst": 27.3288960967,
+      "worst": 27.328896096,
       "evaluated": true,
       "pass": true,
       "note": ""
@@ -28,9 +28,9 @@
     {
       "name": "Median single-qubit gate error",
       "criterion": "<= 1e-3",
-      "value": 0.000287521130676,
+      "value": 0.000287521130745,
       "threshold": 0.001,
-      "worst": 0.000576984764584,
+      "worst": 0.000576984764574,
       "evaluated": true,
       "pass": true,
       "note": ""
@@ -38,9 +38,9 @@
     {
       "name": "Median CZ error",
       "criterion": "<= 5e-3",
-      "value": 0.00191503545373,
+      "value": 0.00191503545336,
       "threshold": 0.005,
-      "worst": 0.00328215564771,
+      "worst": 0.00328215564768,
       "evaluated": true,
       "pass": true,
       "note": ""
@@ -58,9 +58,9 @@
     {
       "name": "Median readout assignment error",
       "criterion": "<= 2%",
-      "value": 0.00745434364892,
+      "value": 0.00745434364882,
       "threshold": 0.02,
-      "worst": 0.013504420845,
+      "worst": 0.0135044208442,
       "evaluated": true,
       "pass": true,
       "note": ""

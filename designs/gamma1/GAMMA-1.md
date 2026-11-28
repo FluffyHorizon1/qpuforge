@@ -7,7 +7,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 | **Status** | Memory review complete (8 of 8 memory-gate criteria pass). Layout first cut (GDSII), not mask-ready (§7). Logical operations not yet reviewed (§9). |
 | **Purpose** | A distance-7 logical memory on 97 qubits: the third point on the suppression curve, and the first chip where decoding and correlated errors need their own answers |
 | **Builds on** | Beta-1 rev C (BF-49): same physics, same frequency plan, same synthesised cells |
-| **Tooling** | qpuforge v0.4: `gamma1_review` (1664 s; 100,000 shots per point, twice that at distance 7) |
+| **Tooling** | qpuforge v0.4: `gamma1_review` (1498 s; 100,000 shots per point, twice that at distance 7) |
 
 All performance numbers are **simulation results**. The assumptions are in §10.
 
@@ -50,7 +50,7 @@ Minimum-weight perfect matching, exact at any number of defects: a dynamic progr
 blossom algorithm beyond.
 
 - Distance 7, 14 rounds: **11.6 defects per shot** (largest 39); 1.63 % of shots have more than 22.
-- Software decoding takes about **0.88 µs per round** on one CPU core, against a round of 0.75 µs. The
+- Software decoding takes about **0.91 µs per round** on one CPU core, against a round of 0.75 µs. The
   figure moves with the machine and its load. On average it is the same order as the chip's own pace; the worst case
   is far slower, and a batch decoder is not a streaming one. Real-time decoding stays an FPGA task (§9).
 - **What exactness buys.** Before v0.4 the decoder fell back to greedy matching above 22 defects. On a 40-round
@@ -58,8 +58,8 @@ blossom algorithm beyond.
 
 | Decoder | Logical failure probability | Failures | Decode time per round |
 |---|---|---|---|
-| Exact matching (v0.4) | **0.0013** | 5 | 2.0 µs |
-| Greedy above 22 defects (v0.3) | 0.0777 | 311 | 265 µs |
+| Exact matching (v0.4) | **0.0013** | 5 | 2.1 µs |
+| Greedy above 22 defects (v0.3) | 0.0777 | 311 | 288 µs |
 
 ## 4. High-energy impacts
 
@@ -99,7 +99,7 @@ higher. The rising detection rate is the signature to look for on hardware.
 
 | Junction resistance spread | Collision-free chips | Frequency scatter (rms) |
 |---|---|---|
-| 1 % | 91/100 (91 %) | 29 MHz |
+| 1 % | 100/100 (100 %) | 29 MHz |
 | **0.5 % (trimmed)** | **100/100 (100 %)** | 14 MHz |
 
 ## 7. Wiring and layout

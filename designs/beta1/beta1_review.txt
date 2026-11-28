@@ -31,9 +31,9 @@ CZ calibration: 16 unique frequency combinations for 80 pairs (0 simulated, 16 c
    readout separation 0.5% -> 0.25%       eps 0.0768%  (-7%)
 
 5. Fabrication yield at d=5 (junction resistance spread; frequency-collision rules)
-   spread 2.0%: collision-free 192/200 (96%), frequency scatter 57 MHz rms
-   spread 1.0%: collision-free 185/200 (92%), frequency scatter 29 MHz rms
-   spread 0.5% (trimmed): collision-free 199/200 (100%), frequency scatter 14 MHz rms
+   spread 2.0%: collision-free 200/200 (100%), frequency scatter 57 MHz rms
+   spread 1.0%: collision-free 200/200 (100%), frequency scatter 29 MHz rms
+   spread 0.5% (trimmed): collision-free 200/200 (100%), frequency scatter 14 MHz rms
 
 6. Wiring and readout multiplexing
    49 XY drive + 49 qubit flux + 80 coupler flux + 6 readout in + 6 readout out = 190 coaxial lines
@@ -56,4 +56,4 @@ CZ calibration: 16 unique frequency combinations for 80 pairs (0 simulated, 16 c
    [PASS] first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated)
    [PASS] extracted E_C within 3%, couplings and readout capacitance within 6%; parked exchange re-nullable
 
-review complete in 2249 s -> designs/beta1/beta1_review.json
+review complete in 1826 s -> designs/beta1/beta1_review.json

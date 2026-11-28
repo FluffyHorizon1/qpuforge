@@ -5,19 +5,19 @@ the commands below to reproduce them.
 
 | Output | Program and arguments | Source | Compiler | OpenMP threads | Finished (UTC) | Runtime |
 |---|---|---|---|---|---|---|
-| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T18:32:36Z | 744 s |
-| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T17:45:52Z | 2249 s |
-| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T18:19:28Z | 1664 s |
+| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` | `4e266db4e0c5fa8780c71852980af3dca7f31933` | g++ 13.3.0 | 2 | 2026-11-27T22:42:40Z | 742 s |
+| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` | `4e266db4e0c5fa8780c71852980af3dca7f31933` | g++ 13.3.0 | 2 | 2026-11-27T23:13:06Z | 1826 s |
+| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` | `4e266db4e0c5fa8780c71852980af3dca7f31933` | g++ 13.3.0 | 2 | 2026-11-27T23:44:51Z | 1498 s |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | `bff9d108eb60886e2b6cb258de831142785457ce` (unchanged since 0.3) | g++ 14.2.0 | — | 2026-11-26 | — |
 | `designs/beta1/layout_cells.json` | `qpuforge gds designs/beta1/beta1.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` | 0.4 development tree, before it moved onto CZ model version 2 (see below) | g++ 13.3.0 | — | 2026-11-26 | 366 s |
 | `results/cz_cache.json` | written by the 0.3 Alpha run from an empty cache (16 calibrations simulated); the 0.4 runs reuse it (0 simulated, 16 cached) | `bff9d108eb60886e2b6cb258de831142785457ce` (unchanged since 0.3) | g++ 14.2.0 | 8 | 2026-11-25 | — |
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0 | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 
-- **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
-  The 0.4 outputs were generated from the 0.4 working tree on top of `1cfa2b14162e149f34a0f996e9e129cdf661577d`, before that tree was committed:
-  each JSON says `source_tree_dirty: true`. Regenerate them from the release commit before tagging; with the same
-  thread count the numbers do not change.
+- **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, a clean build directory, run from the
+  repository root. The source tree was clean at configure time (`source_tree_dirty: false` in each JSON). The
+  synthetic characterisation examples in `designs/alpha1-v11/` were regenerated from the same build with the commands
+  in `CHARACTERISATION-PLAN.md` §7 (with `OMP_NUM_THREADS=2`; output paths as committed).
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
@@ -32,6 +32,15 @@ the commands below to reproduce them.
   version 2, which shifted one circuit target (the direct qubit–qubit coupling) in the fifth digit. Running the
   synthesis command above on the release code reproduces every cell dimension to within 2 nm. The reviews evaluate
   the committed cells against the current targets.
+- **Design files after PR #2.** `alpha1_v11()`, `beta1()` and `gamma1()` are built from `alpha1()`, so they inherit the
+  1 MHz direct qubit–qubit coupling that PR #2 gave it (4 MHz before). `alpha1_v11.json`, `beta1.json` and
+  `gamma1.json` therefore carry about 4× smaller coupling capacitances than the outputs generated before the rebase.
+  The pulse-level CZ calibrations do not use them (all 16 still come from the cache), and the memory-experiment
+  results did not change. The device analysis does: parasitic couplings are smaller, so fewer fabrication samples
+  show a parasitic resonance. Beta-1 and Gamma-1 now have no frequency collisions at any simulated spread (before:
+  Beta-1 192, 185 and 199 of 200 at 2 %, 1 % and 0.5 %; Gamma-1 91 of 100 at 1 %). The `v1.0 model` row of the
+  Alpha-1 v1.1 review follows PR #2's redesign of Alpha-1 v1.0 (0.445 % → 0.453 % per round). The AF-17 layout export
+  is unchanged (same geometry and labels as the committed `AF17_v11.gds`).
 - **Alpha-1 v1.0 review (not regenerated for v0.3).** `results/alpha1_review.{json,txt}` reproduce digit for digit only
   with the binary that was committed alongside them, run with two threads from a checkout of `3fe4d23`:
   ```
@@ -64,7 +73,9 @@ the commands below to reproduce them.
 - **CZ model** version 2 (`CZModel::kVersion`): dt 0.1 ns, Nelder–Mead budget 260, levels 4/4/4
   (qubit/coupler/qubit), charge cutoff 12. The cache keys encode all of these, and a cache from another model version
   is rejected.
-- **GDS dates:** the GDS files carry the real write date. `BF49_layout.png` and `GF97_layout.png` are rendered from
-  them by `tools/gds_preview.py`.
+- **GDS dates:** the GDS files carry the real write date. `BF49_layout.{png,svg}` and `GF97_layout.{png,svg}` are
+  rendered from them by `tools/gds_preview.py` (the SVG files with `svg.fonttype: none` and
+  `shape-rendering="crispEdges"`; see the commit that added them). The layouts are unchanged by the regeneration, so
+  the previews still match.
 - **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all tests, serial) built from the same
   source.

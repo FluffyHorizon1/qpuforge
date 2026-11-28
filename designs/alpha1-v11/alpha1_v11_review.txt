@@ -5,7 +5,7 @@ CZ calibration: 16 unique frequency combinations for 24 pairs (0 simulated, 16 c
    control error handed to the emulator 1.06e-03 (incl. 1e-03 residual allowance); total CZ error incl. decoherence 1.86e-03
 
 2. Headline: distance-3 memory, logical error per round (fit over 5-25 rounds)
-   v1.0 model (abstract coupler, no leakage):     eps 0.4452% +- 0.0057%, round 847 ns
+   v1.0 model (abstract coupler, no leakage):     eps 0.4533% +- 0.0057%, round 847 ns
    v1.1 model (pulse-level CZ, leakage, LRR):     eps 0.3754% +- 0.0036%, round 928 ns, detection 0.0458
    logical lifetime 247 us vs best physical T1 75.6 us
    v1.1 model, memory-X (|+>_L, phase flips):     eps 0.3604% +- 0.0050%
@@ -49,4 +49,4 @@ CZ calibration: 16 unique frequency combinations for 24 pairs (0 simulated, 16 c
    chip 5.8 x 5.8 mm, 14380 etch polygons
    DRC: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 34 width + 202 space violations
 
-review complete in 744 s -> designs/alpha1-v11/alpha1_v11_review.json
+review complete in 742 s -> designs/alpha1-v11/alpha1_v11_review.json

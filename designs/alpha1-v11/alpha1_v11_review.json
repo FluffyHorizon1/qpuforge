@@ -7,10 +7,10 @@
     "err_coherent_mean": 8.08010651534e-05,
     "leakage_mean": 5.69809121696e-05,
     "leakage_max": 0.000232635325354,
-    "err_flux_mean": 3.14377509807e-05,
+    "err_flux_mean": 3.14377509801e-05,
     "zz_idle_abs_mean_kHz": 3.88345390016,
     "err_ctrl_mean": 0.00105525790396,
-    "err_total_mean": 0.00185518944964,
+    "err_total_mean": 0.00185518944954,
     "per_pair": [
       {
         "a": 0,
@@ -33,12 +33,12 @@
         "err_coherent": 3.56821747742e-05,
         "leakage": 3.05497865523e-05,
         "cphase_err_rad": -0.00037012341646,
-        "err_flux_local": 2.28894123052e-05,
+        "err_flux_local": 2.28894123073e-05,
         "err_flux_quasistatic": 3.4958570665e-06,
         "leak_spectators": 0,
         "err_residual": 0.001,
-        "err_ctrl": 0.00103151765759,
-        "err_total": 0.0018402966456
+        "err_ctrl": 0.0010315176576,
+        "err_total": 0.00184029664578
       },
       {
         "a": 0,
@@ -61,12 +61,12 @@
         "err_coherent": 4.23599959779e-05,
         "leakage": 4.21387717471e-05,
         "cphase_err_rad": 0.000383929306914,
-        "err_flux_local": 2.64327277196e-05,
+        "err_flux_local": 2.64327277186e-05,
         "err_flux_quasistatic": 4.00902316734e-06,
-        "leak_spectators": 1.45195485129e-17,
+        "leak_spectators": 1.4519548565e-17,
         "err_residual": 0.001,
         "err_ctrl": 0.00103066297512,
-        "err_total": 0.00185907683544
+        "err_total": 0.00185907683532
       },
       {
         "a": 1,
@@ -89,12 +89,12 @@
         "err_coherent": 2.17279719195e-05,
         "leakage": 2.14710553286e-05,
         "cphase_err_rad": 6.63248676482e-05,
-        "err_flux_local": 4.23371864984e-05,
+        "err_flux_local": 4.23371864975e-05,
         "err_flux_quasistatic": 6.46200941448e-06,
-        "leak_spectators": 2.43549162422e-17,
+        "leak_spectators": 2.43549162799e-17,
         "err_residual": 0.001,
         "err_ctrl": 0.0010490561125,
-        "err_total": 0.00190455093867
+        "err_total": 0.00190455093903
       },
       {
         "a": 1,
@@ -117,12 +117,12 @@
         "err_coherent": 2.67953906204e-05,
         "leakage": 2.67870168683e-05,
         "cphase_err_rad": 0.00021511910416,
-        "err_flux_local": 4.73092234962e-05,
+        "err_flux_local": 4.73092234922e-05,
         "err_flux_quasistatic": 7.18604560072e-06,
-        "leak_spectators": 4.31835458218e-16,
+        "leak_spectators": 4.31835459437e-16,
         "err_residual": 0.001,
         "err_ctrl": 0.00105450364285,
-        "err_total": 0.00195382531282
+        "err_total": 0.00195382531303
       },
       {
         "a": 2,
@@ -145,12 +145,12 @@
         "err_coherent": 5.5072147183e-05,
         "leakage": 5.36899214912e-05,
         "cphase_err_rad": 0.000588614543624,
-        "err_flux_local": 3.43661173075e-05,
+        "err_flux_local": 3.43661173073e-05,
         "err_flux_quasistatic": 5.13580867991e-06,
-        "leak_spectators": 2.80693326685e-16,
+        "leak_spectators": 2.80693327745e-16,
         "err_residual": 0.001,
         "err_ctrl": 0.00104088415168,
-        "err_total": 0.00187395222086
+        "err_total": 0.00187395222107
       },
       {
         "a": 2,
@@ -173,12 +173,12 @@
         "err_coherent": 4.18305100791e-05,
         "leakage": 4.16417976916e-05,
         "cphase_err_rad": 0.000367244006788,
-        "err_flux_local": 3.04394421279e-05,
+        "err_flux_local": 3.04394421276e-05,
         "err_flux_quasistatic": 4.57975550323e-06,
-        "leak_spectators": 3.42780866656e-17,
+        "leak_spectators": 3.42780867933e-17,
         "err_residual": 0.001,
         "err_ctrl": 0.00103520791002,
-        "err_total": 0.00183590372946
+        "err_total": 0.00183590372954
       },
       {
         "a": 3,
@@ -201,12 +201,12 @@
         "err_coherent": 2.17279719195e-05,
         "leakage": 2.14710553286e-05,
         "cphase_err_rad": 6.63248676482e-05,
-        "err_flux_local": 4.23371864966e-05,
+        "err_flux_local": 4.23371864954e-05,
         "err_flux_quasistatic": 6.46200941448e-06,
-        "leak_spectators": 2.78599803307e-17,
+        "leak_spectators": 2.78599803804e-17,
         "err_residual": 0.001,
         "err_ctrl": 0.0010490561125,
-        "err_total": 0.00191103722042
+        "err_total": 0.00191103722018
       },
       {
         "a": 4,
@@ -229,12 +229,12 @@
         "err_coherent": 8.38804881911e-05,
         "leakage": 6.12400764626e-05,
         "cphase_err_rad": -0.00120135483774,
-        "err_flux_local": 2.08157663447e-05,
+        "err_flux_local": 2.08157663434e-05,
         "err_flux_quasistatic": 3.09261036544e-06,
         "leak_spectators": 0,
         "err_residual": 0.001,
         "err_ctrl": 0.00104654878844,
-        "err_total": 0.00179323691991
+        "err_total": 0.00179323691962
       },
       {
         "a": 5,
@@ -257,12 +257,12 @@
         "err_coherent": 7.06285589664e-05,
         "leakage": 6.22645119696e-05,
         "cphase_err_rad": -0.000570172871072,
-        "err_flux_local": 2.38320460896e-05,
+        "err_flux_local": 2.3832046088e-05,
         "err_flux_quasistatic": 3.51235476184e-06,
-        "leak_spectators": 5.41705975366e-18,
+        "leak_spectators": 5.41705979147e-18,
         "err_residual": 0.001,
         "err_ctrl": 0.00103570844785,
-        "err_total": 0.00181575198558
+        "err_total": 0.00181575198517
       },
       {
         "a": 5,
@@ -285,12 +285,12 @@
         "err_coherent": 0.000101932924549,
         "leakage": 6.60042373755e-05,
         "cphase_err_rad": -0.00160772078089,
-        "err_flux_local": 2.09483670728e-05,
+        "err_flux_local": 2.0948367071e-05,
         "err_flux_quasistatic": 3.10211554421e-06,
         "leak_spectators": 0,
         "err_residual": 0.001,
         "err_ctrl": 0.00105997916979,
-        "err_total": 0.00182821524197
+        "err_total": 0.00182821524202
       },
       {
         "a": 6,
@@ -313,12 +313,12 @@
         "err_coherent": 0.000135028608659,
         "leakage": 8.30591014211e-05,
         "cphase_err_rad": -0.00199987116692,
-        "err_flux_local": 1.80393001876e-05,
+        "err_flux_local": 1.80393001884e-05,
         "err_flux_quasistatic": 2.69214957762e-06,
         "leak_spectators": 0,
         "err_residual": 0.001,
         "err_ctrl": 0.001072700957,
-        "err_total": 0.00183941857831
+        "err_total": 0.00183941857825
       },
       {
         "a": 6,
@@ -341,12 +341,12 @@
         "err_coherent": 8.38804881911e-05,
         "leakage": 6.12400764626e-05,
         "cphase_err_rad": -0.00120135483774,
-        "err_flux_local": 2.08157663439e-05,
+        "err_flux_local": 2.08157663447e-05,
         "err_flux_quasistatic": 3.09261036544e-06,
-        "leak_spectators": 1.72731315725e-18,
+        "leak_spectators": 1.72731316887e-18,
         "err_residual": 0.001,
         "err_ctrl": 0.00104654878844,
-        "err_total": 0.00177698756338
+        "err_total": 0.0017769875634
       },
       {
         "a": 7,
@@ -369,12 +369,12 @@
         "err_coherent": 0.000109968467728,
         "leakage": 6.70556277161e-05,
         "cphase_err_rad": -0.00179587913032,
-        "err_flux_local": 1.79051139404e-05,
+        "err_flux_local": 1.79051139386e-05,
         "err_flux_quasistatic": 2.68402195311e-06,
-        "leak_spectators": 4.69786504832e-18,
+        "leak_spectators": 4.69786507849e-18,
         "err_residual": 0.001,
-        "err_ctrl": 0.00106350197591,
-        "err_total": 0.00184121162633
+        "err_ctrl": 0.0010635019759,
+        "err_total": 0.00184121162556
       },
       {
         "a": 8,
@@ -397,12 +397,12 @@
         "err_coherent": 0.000208084274413,
         "leakage": 0.000120266208715,
         "cphase_err_rad": -0.00323936861252,
-        "err_flux_local": 1.15061140916e-05,
+        "err_flux_local": 1.1506114091e-05,
         "err_flux_quasistatic": 1.75033925818e-06,
         "leak_spectators": 0,
         "err_residual": 0.001,
         "err_ctrl": 0.00110107451905,
-        "err_total": 0.00184068735429
+        "err_total": 0.00184068735401
       },
       {
         "a": 8,
@@ -425,12 +425,12 @@
         "err_coherent": 0.000406256139919,
         "leakage": 0.000232635325354,
         "cphase_err_rad": 0.00484687386035,
-        "err_flux_local": 9.85368548854e-06,
+        "err_flux_local": 9.85368548876e-06,
         "err_flux_quasistatic": 1.52149711314e-06,
         "leak_spectators": 0,
         "err_residual": 0.001,
         "err_ctrl": 0.00118499599717,
-        "err_total": 0.00203081739455
+        "err_total": 0.00203081739444
       },
       {
         "a": 9,
@@ -453,12 +453,12 @@
         "err_coherent": 0.000148426551454,
         "leakage": 8.42468484852e-05,
         "cphase_err_rad": -0.00226530696277,
-        "err_flux_local": 1.51043231253e-05,
+        "err_flux_local": 1.51043231247e-05,
         "err_flux_quasistatic": 2.28639293526e-06,
-        "leak_spectators": 2.74523785097e-17,
+        "leak_spectators": 2.74523786764e-17,
         "err_residual": 0.001,
         "err_ctrl": 0.00108157041903,
-        "err_total": 0.00182840660844
+        "err_total": 0.00182840660839
       },
       {
         "a": 9,
@@ -481,12 +481,12 @@
         "err_coherent": 0.000109968467728,
         "leakage": 6.70556277161e-05,
         "cphase_err_rad": -0.00179587913032,
-        "err_flux_local": 1.79051139397e-05,
+        "err_flux_local": 1.79051139376e-05,
         "err_flux_quasistatic": 2.68402195311e-06,
         "leak_spectators": 0,
         "err_residual": 0.001,
         "err_ctrl": 0.0010635019759,
-        "err_total": 0.00178303334721
+        "err_total": 0.00178303334729
       },
       {
         "a": 10,
@@ -509,12 +509,12 @@
         "err_coherent": 2.07464770506e-05,
         "leakage": 1.88543297284e-05,
         "cphase_err_rad": -0.000152324567012,
-        "err_flux_local": 3.748017332e-05,
+        "err_flux_local": 3.74801733209e-05,
         "err_flux_quasistatic": 5.74955203936e-06,
-        "leak_spectators": 2.19125626609e-16,
+        "leak_spectators": 2.19125627398e-16,
         "err_residual": 0.001,
         "err_ctrl": 0.00104512187268,
-        "err_total": 0.00190159014081
+        "err_total": 0.00190159014035
       },
       {
         "a": 10,
@@ -537,12 +537,12 @@
         "err_coherent": 3.45717687538e-05,
         "leakage": 3.38506892699e-05,
         "cphase_err_rad": 3.46334309445e-05,
-        "err_flux_local": 2.66052525279e-05,
+        "err_flux_local": 2.66052525275e-05,
         "err_flux_quasistatic": 4.03158969953e-06,
-        "leak_spectators": 2.22452466031e-17,
+        "leak_spectators": 2.22452466789e-17,
         "err_residual": 0.001,
         "err_ctrl": 0.00103135792171,
-        "err_total": 0.0018377823685
+        "err_total": 0.00183778236828
       },
       {
         "a": 11,
@@ -565,9 +565,9 @@
         "err_coherent": 3.56821747742e-05,
         "leakage": 3.05497865523e-05,
         "cphase_err_rad": -0.00037012341646,
-        "err_flux_local": 2.28894123065e-05,
+        "err_flux_local": 2.28894123048e-05,
         "err_flux_quasistatic": 3.4958570665e-06,
-        "leak_spectators": 2.03678770344e-16,
+        "leak_spectators": 2.03678771029e-16,
         "err_residual": 0.001,
         "err_ctrl": 0.00103151765759,
         "err_total": 0.00181412780329
@@ -593,12 +593,12 @@
         "err_coherent": 4.23599959779e-05,
         "leakage": 4.21387717471e-05,
         "cphase_err_rad": 0.000383929306914,
-        "err_flux_local": 2.64327277186e-05,
+        "err_flux_local": 2.64327277169e-05,
         "err_flux_quasistatic": 4.00902316734e-06,
-        "leak_spectators": 1.66985617034e-16,
+        "leak_spectators": 1.66985617277e-16,
         "err_residual": 0.001,
-        "err_ctrl": 0.00103066297512,
-        "err_total": 0.0018089020399
+        "err_ctrl": 0.00103066297511,
+        "err_total": 0.00180890203978
       },
       {
         "a": 12,
@@ -621,12 +621,12 @@
         "err_coherent": 2.07464770506e-05,
         "leakage": 1.88543297284e-05,
         "cphase_err_rad": -0.000152324567012,
-        "err_flux_local": 3.74801733192e-05,
+        "err_flux_local": 3.74801733224e-05,
         "err_flux_quasistatic": 5.74955203936e-06,
-        "leak_spectators": 1.38586693043e-17,
+        "leak_spectators": 1.38586693248e-17,
         "err_residual": 0.001,
         "err_ctrl": 0.00104512187268,
-        "err_total": 0.00185839206594
+        "err_total": 0.00185839206597
       },
       {
         "a": 13,
@@ -649,12 +649,12 @@
         "err_coherent": 2.67953906204e-05,
         "leakage": 2.67870168683e-05,
         "cphase_err_rad": 0.00021511910416,
-        "err_flux_local": 4.73092234961e-05,
+        "err_flux_local": 4.73092234937e-05,
         "err_flux_quasistatic": 7.18604560072e-06,
-        "leak_spectators": 2.24504888977e-16,
+        "leak_spectators": 2.24504889869e-16,
         "err_residual": 0.001,
         "err_ctrl": 0.00105450364285,
-        "err_total": 0.00189836195947
+        "err_total": 0.00189836195912
       },
       {
         "a": 14,
@@ -677,24 +677,24 @@
         "err_coherent": 5.5072147183e-05,
         "leakage": 5.36899214912e-05,
         "cphase_err_rad": 0.000588614543624,
-        "err_flux_local": 3.43661173063e-05,
+        "err_flux_local": 3.43661173066e-05,
         "err_flux_quasistatic": 5.13580867991e-06,
         "leak_spectators": 0,
         "err_residual": 0.001,
         "err_ctrl": 0.00104088415168,
-        "err_total": 0.00184898089015
+        "err_total": 0.00184898089003
       }
     ]
   },
   "headline": {
     "v1_0": {
-      "eps_per_round": 0.00445239213539,
-      "eps_err": 5.66583727646e-05,
-      "detection_rate": 0.0494778846154,
+      "eps_per_round": 0.00453257502192,
+      "eps_err": 5.69833391964e-05,
+      "detection_rate": 0.0497215384615,
       "round_ns": 847.033008589,
       "leaked_data": 2.11237395436e-05,
       "leaked_measure": 1.72931846633e-05,
-      "P_L_last": 0.10036,
+      "P_L_last": 0.10157,
       "rounds_last": 25
     },
     "v1_1": {
@@ -718,7 +718,7 @@
       "rounds_last": 25
     },
     "logical_lifetime_us": 247.105001571,
-    "best_T1_us": 75.5585656857
+    "best_T1_us": 75.5585656893
   },
   "leakage": {
     "off": {
@@ -806,20 +806,20 @@
     "fit_rounds": "5, 10, 15"
   },
   "layout": {
-    "alpha_measure_MHz": -215.297817226,
-    "alpha_data_MHz": -215.183219914,
+    "alpha_measure_MHz": -215.297817229,
+    "alpha_data_MHz": -215.183219917,
     "alpha_coupler_MHz": -128.661051926,
-    "g_qc_MHz": 168.4339688,
-    "g12_MHz": 9.9444698865,
+    "g_qc_MHz": 168.43396879,
+    "g12_MHz": 9.94446988543,
     "g12_null_MHz": 9.54030535574,
-    "residual_gap_MHz": 0.765890625775,
-    "spectator_transfer": 0.000144734898854,
-    "zz_park_kHz": -3.18377239811,
+    "residual_gap_MHz": 0.765890628699,
+    "spectator_transfer": 0.000144734899959,
+    "zz_park_kHz": -3.18377240149,
     "renull_park_fc_GHz": 8.29543833854,
-    "renull_gap_MHz": 4.74464911804e-09,
-    "renull_zz_kHz": -5.04454662628,
-    "readout_g_MHz": 157.602195215,
-    "readout_g_design_MHz": 155.772137407,
+    "renull_gap_MHz": 8.08952904663e-09,
+    "renull_zz_kHz": -5.04454658479,
+    "readout_g_MHz": 157.602195206,
+    "readout_g_design_MHz": 155.772137464,
     "drc_clean": false,
     "drc": {
       "placement_clean": true,
@@ -833,13 +833,13 @@
     }
   },
   "shots": 100000,
-  "runtime_s": 744.400715631,
+  "runtime_s": 742.013118957,
   "provenance": {
-    "source_commit": "1cfa2b14162e149f34a0f996e9e129cdf661577d",
-    "source_tree_dirty": true,
+    "source_commit": "4e266db4e0c5fa8780c71852980af3dca7f31933",
+    "source_tree_dirty": false,
     "compiler": "g++ 13.3.0",
     "openmp_threads": 2,
-    "date_utc": "2026-11-26T18:32:36Z",
+    "date_utc": "2026-11-27T22:42:40Z",
     "seeds": "frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5)",
     "cz_model_version": 2,
     "cz_cache": "results/cz_cache.json",

@@ -9,10 +9,10 @@ CZ calibration: 16 unique frequency combinations for 168 pairs (0 simulated, 16 
    Lambda(3->5): Z 5.22, X 5.06;  Lambda(5->7): Z 5.62, X 6.01;  d=7 logical lifetime 27.5 ms (175x best physical T1)
 
 3. Decoding (exact minimum-weight matching: DP up to 8 defects, blossom beyond)
-   d=7, 14 rounds: 11.6 defects per shot (max 39), 1.632% of shots above 22; software decode 0.88 us per round on one core (round 0.75 us)
+   d=7, 14 rounds: 11.6 defects per shot (max 39), 1.632% of shots above 22; software decode 0.91 us per round on one core (round 0.75 us)
    d=7, 40 rounds (4000 shots, same syndromes): 31.9 defects per shot, 89.7% above 22
-     exact matching          P_L 0.00125 (5 failures), decode 2.0 us per round
-     greedy above 22 defects P_L 0.07775 (311 failures), decode 264.6 us per round
+     exact matching          P_L 0.00125 (5 failures), decode 2.1 us per round
+     greedy above 22 defects P_L 0.07775 (311 failures), decode 287.9 us per round
 
 4. High-energy impacts (correlated error bursts; the decoder keeps its quiet-chip priors)
    no mitigation: T1 burst, 25 ms recovery (memory-Z)
@@ -43,7 +43,7 @@ CZ calibration: 16 unique frequency combinations for 168 pairs (0 simulated, 16 
    plain reset (no leakage removal)   P_L(40) 0.02504 (1252 failures / 50000), detection 0.0330 -> 0.0440 (drift +29.0%), leaked data 1.7e-03 meas 2.2e-03
 
 6. Fabrication yield at 97 qubits (junction resistance spread; frequency-collision rules)
-   spread 1.0%: collision-free  91/100 (91%), frequency scatter 29 MHz rms
+   spread 1.0%: collision-free 100/100 (100%), frequency scatter 29 MHz rms
    spread 0.5% (trimmed): collision-free 100/100 (100%), frequency scatter 14 MHz rms
 
 7. Wiring and readout multiplexing
@@ -66,4 +66,4 @@ CZ calibration: 16 unique frequency combinations for 168 pairs (0 simulated, 16 
    [PASS] first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated)
    [PASS] extracted E_C within 3%, couplings and readout capacitance within 6%; parked exchange re-nullable
 
-review complete in 1664 s -> designs/gamma1/gamma1_review.json
+review complete in 1498 s -> designs/gamma1/gamma1_review.json

@@ -18,6 +18,8 @@
   "tunable_coupler": {
     "g_max_MHz": 40,
     "residual_zz_kHz": 5,
+    "coupler_EC_GHz": 0.2,
+    "model_coupler": false,
     "physical": true,
     "f_max_GHz": 8.5,
     "alpha_GHz": -0.13,
@@ -44,12 +46,12 @@
       "x_um": 1800,
       "y_um": 2700,
       "feedline": 0,
-      "C_fF": 95.6555245684,
-      "Rn_kOhm": 6.26047602777,
+      "C_fF": 95.8670519874,
+      "Rn_kOhm": 6.26047602841,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.26, "g_MHz": 209.82676833, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.26, "g_MHz": 209.826768376, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 1,
@@ -57,12 +59,12 @@
       "x_um": 3600,
       "y_um": 900,
       "feedline": 0,
-      "C_fF": 95.6555245686,
-      "Rn_kOhm": 6.26047602788,
+      "C_fF": 95.8670519874,
+      "Rn_kOhm": 6.26047602841,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.9, "g_MHz": 161.126714637, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.9, "g_MHz": 161.126714674, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 2,
@@ -70,12 +72,12 @@
       "x_um": 900,
       "y_um": 4500,
       "feedline": 2,
-      "C_fF": 96.807666857,
-      "Rn_kOhm": 7.92616664735,
+      "C_fF": 97.0169570516,
+      "Rn_kOhm": 7.92616664812,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.02, "g_MHz": 271.972592164, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.02, "g_MHz": 271.972592202, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 3,
@@ -83,12 +85,12 @@
       "x_um": 1800,
       "y_um": 3600,
       "feedline": 1,
-      "C_fF": 96.5573143074,
-      "Rn_kOhm": 7.7587848461,
+      "C_fF": 96.8706914912,
+      "Rn_kOhm": 7.75878484773,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.08, "g_MHz": 271.972592119, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.08, "g_MHz": 271.972592202, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 4,
@@ -96,12 +98,12 @@
       "x_um": 2700,
       "y_um": 2700,
       "feedline": 0,
-      "C_fF": 96.6661480574,
-      "Rn_kOhm": 7.92616664641,
+      "C_fF": 96.9815380265,
+      "Rn_kOhm": 7.92616664811,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.32, "g_MHz": 312.476908153, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.32, "g_MHz": 312.476908237, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 5,
@@ -109,12 +111,12 @@
       "x_um": 3600,
       "y_um": 1800,
       "feedline": 0,
-      "C_fF": 96.5573143074,
-      "Rn_kOhm": 7.75878484611,
+      "C_fF": 96.8706914912,
+      "Rn_kOhm": 7.75878484773,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.02, "g_MHz": 263.869802523, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.02, "g_MHz": 263.869802606, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 6,
@@ -122,12 +124,12 @@
       "x_um": 4500,
       "y_um": 900,
       "feedline": 0,
-      "C_fF": 96.8053449671,
-      "Rn_kOhm": 7.92616664733,
+      "C_fF": 97.0163753975,
+      "Rn_kOhm": 7.92616664812,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.96, "g_MHz": 263.869802567, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.96, "g_MHz": 263.869802606, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 7,
@@ -135,12 +137,12 @@
       "x_um": 900,
       "y_um": 5400,
       "feedline": 3,
-      "C_fF": 95.4913156134,
-      "Rn_kOhm": 6.02826924608,
+      "C_fF": 95.6998544078,
+      "Rn_kOhm": 6.02826924658,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.02, "g_MHz": 161.126714637, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.02, "g_MHz": 161.126714674, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 8,
@@ -148,12 +150,12 @@
       "x_um": 1800,
       "y_um": 4500,
       "feedline": 2,
-      "C_fF": 95.1365038192,
-      "Rn_kOhm": 5.91697696103,
+      "C_fF": 95.5500057975,
+      "Rn_kOhm": 5.91697696293,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.08, "g_MHz": 161.126714529, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.08, "g_MHz": 161.126714674, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 9,
@@ -161,12 +163,12 @@
       "x_um": 2700,
       "y_um": 3600,
       "feedline": 1,
-      "C_fF": 95.2149194116,
-      "Rn_kOhm": 6.02826924433,
+      "C_fF": 95.6306809336,
+      "Rn_kOhm": 6.02826924657,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.14, "g_MHz": 177.369670295, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.14, "g_MHz": 177.369670462, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 10,
@@ -174,12 +176,12 @@
       "x_um": 3600,
       "y_um": 2700,
       "feedline": 0,
-      "C_fF": 95.1365038188,
-      "Rn_kOhm": 5.91697696074,
+      "C_fF": 95.5500057975,
+      "Rn_kOhm": 5.91697696293,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.38, "g_MHz": 201.715370861, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.38, "g_MHz": 201.715371028, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 11,
@@ -187,12 +189,12 @@
       "x_um": 4500,
       "y_um": 1800,
       "feedline": 0,
-      "C_fF": 95.2149188368,
-      "Rn_kOhm": 6.02826924461,
+      "C_fF": 95.6306809246,
+      "Rn_kOhm": 6.02826924657,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.08, "g_MHz": 169.249680933, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.08, "g_MHz": 169.249681079, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 12,
@@ -200,12 +202,12 @@
       "x_um": 1800,
       "y_um": 5400,
       "feedline": 3,
-      "C_fF": 96.4519406963,
-      "Rn_kOhm": 7.59664323254,
+      "C_fF": 96.7627608104,
+      "Rn_kOhm": 7.5966432341,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.08, "g_MHz": 263.869802523, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.08, "g_MHz": 263.869802606, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 13,
@@ -213,12 +215,12 @@
       "x_um": 2700,
       "y_um": 4500,
       "feedline": 2,
-      "C_fF": 96.2095109981,
-      "Rn_kOhm": 7.43952571466,
+      "C_fF": 96.6225024976,
+      "Rn_kOhm": 7.43952571766,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.14, "g_MHz": 263.869802444, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.14, "g_MHz": 263.869802605, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 14,
@@ -226,12 +228,12 @@
       "x_um": 3600,
       "y_um": 3600,
       "feedline": 1,
-      "C_fF": 96.3122123891,
-      "Rn_kOhm": 7.59664323096,
+      "C_fF": 96.7277902589,
+      "Rn_kOhm": 7.59664323409,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.2, "g_MHz": 280.074665206, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.2, "g_MHz": 280.074665369, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 15,
@@ -239,12 +241,12 @@
       "x_um": 4500,
       "y_um": 2700,
       "feedline": 1,
-      "C_fF": 96.2095109981,
-      "Rn_kOhm": 7.43952571466,
+      "C_fF": 96.6225024976,
+      "Rn_kOhm": 7.43952571766,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.9, "g_MHz": 231.449974798, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.9, "g_MHz": 231.449974959, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 16,
@@ -252,12 +254,12 @@
       "x_um": 5400,
       "y_um": 1800,
       "feedline": 0,
-      "C_fF": 96.4496481449,
-      "Rn_kOhm": 7.59664323249,
+      "C_fF": 96.7621865189,
+      "Rn_kOhm": 7.5966432341,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.14, "g_MHz": 271.972592117, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.14, "g_MHz": 271.972592201, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 17,
@@ -265,12 +267,12 @@
       "x_um": 2700,
       "y_um": 5400,
       "feedline": 3,
-      "C_fF": 95.2950430492,
-      "Rn_kOhm": 6.14272853778,
+      "C_fF": 95.7131026752,
+      "Rn_kOhm": 6.14272854009,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.14, "g_MHz": 185.487073629, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.14, "g_MHz": 185.487073795, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 18,
@@ -278,12 +280,12 @@
       "x_um": 3600,
       "y_um": 4500,
       "feedline": 2,
-      "C_fF": 95.3769336083,
-      "Rn_kOhm": 6.26047602568,
+      "C_fF": 95.7973286,
+      "Rn_kOhm": 6.2604760284,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.2, "g_MHz": 201.715370837, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.2, "g_MHz": 201.715371028, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 19,
@@ -291,12 +293,12 @@
       "x_um": 4500,
       "y_um": 3600,
       "feedline": 1,
-      "C_fF": 95.295043645,
-      "Rn_kOhm": 6.14272853744,
+      "C_fF": 95.7131026845,
+      "Rn_kOhm": 6.14272854009,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.26, "g_MHz": 201.715370837, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.26, "g_MHz": 201.715371028, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 20,
@@ -304,12 +306,12 @@
       "x_um": 5400,
       "y_um": 2700,
       "feedline": 1,
-      "C_fF": 95.3769336087,
-      "Rn_kOhm": 6.26047602602,
+      "C_fF": 95.7973286,
+      "Rn_kOhm": 6.26047602841,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.96, "g_MHz": 169.249680912, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.96, "g_MHz": 169.249681079, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 21,
@@ -317,12 +319,12 @@
       "x_um": 6300,
       "y_um": 1800,
       "feedline": 0,
-      "C_fF": 95.5729677997,
-      "Rn_kOhm": 6.14272853946,
+      "C_fF": 95.7826589661,
+      "Rn_kOhm": 6.1427285401,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.2, "g_MHz": 193.60221632, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.2, "g_MHz": 193.602216366, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 22,
@@ -330,12 +332,12 @@
       "x_um": 2700,
       "y_um": 6300,
       "feedline": 4,
-      "C_fF": 96.6669348544,
-      "Rn_kOhm": 7.92616664642,
+      "C_fF": 96.9817351282,
+      "Rn_kOhm": 7.92616664811,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.96, "g_MHz": 263.869802522, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.96, "g_MHz": 263.869802606, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 23,
@@ -343,12 +345,12 @@
       "x_um": 3600,
       "y_um": 5400,
       "feedline": 3,
-      "C_fF": 96.4174813523,
-      "Rn_kOhm": 7.75878484449,
+      "C_fF": 96.8356946869,
+      "Rn_kOhm": 7.75878484772,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.2, "g_MHz": 288.176082372, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.2, "g_MHz": 288.176082535, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 24,
@@ -356,12 +358,12 @@
       "x_um": 4500,
       "y_um": 4500,
       "feedline": 2,
-      "C_fF": 96.5254166457,
-      "Rn_kOhm": 7.92616664473,
+      "C_fF": 96.9463161123,
+      "Rn_kOhm": 7.92616664811,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.26, "g_MHz": 304.377158218, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.26, "g_MHz": 304.377158383, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 25,
@@ -369,12 +371,12 @@
       "x_um": 5400,
       "y_um": 3600,
       "feedline": 1,
-      "C_fF": 96.4174813523,
-      "Rn_kOhm": 7.75878484449,
+      "C_fF": 96.8356946869,
+      "Rn_kOhm": 7.75878484772,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.32, "g_MHz": 304.37715822, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.32, "g_MHz": 304.377158382, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 26,
@@ -382,12 +384,12 @@
       "x_um": 6300,
       "y_um": 2700,
       "feedline": 1,
-      "C_fF": 96.6646129715,
-      "Rn_kOhm": 7.92616664638,
+      "C_fF": 96.9811534742,
+      "Rn_kOhm": 7.92616664811,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.02, "g_MHz": 271.972592116, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.02, "g_MHz": 271.972592202, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 27,
@@ -395,12 +397,12 @@
       "x_um": 2700,
       "y_um": 7200,
       "feedline": 4,
-      "C_fF": 95.4913156132,
-      "Rn_kOhm": 6.02826924597,
+      "C_fF": 95.6998544078,
+      "Rn_kOhm": 6.02826924658,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.32, "g_MHz": 201.715370983, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.32, "g_MHz": 201.715371028, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 28,
@@ -408,12 +410,12 @@
       "x_um": 3600,
       "y_um": 6300,
       "feedline": 4,
-      "C_fF": 95.1365044077,
-      "Rn_kOhm": 5.91697696074,
+      "C_fF": 95.5500058067,
+      "Rn_kOhm": 5.91697696293,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.02, "g_MHz": 153.000296921, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.02, "g_MHz": 153.000297088, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 29,
@@ -421,12 +423,12 @@
       "x_um": 4500,
       "y_um": 5400,
       "feedline": 3,
-      "C_fF": 95.2149194112,
-      "Rn_kOhm": 6.02826924399,
+      "C_fF": 95.6306809336,
+      "Rn_kOhm": 6.02826924657,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.26, "g_MHz": 193.602216175, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.26, "g_MHz": 193.602216365, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 30,
@@ -434,12 +436,12 @@
       "x_um": 5400,
       "y_um": 4500,
       "feedline": 2,
-      "C_fF": 95.1365044073,
-      "Rn_kOhm": 5.91697696042,
+      "C_fF": 95.5500058067,
+      "Rn_kOhm": 5.91697696292,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.32, "g_MHz": 193.602216174, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.32, "g_MHz": 193.602216365, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 31,
@@ -447,12 +449,12 @@
       "x_um": 6300,
       "y_um": 3600,
       "feedline": 1,
-      "C_fF": 95.2149188364,
-      "Rn_kOhm": 6.02826924431,
+      "C_fF": 95.6306809246,
+      "Rn_kOhm": 6.02826924657,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.38, "g_MHz": 209.826768208, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.38, "g_MHz": 209.826768376, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 32,
@@ -460,12 +462,12 @@
       "x_um": 3600,
       "y_um": 7200,
       "feedline": 4,
-      "C_fF": 96.4519406963,
-      "Rn_kOhm": 7.59664323253,
+      "C_fF": 96.7627608104,
+      "Rn_kOhm": 7.5966432341,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.38, "g_MHz": 304.3771583, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.38, "g_MHz": 304.377158383, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 33,
@@ -473,12 +475,12 @@
       "x_um": 4500,
       "y_um": 6300,
       "feedline": 4,
-      "C_fF": 96.2095109981,
-      "Rn_kOhm": 7.43952571466,
+      "C_fF": 96.6225024976,
+      "Rn_kOhm": 7.43952571766,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.08, "g_MHz": 255.766228329, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.08, "g_MHz": 255.76622849, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 34,
@@ -486,12 +488,12 @@
       "x_um": 5400,
       "y_um": 5400,
       "feedline": 3,
-      "C_fF": 96.3122123891,
-      "Rn_kOhm": 7.59664323096,
+      "C_fF": 96.7277902589,
+      "Rn_kOhm": 7.59664323409,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.32, "g_MHz": 296.276897349, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.32, "g_MHz": 296.276897512, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 35,
@@ -499,12 +501,12 @@
       "x_um": 6300,
       "y_um": 4500,
       "feedline": 2,
-      "C_fF": 96.2095109981,
-      "Rn_kOhm": 7.43952571466,
+      "C_fF": 96.6225024976,
+      "Rn_kOhm": 7.43952571766,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.38, "g_MHz": 296.276897351, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.38, "g_MHz": 296.276897512, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 36,
@@ -512,12 +514,12 @@
       "x_um": 7200,
       "y_um": 3600,
       "feedline": 2,
-      "C_fF": 96.449648145,
-      "Rn_kOhm": 7.59664323251,
+      "C_fF": 96.7621865189,
+      "Rn_kOhm": 7.5966432341,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.9, "g_MHz": 239.556408153, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.9, "g_MHz": 239.556408236, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 37,
@@ -525,12 +527,12 @@
       "x_um": 4500,
       "y_um": 7200,
       "feedline": 5,
-      "C_fF": 95.2950430496,
-      "Rn_kOhm": 6.14272853808,
+      "C_fF": 95.7131026752,
+      "Rn_kOhm": 6.14272854009,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.9, "g_MHz": 153.000296942, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.9, "g_MHz": 153.000297088, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 38,
@@ -538,12 +540,12 @@
       "x_um": 5400,
       "y_um": 6300,
       "feedline": 4,
-      "C_fF": 95.3769330161,
-      "Rn_kOhm": 6.26047602603,
+      "C_fF": 95.7973285907,
+      "Rn_kOhm": 6.26047602841,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.14, "g_MHz": 193.602216198, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.14, "g_MHz": 193.602216365, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 39,
@@ -551,12 +553,12 @@
       "x_um": 6300,
       "y_um": 5400,
       "feedline": 3,
-      "C_fF": 95.2950436454,
-      "Rn_kOhm": 6.14272853778,
+      "C_fF": 95.7131026845,
+      "Rn_kOhm": 6.14272854009,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.38, "g_MHz": 217.93660446, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.38, "g_MHz": 217.936604627, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 40,
@@ -564,12 +566,12 @@
       "x_um": 7200,
       "y_um": 4500,
       "feedline": 3,
-      "C_fF": 95.3769330164,
-      "Rn_kOhm": 6.26047602633,
+      "C_fF": 95.7973285907,
+      "Rn_kOhm": 6.26047602841,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.9, "g_MHz": 161.126714528, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.9, "g_MHz": 161.126714674, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 41,
@@ -577,12 +579,12 @@
       "x_um": 8100,
       "y_um": 3600,
       "feedline": 2,
-      "C_fF": 95.5729677998,
-      "Rn_kOhm": 6.14272853958,
+      "C_fF": 95.7826589661,
+      "Rn_kOhm": 6.1427285401,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.96, "g_MHz": 161.126714637, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.96, "g_MHz": 161.126714674, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 42,
@@ -590,12 +592,12 @@
       "x_um": 4500,
       "y_um": 8100,
       "feedline": 5,
-      "C_fF": 96.8068930151,
-      "Rn_kOhm": 7.92616664734,
+      "C_fF": 97.0167631963,
+      "Rn_kOhm": 7.92616664812,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.02, "g_MHz": 271.972592163, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.02, "g_MHz": 271.972592202, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 43,
@@ -603,12 +605,12 @@
       "x_um": 5400,
       "y_um": 7200,
       "feedline": 5,
-      "C_fF": 96.5565453973,
-      "Rn_kOhm": 7.75878484608,
+      "C_fF": 96.8704988745,
+      "Rn_kOhm": 7.75878484773,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.96, "g_MHz": 255.766228407, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.96, "g_MHz": 255.76622849, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 44,
@@ -616,12 +618,12 @@
       "x_um": 6300,
       "y_um": 6300,
       "feedline": 4,
-      "C_fF": 96.6653742133,
-      "Rn_kOhm": 7.92616664639,
+      "C_fF": 96.9813441711,
+      "Rn_kOhm": 7.92616664811,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.2, "g_MHz": 296.276897428, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.2, "g_MHz": 296.276897513, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 45,
@@ -629,12 +631,12 @@
       "x_um": 7200,
       "y_um": 5400,
       "feedline": 4,
-      "C_fF": 96.5565453973,
-      "Rn_kOhm": 7.75878484607,
+      "C_fF": 96.8704988745,
+      "Rn_kOhm": 7.75878484773,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.9, "g_MHz": 247.661792763, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.9, "g_MHz": 247.661792847, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 46,
@@ -642,12 +644,12 @@
       "x_um": 8100,
       "y_um": 4500,
       "feedline": 3,
-      "C_fF": 96.8045711118,
-      "Rn_kOhm": 7.92616664732,
+      "C_fF": 97.016181542,
+      "Rn_kOhm": 7.92616664812,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 6.96, "g_MHz": 263.869802566, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 6.96, "g_MHz": 263.869802606, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 47,
@@ -655,12 +657,12 @@
       "x_um": 5400,
       "y_um": 8100,
       "feedline": 5,
-      "C_fF": 95.4105254047,
-      "Rn_kOhm": 5.91697696244,
+      "C_fF": 95.6185842456,
+      "Rn_kOhm": 5.91697696293,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.08, "g_MHz": 161.126714636, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.08, "g_MHz": 161.126714675, "kappa_MHz": 8, "purcell_filter": 1000}
     },
     {
       "id": 48,
@@ -668,94 +670,94 @@
       "x_um": 7200,
       "y_um": 6300,
       "feedline": 4,
-      "C_fF": 95.4105254045,
-      "Rn_kOhm": 5.91697696233,
+      "C_fF": 95.6185842456,
+      "Rn_kOhm": 5.91697696293,
       "tunable": true,
       "squid_asymmetry": 0,
       "flux_bias": 0,
-      "readout": {"f_GHz": 7.26, "g_MHz": 185.487073749, "kappa_MHz": 8, "purcell_filter": 1000}
+      "readout": {"f_GHz": 7.26, "g_MHz": 185.487073796, "kappa_MHz": 8, "purcell_filter": 1000}
     }
   ],
   "couplings": [
-    {"a": 0, "b": 3, "C_fF": 0.140822320923},
-    {"a": 0, "b": 4, "C_fF": 0.141728472057},
-    {"a": 1, "b": 5, "C_fF": 0.140822320918},
-    {"a": 1, "b": 6, "C_fF": 0.141728472023},
-    {"a": 7, "b": 2, "C_fF": 0.140163583725},
-    {"a": 7, "b": 12, "C_fF": 0.138388216061},
-    {"a": 8, "b": 2, "C_fF": 0.139400275949},
-    {"a": 8, "b": 3, "C_fF": 0.138509017079},
-    {"a": 8, "b": 12, "C_fF": 0.137634292863},
-    {"a": 8, "b": 13, "C_fF": 0.136776172935},
-    {"a": 9, "b": 3, "C_fF": 0.139267144296},
-    {"a": 9, "b": 13, "C_fF": 0.137525109071},
-    {"a": 9, "b": 4, "C_fF": 0.140163285065},
-    {"a": 9, "b": 14, "C_fF": 0.138387927901},
-    {"a": 10, "b": 4, "C_fF": 0.13940027599},
-    {"a": 10, "b": 5, "C_fF": 0.138509017091},
-    {"a": 10, "b": 14, "C_fF": 0.137634292926},
-    {"a": 10, "b": 15, "C_fF": 0.136776172947},
-    {"a": 11, "b": 5, "C_fF": 0.139267144283},
-    {"a": 11, "b": 15, "C_fF": 0.13752510906},
-    {"a": 11, "b": 6, "C_fF": 0.140163571479},
-    {"a": 11, "b": 16, "C_fF": 0.13838821731},
-    {"a": 17, "b": 12, "C_fF": 0.139154346575},
-    {"a": 17, "b": 22, "C_fF": 0.140939529564},
-    {"a": 17, "b": 13, "C_fF": 0.138286451288},
-    {"a": 17, "b": 23, "C_fF": 0.140038130992},
-    {"a": 18, "b": 13, "C_fF": 0.139060545587},
-    {"a": 18, "b": 14, "C_fF": 0.139932997523},
-    {"a": 18, "b": 23, "C_fF": 0.140822030704},
-    {"a": 18, "b": 24, "C_fF": 0.141728176618},
-    {"a": 19, "b": 14, "C_fF": 0.139154046545},
-    {"a": 19, "b": 24, "C_fF": 0.140939232664},
-    {"a": 19, "b": 15, "C_fF": 0.138286451302},
-    {"a": 19, "b": 25, "C_fF": 0.140038131006},
-    {"a": 20, "b": 15, "C_fF": 0.139060545574},
-    {"a": 20, "b": 16, "C_fF": 0.139932997459},
-    {"a": 20, "b": 25, "C_fF": 0.140822030691},
-    {"a": 20, "b": 26, "C_fF": 0.141728176551},
-    {"a": 21, "b": 16, "C_fF": 0.139154327579},
-    {"a": 21, "b": 26, "C_fF": 0.140939523914},
-    {"a": 27, "b": 22, "C_fF": 0.140163583758},
-    {"a": 27, "b": 32, "C_fF": 0.138388216066},
-    {"a": 28, "b": 22, "C_fF": 0.139399981893},
-    {"a": 28, "b": 23, "C_fF": 0.138508721494},
-    {"a": 28, "b": 32, "C_fF": 0.137634292875},
-    {"a": 28, "b": 33, "C_fF": 0.136776172947},
-    {"a": 29, "b": 23, "C_fF": 0.139267144361},
-    {"a": 29, "b": 33, "C_fF": 0.137525109085},
-    {"a": 29, "b": 24, "C_fF": 0.140163285132},
-    {"a": 29, "b": 34, "C_fF": 0.138387927914},
-    {"a": 30, "b": 24, "C_fF": 0.13939998196},
-    {"a": 30, "b": 25, "C_fF": 0.138508721507},
-    {"a": 30, "b": 34, "C_fF": 0.137634292939},
-    {"a": 30, "b": 35, "C_fF": 0.13677617296},
-    {"a": 31, "b": 25, "C_fF": 0.139267144348},
-    {"a": 31, "b": 35, "C_fF": 0.137525109071},
-    {"a": 31, "b": 26, "C_fF": 0.14016357152},
-    {"a": 31, "b": 36, "C_fF": 0.138388217322},
-    {"a": 37, "b": 32, "C_fF": 0.139154346563},
-    {"a": 37, "b": 42, "C_fF": 0.140939529523},
-    {"a": 37, "b": 33, "C_fF": 0.138286451277},
-    {"a": 37, "b": 43, "C_fF": 0.140038130929},
-    {"a": 38, "b": 33, "C_fF": 0.139060545573},
-    {"a": 38, "b": 34, "C_fF": 0.139932997509},
-    {"a": 38, "b": 43, "C_fF": 0.140822328183},
-    {"a": 38, "b": 44, "C_fF": 0.141728472533},
-    {"a": 39, "b": 34, "C_fF": 0.139154046532},
-    {"a": 39, "b": 44, "C_fF": 0.140939232598},
-    {"a": 39, "b": 35, "C_fF": 0.138286451289},
-    {"a": 39, "b": 45, "C_fF": 0.140038130941},
-    {"a": 40, "b": 35, "C_fF": 0.139060545562},
-    {"a": 40, "b": 36, "C_fF": 0.139932997446},
-    {"a": 40, "b": 45, "C_fF": 0.140822328171},
-    {"a": 40, "b": 46, "C_fF": 0.141728472491},
-    {"a": 41, "b": 36, "C_fF": 0.139154327574},
-    {"a": 41, "b": 46, "C_fF": 0.14093952388},
-    {"a": 47, "b": 42, "C_fF": 0.139400269572},
-    {"a": 47, "b": 43, "C_fF": 0.138509004066},
-    {"a": 48, "b": 44, "C_fF": 0.139400269606},
-    {"a": 48, "b": 45, "C_fF": 0.138509004071}
+    {"a": 0, "b": 3, "C_fF": 0.0352055795967},
+    {"a": 0, "b": 4, "C_fF": 0.0354321157291},
+    {"a": 1, "b": 5, "C_fF": 0.0352055795967},
+    {"a": 1, "b": 6, "C_fF": 0.035432115729},
+    {"a": 7, "b": 2, "C_fF": 0.0350408936471},
+    {"a": 7, "b": 12, "C_fF": 0.034597054884},
+    {"a": 8, "b": 2, "C_fF": 0.0348500680684},
+    {"a": 8, "b": 3, "C_fF": 0.034627253378},
+    {"a": 8, "b": 12, "C_fF": 0.0344086419268},
+    {"a": 8, "b": 13, "C_fF": 0.0341941122201},
+    {"a": 9, "b": 3, "C_fF": 0.0348168542153},
+    {"a": 9, "b": 13, "C_fF": 0.0343813459893},
+    {"a": 9, "b": 4, "C_fF": 0.035040888979},
+    {"a": 9, "b": 14, "C_fF": 0.0345970503796},
+    {"a": 10, "b": 4, "C_fF": 0.0348500680685},
+    {"a": 10, "b": 5, "C_fF": 0.034627253378},
+    {"a": 10, "b": 14, "C_fF": 0.0344086419269},
+    {"a": 10, "b": 15, "C_fF": 0.0341941122201},
+    {"a": 11, "b": 5, "C_fF": 0.0348168542153},
+    {"a": 11, "b": 15, "C_fF": 0.0343813459893},
+    {"a": 11, "b": 6, "C_fF": 0.0350408934548},
+    {"a": 11, "b": 16, "C_fF": 0.0345970549026},
+    {"a": 17, "b": 12, "C_fF": 0.0347885844883},
+    {"a": 17, "b": 22, "C_fF": 0.0352348801388},
+    {"a": 17, "b": 13, "C_fF": 0.0345716812713},
+    {"a": 17, "b": 23, "C_fF": 0.0350096004802},
+    {"a": 18, "b": 13, "C_fF": 0.0347652044951},
+    {"a": 18, "b": 14, "C_fF": 0.0349833171659},
+    {"a": 18, "b": 23, "C_fF": 0.03520557506},
+    {"a": 18, "b": 24, "C_fF": 0.0354321111108},
+    {"a": 19, "b": 14, "C_fF": 0.0347885797994},
+    {"a": 19, "b": 24, "C_fF": 0.0352348754988},
+    {"a": 19, "b": 15, "C_fF": 0.0345716812713},
+    {"a": 19, "b": 25, "C_fF": 0.0350096004802},
+    {"a": 20, "b": 15, "C_fF": 0.034765204495},
+    {"a": 20, "b": 16, "C_fF": 0.0349833171659},
+    {"a": 20, "b": 25, "C_fF": 0.03520557506},
+    {"a": 20, "b": 26, "C_fF": 0.0354321111107},
+    {"a": 21, "b": 16, "C_fF": 0.0347885841925},
+    {"a": 21, "b": 26, "C_fF": 0.0352348800515},
+    {"a": 27, "b": 22, "C_fF": 0.0350408936471},
+    {"a": 27, "b": 32, "C_fF": 0.034597054884},
+    {"a": 28, "b": 22, "C_fF": 0.0348500634732},
+    {"a": 28, "b": 23, "C_fF": 0.0346272487585},
+    {"a": 28, "b": 32, "C_fF": 0.0344086419268},
+    {"a": 28, "b": 33, "C_fF": 0.0341941122201},
+    {"a": 29, "b": 23, "C_fF": 0.0348168542153},
+    {"a": 29, "b": 33, "C_fF": 0.0343813459894},
+    {"a": 29, "b": 24, "C_fF": 0.0350408889791},
+    {"a": 29, "b": 34, "C_fF": 0.0345970503797},
+    {"a": 30, "b": 24, "C_fF": 0.0348500634732},
+    {"a": 30, "b": 25, "C_fF": 0.0346272487585},
+    {"a": 30, "b": 34, "C_fF": 0.0344086419269},
+    {"a": 30, "b": 35, "C_fF": 0.0341941122201},
+    {"a": 31, "b": 25, "C_fF": 0.0348168542153},
+    {"a": 31, "b": 35, "C_fF": 0.0343813459893},
+    {"a": 31, "b": 26, "C_fF": 0.0350408934549},
+    {"a": 31, "b": 36, "C_fF": 0.0345970549026},
+    {"a": 37, "b": 32, "C_fF": 0.0347885844883},
+    {"a": 37, "b": 42, "C_fF": 0.0352348801388},
+    {"a": 37, "b": 33, "C_fF": 0.0345716812713},
+    {"a": 37, "b": 43, "C_fF": 0.0350096004802},
+    {"a": 38, "b": 33, "C_fF": 0.034765204495},
+    {"a": 38, "b": 34, "C_fF": 0.0349833171659},
+    {"a": 38, "b": 43, "C_fF": 0.0352055797091},
+    {"a": 38, "b": 44, "C_fF": 0.0354321157355},
+    {"a": 39, "b": 34, "C_fF": 0.0347885797994},
+    {"a": 39, "b": 44, "C_fF": 0.0352348754987},
+    {"a": 39, "b": 35, "C_fF": 0.0345716812713},
+    {"a": 39, "b": 45, "C_fF": 0.0350096004802},
+    {"a": 40, "b": 35, "C_fF": 0.034765204495},
+    {"a": 40, "b": 36, "C_fF": 0.0349833171659},
+    {"a": 40, "b": 45, "C_fF": 0.0352055797091},
+    {"a": 40, "b": 46, "C_fF": 0.0354321157354},
+    {"a": 41, "b": 36, "C_fF": 0.0347885841925},
+    {"a": 41, "b": 46, "C_fF": 0.0352348800515},
+    {"a": 47, "b": 42, "C_fF": 0.0348500679696},
+    {"a": 47, "b": 43, "C_fF": 0.0346272531755},
+    {"a": 48, "b": 44, "C_fF": 0.0348500679697},
+    {"a": 48, "b": 45, "C_fF": 0.0346272531755}
   ]
 }

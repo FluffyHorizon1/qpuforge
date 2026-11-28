@@ -2,12 +2,12 @@
   "device": {
     "qubits": 97,
     "couplers": 168,
-    "mean_T1_us": 146.517615816,
-    "best_T1_us": 157.389329366,
-    "mean_T2_us": 201.971839295,
-    "mean_readout_err": 0.00551346991469,
+    "mean_T1_us": 146.517615839,
+    "best_T1_us": 157.389329383,
+    "mean_T2_us": 201.971839252,
+    "mean_readout_err": 0.0055134699146,
     "t_cz_mean_ns": 43.0858861681,
-    "cz_err_mean": 0.000909195049661,
+    "cz_err_mean": 0.000909195049688,
     "cz_leak_mean": 6.17687947219e-05,
     "cz_leak_max": 0.000232635325354,
     "collisions": 0
@@ -56,13 +56,13 @@
     "Lambda_5_7_X": 6.01033802674,
     "eps_d7_mean": 2.71524460182e-05,
     "logical_lifetime_d7_ms": 27.4740443562,
-    "lifetime_over_best_T1": 174.561035789
+    "lifetime_over_best_T1": 174.56103577
   },
   "decoding": {
     "mean_defects_d7": 11.556015,
     "max_defects_d7": 39,
     "frac_over_22_d7": 0.01632,
-    "decode_us_per_round_d7": 0.878261450357,
+    "decode_us_per_round_d7": 0.905458811786,
     "round_us_d7": 0.745987506283,
     "long_run": {
       "rounds": 40,
@@ -73,8 +73,8 @@
       "P_L_legacy": 0.07775,
       "failures_exact": 5,
       "failures_legacy": 311,
-      "decode_us_per_round_exact": 1.99350545625,
-      "decode_us_per_round_legacy": 264.628870631
+      "decode_us_per_round_exact": 2.06922915,
+      "decode_us_per_round_legacy": 287.878684713
     }
   },
   "impacts": {
@@ -152,8 +152,8 @@
     }
   },
   "fab_yield_d7": {
-    "spread_1.0": {"collision_free": 91, "samples": 100, "f01_sigma_MHz": 28.6969197012},
-    "spread_0.5": {"collision_free": 100, "samples": 100, "f01_sigma_MHz": 14.344262572}
+    "spread_1.0": {"collision_free": 100, "samples": 100, "f01_sigma_MHz": 28.6969196964},
+    "spread_0.5": {"collision_free": 100, "samples": 100, "f01_sigma_MHz": 14.3442625696}
   },
   "wiring": {
     "xy": 97,
@@ -187,17 +187,17 @@
     "etch_polygons": 83667,
     "junction_regions": 265,
     "bumps": 459,
-    "max_EC_err": 0.0278646580713,
-    "max_coupling_err": 0.0566779967547,
-    "readout_C_err": 0.0419349764849,
+    "max_EC_err": 0.0278646580482,
+    "max_coupling_err": 0.0566779968254,
+    "readout_C_err": 0.0419349757865,
     "readout_C_fF": 13.8443512089,
-    "readout_C_target_fF": 13.2871546895,
-    "readout_g_MHz": 235.479286495,
-    "readout_g_target_MHz": 229.4995791,
-    "g_qc_MHz": 170.57333735,
+    "readout_C_target_fF": 13.2871546984,
+    "readout_g_MHz": 235.479286474,
+    "readout_g_target_MHz": 229.499579231,
+    "g_qc_MHz": 170.573337335,
     "park_fc_GHz": 8.20254571935,
-    "park_gap_MHz": 5.56710233468e-09,
-    "park_zz_kHz": -5.87529165571,
+    "park_gap_MHz": 1.1747047779e-08,
+    "park_zz_kHz": -5.87529160789,
     "within_tolerance": true,
     "renull_ok": true,
     "cells": "designs/beta1/layout_cells.json"
@@ -213,13 +213,13 @@
     "layout": true
   },
   "shots": 100000,
-  "runtime_s": 1664.40088107,
+  "runtime_s": 1498.40026335,
   "provenance": {
-    "source_commit": "1cfa2b14162e149f34a0f996e9e129cdf661577d",
-    "source_tree_dirty": true,
+    "source_commit": "4e266db4e0c5fa8780c71852980af3dca7f31933",
+    "source_tree_dirty": false,
     "compiler": "g++ 13.3.0",
     "openmp_threads": 2,
-    "date_utc": "2026-11-26T18:19:28Z",
+    "date_utc": "2026-11-27T23:44:51Z",
     "seeds": "frame Monte Carlo seeds 11 + rounds (distance scaling; memory-X adds 7919), 77 (decoder comparison), 505 (impacts), 21 + rounds (long runs); fab Monte Carlo seed 7",
     "cz_model_version": 2,
     "cz_cache": "results/cz_cache.json",

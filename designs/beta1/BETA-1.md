@@ -7,7 +7,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 | **Status** | Rev C. Simulation review complete (9 of 9 simulation-gate criteria pass). Layout first cut (GDSII), not mask-ready (§6). |
 | **Purpose** | Show that the logical error falls with code size: a distance-5 rotated surface code on 49 qubits |
 | **Builds on** | Alpha-1 v1.1 (AF-17): same architecture and frequency plan; cells re-synthesised for the stronger readout coupling |
-| **Tooling** | qpuforge v0.4: `beta1_review` (2249 s, 100,000 shots per point) |
+| **Tooling** | qpuforge v0.4: `beta1_review` (1826 s, 100,000 shots per point) |
 
 All performance numbers are **simulation results**. The assumptions are in §8.
 
@@ -85,9 +85,9 @@ Next-step sensitivity: dielectric Q 6e6 → 1.2e7 -39 %, readout 300 → 200 ns 
 
 | Junction resistance spread | Collision-free chips | Frequency scatter (rms) |
 |---|---|---|
-| 2 % (untrimmed) | 192/200 (96 %) | 57 MHz |
-| 1 % | 185/200 (92 %) | 29 MHz |
-| **0.5 % (trimmed)** | **199/200 (100 %)** | 14 MHz |
+| 2 % (untrimmed) | 200/200 (100 %) | 57 MHz |
+| 1 % | 200/200 (100 %) | 29 MHz |
+| **0.5 % (trimmed)** | **200/200 (100 %)** | 14 MHz |
 
 ## 6. Wiring and layout
 

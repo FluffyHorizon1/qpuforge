@@ -7,7 +7,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 | **Status** | Simulation gate **passed on means**. After the v0.3 recalibration (Lc = 4), one pair (Q8–Q11) leaks 2.3e-4 per CZ, above the 2e-4 limit (§6). Layout first cut (GDSII): placement and spacing checks clean, mask width/space DRC **not clean** (§5). Ready for an external EM cross-check; the mask needs a DRC clean-up before fabrication. |
 | **Supersedes** | Alpha-1 v1.0 (`designs/alpha1/ALPHA-1.md`, qpuforge v0.2) |
 | **Purpose** | First error-correction-ready chip: 17-qubit distance-3 rotated surface code (memory experiment) |
-| **Tooling** | qpuforge v0.4: `alpha1_v11_review` (744 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
+| **Tooling** | qpuforge v0.4: `alpha1_v11_review` (742 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
 
 All performance numbers are **simulation results** under the assumptions in §8.
 
@@ -70,7 +70,7 @@ The per-pair table is `alpha1_v11_review.json → cz_calibration.per_pair`. The 
 
 | | Logical error per round | Round |
 |---|---|---|
-| v1.0 model | 0.445 % ± 0.006 % | 847 ns |
+| v1.0 model | 0.453 % ± 0.006 % | 847 ns |
 | **v1.1 model (pulse CZ + leakage + leakage-removing reset), memory-Z** | **0.375 % ± 0.004 %** | 928 ns |
 | v1.1 model, memory-X (\|+⟩ logical state, phase flips) | 0.360 % ± 0.005 % | 928 ns |
 | Logical lifetime | **247 µs** = 3.3 × best physical T1 (75.6 µs) | |

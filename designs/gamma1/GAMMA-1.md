@@ -7,7 +7,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 | **Status** | Memory review complete (8 of 8 memory-gate criteria pass). Layout first cut (GDSII), not mask-ready (§7). Logical operations not yet reviewed (§9). |
 | **Purpose** | A distance-7 logical memory on 97 qubits: the third point on the suppression curve, and the first chip where decoding and correlated errors need their own answers |
 | **Builds on** | Beta-1 rev C (BF-49): same physics, same frequency plan, same synthesised cells |
-| **Tooling** | qpuforge v0.4: `gamma1_review` (1664 s; 100,000 shots per point, twice that at distance 7) |
+| **Tooling** | qpuforge v0.4: `gamma1_review` (682 s; 100,000 shots per point, twice that at distance 7) |
 
 All performance numbers are **simulation results**. The assumptions are in §10.
 
@@ -35,13 +35,13 @@ round is taken from the failure probability of that one run length, the same way
 
 | | d = 3 | d = 5 | d = 7 |
 |---|---|---|---|
-| Memory-Z (\|0⟩, bit flips) | 0.0818 % | 0.0157 % | **0.00279 %** |
-| Memory-X (\|+⟩, phase flips) | 0.0803 % | 0.0159 % | **0.00264 %** |
-| Failures / shots (Z; X) | 1133 / 100,000; 1113 / 100,000 | 219 / 100,000; 222 / 100,000 | 78 / 200,000; 74 / 200,000 |
+| Memory-Z (\|0⟩, bit flips) | 0.0877 % | 0.0165 % | **0.00364 %** |
+| Memory-X (\|+⟩, phase flips) | 0.0811 % | 0.0168 % | **0.00350 %** |
+| Failures / shots (Z; X) | 1214 / 100,000; 1123 / 100,000 | 230 / 100,000; 235 / 100,000 | 102 / 200,000; 98 / 200,000 |
 
-- **Λ(5→7) = 5.62 ± 0.74 (Z) and 6.01 ± 0.81 (X).** Λ(3→5) = 5.22 ± 0.39 (Z) and 5.06 ± 0.37 (X). The ± values are 1σ Monte Carlo errors.
-- Distance-7 round 746 ns → logical lifetime **27.5 ms**, 175× the best physical T1.
-- The statistical error on the distance-7 values is 12 % (one standard error, relative). It dominates the error on Λ(5→7).
+- **Λ(5→7) = 4.52 ± 0.54 (Z) and 4.80 ± 0.58 (X).** Λ(3→5) = 5.33 ± 0.38 (Z) and 4.82 ± 0.35 (X). The ± values are 1σ Monte Carlo errors.
+- Distance-7 round 746 ns → logical lifetime **20.9 ms**, 133× the best physical T1.
+- The statistical error on the distance-7 values is 10 % (one standard error, relative). It dominates the error on Λ(5→7).
 - Λ is a matched-model best case: the decoder is given the same noise model that generated the errors (`../beta1/BETA-1.md` §8).
 
 ## 3. Decoding
@@ -49,17 +49,17 @@ round is taken from the failure probability of that one run length, the same way
 Minimum-weight perfect matching, exact at any number of defects: a dynamic programme up to 8 defects and Edmonds'
 blossom algorithm beyond.
 
-- Distance 7, 14 rounds: **11.6 defects per shot** (largest 39); 1.63 % of shots have more than 22.
-- Software decoding takes about **0.88 µs per round** on one CPU core, against a round of 0.75 µs. The
+- Distance 7, 14 rounds: **11.6 defects per shot** (largest 39); 1.59 % of shots have more than 22.
+- Software decoding takes about **0.54 µs per round** on one CPU core, against a round of 0.75 µs. The
   figure moves with the machine and its load. On average it is the same order as the chip's own pace; the worst case
   is far slower, and a batch decoder is not a streaming one. Real-time decoding stays an FPGA task (§9).
 - **What exactness buys.** Before v0.4 the decoder fell back to greedy matching above 22 defects. On a 40-round
-  distance-7 run (4,000 shots, same syndromes, 31.9 defects per shot, 90 % above 22):
+  distance-7 run (4,000 shots, same syndromes, 32.2 defects per shot, 90 % above 22):
 
 | Decoder | Logical failure probability | Failures | Decode time per round |
 |---|---|---|---|
-| Exact matching (v0.4) | **0.0013** | 5 | 2.0 µs |
-| Greedy above 22 defects (v0.3) | 0.0777 | 311 | 265 µs |
+| Exact matching (v0.4) | **0.0020** | 8 | 1.7 µs |
+| Greedy above 22 defects (v0.3) | 0.0848 | 339 | 237 µs |
 
 ## 4. High-energy impacts
 
@@ -70,17 +70,17 @@ leaves the decoder with its quiet-chip priors.
 
 | Scenario | Impact rate | Recovery | Peak excess | P(logical flip per impact) | Unprotected for | Visible in the syndrome for | Floor per round | Share of the d = 7 error |
 |---|---|---|---|---|---|---|---|---|
-| No mitigation (T1 burst; memory-Z) | 0.1 /s | 25 ms | T1 → 1 µs | 0.50 | 115 ms | 103 ms | 3.7e-08 | 0.14 % |
-| Gap-engineered junctions (dephasing burst; memory-X) | 0.1 /s | 1 ms | Tφ → 0.1 µs | 0.50 | 7.1 ms | 6.1 ms | 3.7e-08 | 0.14 % |
+| No mitigation (T1 burst; memory-Z) | 0.1 /s | 25 ms | T1 → 1 µs | 0.50 | 140 ms | 103 ms | 3.7e-08 | 0.10 % |
+| Gap-engineered junctions (dephasing burst; memory-X) | 0.1 /s | 1 ms | Tφ → 0.1 µs | 0.50 | 7.1 ms | 6.0 ms | 3.7e-08 | 0.10 % |
 
 - **An impact costs the logical qubit.** The burst outlasts thousands of rounds, so the logical state is randomised
   whatever the distance. The floor is therefore set by the impact rate alone: rate × round time ÷ 2.
-- **It does not limit Gamma-1.** At distance 7 the floor is 0.14 % of the logical error. At this Λ, impacts
-  would start to dominate from about distance 14: before the distances a useful machine needs.
+- **It does not limit Gamma-1.** At distance 7 the floor is 0.10 % of the logical error. At this Λ, impacts
+  would start to dominate from about distance 16: before the distances a useful machine needs.
 - **It is detectable.** The detection-event count stays above 1.5× its quiet value for 103 ms of the
-  115 ms unprotected window. A control system that watches that rate can flag the window and discard or
-  restart what ran in it. That costs about 1.2 % of running time and turns a silent logical error into a known one.
-- **Gap engineering shortens the exposure,** from 115 ms to 7.1 ms per impact in this model. It does
+  140 ms unprotected window. A control system that watches that rate can flag the window and discard or
+  restart what ran in it. That costs about 1.4 % of running time and turns a silent logical error into a known one.
+- **Gap engineering shortens the exposure,** from 140 ms to 7.1 ms per impact in this model. It does
   not remove the logical flip: a millisecond of strong dephasing is still more than a thousand rounds.
 
 Sources for the scenarios are in §10.
@@ -89,10 +89,10 @@ Sources for the scenarios are in §10.
 
 | Reset | P_L after 40 rounds (failures / shots) | Detection rate, round 2 → round 40 | Drift (first 5 vs last 5 rounds) | Leaked data / measure |
 |---|---|---|---|---|
-| **Leakage-removing (Gamma-1)** | 0.00148 (74 / 50,000) | 0.0325 → 0.0325 | -0.6 % | 9.5e-05 / 1.3e-04 |
-| Plain (no leakage removal) | 0.02504 (1252 / 50,000) | 0.0330 → 0.0440 | +29.0 % | 1.7e-03 / 2.2e-03 |
+| **Leakage-removing (Gamma-1)** | 0.00102 (51 / 50,000) | 0.0332 → 0.0322 | -1.0 % | 9.3e-05 / 1.3e-04 |
+| Plain (no leakage removal) | 0.02522 (1261 / 50,000) | 0.0333 → 0.0435 | +28.2 % | 1.7e-03 / 2.1e-03 |
 
-Without leakage removal the detection rate climbs through the run and the logical failure probability is 17×
+Without leakage removal the detection rate climbs through the run and the logical failure probability is 25×
 higher. The rising detection rate is the signature to look for on hardware.
 
 ## 6. Fabrication yield (97 qubits, frequency-collision rules)

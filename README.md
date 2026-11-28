@@ -54,7 +54,7 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 319 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 321 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
@@ -121,7 +121,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 319 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 321 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -141,7 +141,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 * JSON: parser/writer round trips, typed accessors, error paths, and a lossless `design_to_json` / `design_from_json` cycle for every preset.
 * GDSII: record framing, UNITS encoding, closed-ring coordinates, record-length and int32 guards, `SOURCE_DATE_EPOCH` stamps.
 * Pauli-frame model vs exact statevector trajectories (1,000): detection rates and logical error agree within statistics
-  (P_L 0.0240 ± 0.0048 vs 0.0243).
+  (P_L 0.0240 ± 0.0048 vs 0.0237).
 * Eigensolver: Householder + QL vs Jacobi on random symmetric matrices (eigenvalues to 1e-13, orthogonality 4e-15).
 * Pulse-level CZ: charge matrix elements stay continuous over a 0–0.32 Φ0 flux sweep (no sign flips). Idle evolution
   reproduces the static ZZ phase to 1e-14 rad. The |11⟩–|20⟩ gap with the coupler on matches 2nd-order perturbation theory
@@ -172,8 +172,8 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 * Bursts: the excess rates are exact, the logical error rises with severity, a 25 ms burst randomises the logical
   qubit, and the expected number of flips scales linearly with the recovery time.
 * Hardware gate: a scatter-free "measurement" of a design returns that design's noise model (to 1e-9 or better in
-  every parameter). A virtual chip passes model versus measurement (ratio 1.09); the same chip with a hidden dephasing
-  source fails it (ratio 6.2). Threshold failures and missing data are reported.
+  every parameter). A virtual chip passes model versus measurement (ratio 1.06); the same chip with a hidden dephasing
+  source fails it (ratio 6.1). Threshold failures and missing data are reported.
 * Designs: feedline plans of Beta-1 and Gamma-1, no frequency collisions, and the CZ interaction point solved at the
   tuned anharmonicity (1–2.5 MHz above the idle-anharmonicity estimate).
 * The new groups also pass under AddressSanitizer and UndefinedBehaviorSanitizer.
@@ -197,15 +197,11 @@ The tunable coupler wins clearly. With fixed coupling, faster gates and always-o
 
 | Design | Code distance | Logical error per round | Notes |
 |---|---|---|---|
-**v0.4 results** (simulation; see the design specs for assumptions). Logical error per round, memory-Z / memory-X:
-
-| Design | Code distance | Logical error per round | Notes |
-|---|---|---|---|
-| Alpha-1 v1.1 (AF-17) | 3 | **0.375 %** / 0.360 % | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 247 µs = 3.3× best T1 |
-| Alpha-1 v1.1 physics | 5 | 0.133 % (Z) | Λ(3→5) = 2.9 ± 0.2, from a fit over 5–15 rounds |
-| Beta-1 rev C (BF-49) | 3 | 0.0824 % / 0.0752 % | |
-| Beta-1 rev C (BF-49) | 5 | **0.0158 %** / 0.0136 % | Λ(3→5) = 5.2 ± 0.4 (Z), 5.5 ± 0.5 (X); logical lifetime 4.7 ms = 30× best T1 |
-| Gamma-1 (GF-97) | 7 | **0.0028 %** / 0.0026 % | Λ(5→7) = 5.6 ± 0.7 (Z), 6.0 ± 0.8 (X); logical lifetime 27 ms = 175× best T1; impact floor 3.7e-08 per round |
+| Alpha-1 v1.1 (AF-17) | 3 | **0.374 %** / 0.370 % | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 248 µs = 3.3× best T1 |
+| Alpha-1 v1.1 physics | 5 | 0.107 % (Z) | Λ(3→5) = 3.5 ± 0.2, from a fit over 5–15 rounds |
+| Beta-1 rev C (BF-49) | 3 | 0.0777 % / 0.0744 % | |
+| Beta-1 rev C (BF-49) | 5 | **0.0157 %** / 0.0165 % | Λ(3→5) = 5.0 ± 0.4 (Z), 4.5 ± 0.4 (X); logical lifetime 4.7 ms = 30× best T1 |
+| Gamma-1 (GF-97) | 7 | **0.0036 %** / 0.0035 % | Λ(5→7) = 4.5 ± 0.5 (Z), 4.8 ± 0.6 (X); logical lifetime 21 ms = 133× best T1; impact floor 3.7e-08 per round |
 
 Every Λ is a matched-model best case: the decoder is given the noise model that generated the errors. The ± values
 are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators (a fit over 5–20 rounds, and one

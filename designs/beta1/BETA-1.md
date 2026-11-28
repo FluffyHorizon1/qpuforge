@@ -7,7 +7,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 | **Status** | Rev C. Simulation review complete (9 of 9 simulation-gate criteria pass). Layout first cut (GDSII), not mask-ready (§6). |
 | **Purpose** | Show that the logical error falls with code size: a distance-5 rotated surface code on 49 qubits |
 | **Builds on** | Alpha-1 v1.1 (AF-17): same architecture and frequency plan; cells re-synthesised for the stronger readout coupling |
-| **Tooling** | qpuforge v0.4: `beta1_review` (2249 s, 100,000 shots per point) |
+| **Tooling** | qpuforge v0.4: `beta1_review` (847 s, 100,000 shots per point) |
 
 All performance numbers are **simulation results**. The assumptions are in §8.
 
@@ -16,11 +16,11 @@ All performance numbers are **simulation results**. The assumptions are in §8.
 | Area | Alpha-1 v1.1 | Beta-1 | Alpha-1 v1.1 sensitivity | How |
 |---|---|---|---|---|
 | Size | 17 qubits, d = 3 | **49 qubits (25 data + 24 measure), 80 couplers, d = 5** | — | same cell topology, 900 µm pitch |
-| Dielectric loss | Q = 3e6 | **Q = 6e6** (T1 ≈ ×2) | −38 % | tantalum base layer, improved substrate cleaning / surface treatment |
+| Dielectric loss | Q = 3e6 | **Q = 6e6** (T1 ≈ ×2) | −35 % | tantalum base layer, improved substrate cleaning / surface treatment |
 | Effective temperature | 45 mK | **35 mK** | −26 % | IR-tight sample box, Eccosorb filtering, better line thermalisation |
-| Readout | 500 ns, κ = 4 MHz | **300 ns, κ = 2χ = 8 MHz** | −25 % | stronger readout coupling behind **individual Purcell filters** (suppression 1000) |
+| Readout | 500 ns, κ = 4 MHz | **300 ns, κ = 2χ = 8 MHz** | −24 % | stronger readout coupling behind **individual Purcell filters** (suppression 1000) |
 | Readout plan | 3 feedlines, up to 6 resonators each | **6 feedlines, up to 9 resonators each, 6.90–7.38 GHz** | — | one TWPA + HEMT chain per feedline |
-| CZ residual control error | 1e-3 | **5e-4** | −20 % | flux-pulse predistortion (step-response calibration), closed-loop recalibration |
+| CZ residual control error | 1e-3 | **5e-4** | −19 % | flux-pulse predistortion (step-response calibration), closed-loop recalibration |
 | Leakage | leakage-removing reset | **leakage-removing reset** (DQLR evaluated, not adopted) | — | re-tested at d = 5 in long experiments (§3) |
 | Junction spread | 2 % | **0.5 %** (trimmed) | yield | post-fabrication laser annealing of junctions |
 
@@ -36,7 +36,7 @@ Rev B → rev C (second review, with qpuforge v0.4):
 
 4. **Too many resonators per feedline.** Three feedlines for 49 qubits put 17 resonators on each line across almost 1 GHz. Readout chains are run at 6–8 per line today. Rev C uses 6 feedlines with at most 9 resonators each, in 6.90–7.38 GHz. Cost: 6 more coaxial lines.
 5. **The reused Alpha-1 cells could not deliver the Beta-1 readout.** Beta-1 doubles the dispersive shift, which needs a qubit–readout coupling of 229 MHz. The Alpha-1 cell gives about 160 MHz (9.4 fF where 13.3 fF is needed): half the intended shift, and a slower or noisier readout than the model assumed. Rev B passed because its layout gate checked design rules only. Rev C re-synthesises the cells (readout pad 40.9 → 67.4 µm, arms shortened to hold E_C) and the gate now checks the extracted circuit.
-6. **Decoding above 22 defects is now exact.** Rev B's decoder fell back to greedy matching there, and its long runs suffered for it. On identical syndromes of a 50-round distance-5 run (4,000 shots, 19.2 defects per shot, 28 % of shots above 22), the fallback fails in 4.4 % of shots (175 failures) and exact matching in 0.9 % (37). Rev B's long-run numbers were pessimistic; the leakage decision is re-tested with the exact decoder in §3.
+6. **Decoding above 22 defects is now exact.** Rev B's decoder fell back to greedy matching there, and its long runs suffered for it. On identical syndromes of a 50-round distance-5 run (4,000 shots, 19.2 defects per shot, 28 % of shots above 22), the fallback fails in 4.5 % of shots (182 failures) and exact matching in 0.7 % (26). Rev B's long-run numbers were pessimistic; the leakage decision is re-tested with the exact decoder in §3.
 
 **Device model (rev C):** mean T1 147 µs (best 157 µs), T2 201 µs, readout error 0.55 % at 300 ns.
 CZ: 80 pairs, all calibrated at pulse level. Mean 43.2 ns, mean error 9.08e-04 including decoherence,
@@ -49,37 +49,37 @@ over the round counts shown:
 
 | | d = 3 (5–20 rounds) | d = 5 (5–20 rounds) | d = 7 (9 rounds, 100,000 shots) |
 |---|---|---|---|
-| **Beta-1, memory-Z** | 0.0824 % | **0.0158 %** | 0.0027 % |
-| **Beta-1, memory-X** | 0.0752 % | **0.0136 %** | — |
-| Alpha-1 v1.1 physics, memory-Z (reference) | 0.3704 % | 0.1200 % | — |
+| **Beta-1, memory-Z** | 0.0777 % | **0.0157 %** | 0.0031 % |
+| **Beta-1, memory-X** | 0.0744 % | **0.0165 %** | — |
+| Alpha-1 v1.1 physics, memory-Z (reference) | 0.3745 % | 0.1202 % | — |
 
-- **Λ(3→5) = 5.22 ± 0.45 (Z) and 5.53 ± 0.54 (X).** The ± values are 1σ Monte Carlo errors.
-- Λ(5→7) = 6.01 ± 1.41, comparing d = 5 (0.0160 % per round, 50,000 shots) and d = 7 (24 failures) at the same 9 rounds. A 9-round run is short for distance 7. The distance-7 chip is reviewed in full, at 14 rounds and in both bases, as Gamma-1 (`../gamma1/GAMMA-1.md`).
+- **Λ(3→5) = 4.95 ± 0.43 (Z) and 4.51 ± 0.37 (X).** The ± values are 1σ Monte Carlo errors.
+- Λ(5→7) = 6.94 ± 1.49, comparing d = 5 (0.0216 % per round, 50,000 shots) and d = 7 (28 failures) at the same 9 rounds. A 9-round run is short for distance 7. The distance-7 chip is reviewed in full, at 14 rounds and in both bases, as Gamma-1 (`../gamma1/GAMMA-1.md`).
 - **Λ is a matched-model best case.** The decoder's error model comes from the same noise model that generates the errors. Its priors are therefore exact: no drift, no calibration mismatch and no unmodelled correlated errors. Hardware Λ will be lower.
-- Distance-5 round 734 ns → logical lifetime **4.66 ms**, i.e. 29.6× the best physical T1.
-- Against Alpha-1 v1.1 at distance 3, the Beta-1 distance-5 logical qubit is **23.5× better**.
+- Distance-5 round 734 ns → logical lifetime **4.67 ms**, i.e. 29.7× the best physical T1.
+- Against Alpha-1 v1.1 at distance 3, the Beta-1 distance-5 logical qubit is **23.8× better**.
 
 ## 3. Long experiments and leakage (d = 5)
 
 | | P_L after 50 rounds | leaked data / measure | round |
 |---|---|---|---|
-| **Leakage-removing reset (Beta-1 baseline)** | 0.0086 | 9.0e-05 / 1.2e-04 | 728 ns |
-| + DQLR every round (option) | 0.0095 | 8.9e-06 / 1.1e-04 | 758 ns |
+| **Leakage-removing reset (Beta-1 baseline)** | 0.0084 | 9.2e-05 / 1.2e-04 | 728 ns |
+| + DQLR every round (option) | 0.0086 | 8.2e-06 / 1.1e-04 | 758 ns |
 
-**Decision confirmed:** the leakage-removing reset alone does at least as well over 50 rounds (the two differ by 1.6 standard errors). DQLR clears data-qubit leakage, but its time and gate cost are not repaid at this leakage rate, so it stays an option.
+**Decision confirmed:** the leakage-removing reset alone does at least as well over 50 rounds (the two differ by 0.5 standard errors). DQLR clears data-qubit leakage, but its time and gate cost are not repaid at this leakage rate, so it stays an option.
 
 **Stability over 100 rounds** (the simulation counterpart of the hardware gate "no growth of the detection-event rate"):
 
 | Reset | Detection-rate drift, first 10 vs last 10 rounds | P_L after 100 rounds | Defects per shot (largest) |
 |---|---|---|---|
-| **Leakage-removing (Beta-1)** | +1.4 % | 0.0169 | 38.2 (113) |
-| Plain (no leakage removal) | +49.1 % | 0.0976 | 51.2 (257) |
+| **Leakage-removing (Beta-1)** | +0.2 % | 0.0162 | 38.2 (93) |
+| Plain (no leakage removal) | +49.8 % | 0.0994 | 51.5 (239) |
 
 ## 4. Error budget and remaining sensitivity (Beta-1 physics at d = 3)
 
-Leave-one-out (eps change when the source is removed): T1 -76 %, control -51 %, Tphi -19 %, leakage -17 %, readout -16 %, reset -15 %, zz -7 %, thermal -5 %.
+Leave-one-out (eps change when the source is removed): T1 -75 %, control -54 %, leakage -14 %, readout -8 %, Tphi -7 %, zz -2 %, reset +0 %, thermal +3 %.
 
-Next-step sensitivity: dielectric Q 6e6 → 1.2e7 -39 %, readout 300 → 200 ns -21 %, CZ residual 5e-4 → 2.5e-4 -20 %, readout separation 0.5 % → 0.25 % -7 %.
+Next-step sensitivity: dielectric Q 6e6 → 1.2e7 -37 %, CZ residual 5e-4 → 2.5e-4 -21 %, readout 300 → 200 ns -16 %, readout separation 0.5 % → 0.25 % -3 %.
 
 ## 5. Fabrication yield (d = 5, frequency-collision rules)
 

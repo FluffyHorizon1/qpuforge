@@ -40,7 +40,7 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - `presets.hpp`: `alpha1_with_coupling(d, g_GHz)`. `device.hpp`: `ChipDesign::cz_flux_noise` (design JSON
   `gates.cz_flux_noise`).
 - Tests: eleven new groups (`matching`, `fault_enumeration`, `memory_bases`, `bursts`, `characterisation`,
-  `designs_v04`, and the serialisation groups `json`, `gds`, `json_rfc`, `json_depth`, `gds_write`), 319 checks in all
+  `designs_v04`, and the serialisation groups `json`, `gds`, `json_rfc`, `json_depth`, `gds_write`), 321 checks in all
   (186 in 0.3.0), and a third review smoke test. Outside the validation checks: the `determinism` (1, 2, 3, 4 and 8
   threads in one process) and `determinism_env` (separate processes under `OMP_NUM_THREADS` = 1, 2, 4, 8) guards, the
   `fp_contract` and `fp_contract_flags` build-flag guards, and the `cli_version`, `cli_version_short` and `cli_usage`

@@ -5,33 +5,38 @@ the commands below to reproduce them.
 
 | Output | Program and arguments | Source | Compiler | OpenMP threads | Finished (UTC) | Runtime |
 |---|---|---|---|---|---|---|
-| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T18:32:36Z | 744 s |
-| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T17:45:52Z | 2249 s |
-| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T18:19:28Z | 1664 s |
-| `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
+| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` (stdout and stderr) | `512550047dcc4912591b31acb78c8c46bd4f05e4` | g++ 13.3.0 | 4 | 2026-11-27T23:45:58Z | 263 s |
+| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (stdout and stderr) | `512550047dcc4912591b31acb78c8c46bd4f05e4` | g++ 13.3.0 | 4 | 2026-11-28T00:00:04Z | 847 s |
+| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (stdout and stderr) | `512550047dcc4912591b31acb78c8c46bd4f05e4` | g++ 13.3.0 | 4 | 2026-11-28T00:11:26Z | 682 s |
+| `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | 2026-11-28T00:11:26Z | — |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | `bff9d108eb60886e2b6cb258de831142785457ce` (unchanged since 0.3) | g++ 14.2.0 | — | 2026-11-26 | — |
 | `designs/beta1/layout_cells.json` | `qpuforge gds designs/beta1/beta1.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` | 0.4 development tree, before it moved onto CZ model version 2 (see below) | g++ 13.3.0 | — | 2026-11-26 | 366 s |
 | `results/cz_cache.json` | written by the 0.3 Alpha run from an empty cache (16 calibrations simulated); the 0.4 runs reuse it (0 simulated, 16 cached) | `bff9d108eb60886e2b6cb258de831142785457ce` (unchanged since 0.3) | g++ 14.2.0 | 8 | 2026-11-25 | — |
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 
-- **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
-  The 0.4 outputs were generated from the 0.4 working tree on top of `1cfa2b14162e149f34a0f996e9e129cdf661577d`, before that tree was committed:
-  each JSON says `source_tree_dirty: true`. Regenerate them from the release commit before tagging; with the same
-  thread count the numbers do not change.
+- **Build:** `CXX=g++ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root
+  on a clean tree. Each review JSON says `source_commit` `512550047dcc4912591b31acb78c8c46bd4f05e4` and
+  `source_tree_dirty: false`. The reports were captured with stdout and stderr together
+  (`./build/<review> 100000 > <review>.txt 2>&1`). The CZ calibration line is printed to stderr during section 1, so it
+  sits under that section's heading.
+- **Thread count does not change these results.** Since the thread-count-independent Monte Carlo, every frame shot is
+  seeded from `(seed, shot)` and partial sums are added in a fixed order. `openmp_threads` in the JSON is informational.
+  These runs used `OMP_NUM_THREADS=4`. A rerun at another count reproduces every number except the machine-dependent
+  fields below. The 0.3 outputs, and the historical Alpha-1 v1.0 review, were made before that change and do depend on
+  the thread count; that recipe is in the v1.0 note below.
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
   - gamma: frame Monte Carlo seeds 11 + rounds (distance scaling; memory-X adds 7919), 77 (decoder comparison), 505 (impacts), 21 + rounds (long runs); fab Monte Carlo seed 7.
-- **Thread count matters.** The Pauli-frame Monte Carlo gives each OpenMP thread its own RNG stream (`seed`,
-  thread id). An exact rerun therefore needs the same thread count: `OMP_NUM_THREADS=2`. A
-  different count gives a statistically equivalent but different sample. The 0.3 outputs were made with 8 threads, so
-  0.4 values differ from them within Monte Carlo error even where nothing else changed.
 - **Machine-dependent fields.** `runtime_s` and the decode times (`decode_us_per_round*`) are wall-clock measurements
-  and change from run to run. A rerun with the same thread count reproduces every other number.
+  and change from run to run. A rerun reproduces every other number. The GDS files written by the Beta and Gamma
+  reviews (`BF49.gds`, `GF97.gds`) match the previous geometry record for record; only the BGNLIB/BGNSTR timestamps
+  moved to this run's date. `AF17_v11.gds` was not rewritten: the command in the table above, on this commit, reproduces
+  its geometry and would change only those timestamps.
 - **Beta-1 cell file.** `designs/beta1/layout_cells.json` was synthesised before the 0.4 work moved onto CZ model
-  version 2, which shifted one circuit target (the direct qubit–qubit coupling) in the fifth digit. Running the
-  synthesis command above on the release code reproduces every cell dimension to within 2 nm. The reviews evaluate
-  the committed cells against the current targets.
+  version 2. Re-running the synthesis command on `512550047dcc4912591b31acb78c8c46bd4f05e4` (g++ 13.3.0, 2026-11-28)
+  moves every cell dimension by at most 1.9 nm, so the committed cells are kept. The reviews evaluate those cells
+  against the current targets.
 - **Alpha-1 v1.0 review (not regenerated for v0.3).** `results/alpha1_review.{json,txt}` reproduce digit for digit only
   with the binary that was committed alongside them, run with two threads from a checkout of `3fe4d23`:
   ```
@@ -42,7 +47,7 @@ the commands below to reproduce them.
   the runtime on the last line (418 s against 421 s). Checked on 2026-11-27 with g++ 14.2 runtime libraries.
   Rebuilt from source (`3fe4d23` or `release/v0.3`; g++ 14.2 or clang 19.1.7, `-O3`) the same program gives Gen-0
   eps 0.0120023693144 at 8 threads. Two things differ, and they account for all of it:
-  - **Thread count** (see above): the same binary gives Gen-0 0.012151 / 0.012323 / 0.012306 / 0.012278 / 0.012108 at
+  - **Thread count** (this binary predates per-shot seeding): the same binary gives Gen-0 0.012151 / 0.012323 / 0.012306 / 0.012278 / 0.012108 at
     1 / 2 / 4 / 8 / 16 threads. Only 2 threads matches the committed file.
   - **FMA contraction:** that binary contains AVX-512 and FMA instructions (`vfmadd*`, 197 of them), so it was built
     with `-march=native` or similar. GCC and Clang then fuse `a*b+c` by default, which changes the Gen-0 noise model in
@@ -66,5 +71,6 @@ the commands below to reproduce them.
   is rejected.
 - **GDS dates:** the GDS files carry the real write date. `BF49_layout.png` and `GF97_layout.png` are rendered from
   them by `tools/gds_preview.py`.
-- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all tests, serial) built from the same
-  source.
+- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all tests, one process,
+  `OMP_NUM_THREADS=1`) built from this commit. It reports 321 checks passed, 0 failed (2026-11-28). The suite total
+  had been written as 319; the program counts 321.

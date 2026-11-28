@@ -7,7 +7,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 | **Status** | Simulation gate **passed on means**. After the v0.3 recalibration (Lc = 4), one pair (Q8–Q11) leaks 2.3e-4 per CZ, above the 2e-4 limit (§6). Layout first cut (GDSII): placement and spacing checks clean, mask width/space DRC **not clean** (§5). Ready for an external EM cross-check; the mask needs a DRC clean-up before fabrication. |
 | **Supersedes** | Alpha-1 v1.0 (`designs/alpha1/ALPHA-1.md`, qpuforge v0.2) |
 | **Purpose** | First error-correction-ready chip: 17-qubit distance-3 rotated surface code (memory experiment) |
-| **Tooling** | qpuforge v0.4: `alpha1_v11_review` (744 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
+| **Tooling** | qpuforge v0.4: `alpha1_v11_review` (263 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
 
 All performance numbers are **simulation results** under the assumptions in §8.
 
@@ -70,13 +70,13 @@ The per-pair table is `alpha1_v11_review.json → cz_calibration.per_pair`. The 
 
 | | Logical error per round | Round |
 |---|---|---|
-| v1.0 model | 0.445 % ± 0.006 % | 847 ns |
-| **v1.1 model (pulse CZ + leakage + leakage-removing reset), memory-Z** | **0.375 % ± 0.004 %** | 928 ns |
-| v1.1 model, memory-X (\|+⟩ logical state, phase flips) | 0.360 % ± 0.005 % | 928 ns |
-| Logical lifetime | **247 µs** = 3.3 × best physical T1 (75.6 µs) | |
-| Distance-5 projection (same physics, 49 qubits) | 0.133 % ± 0.007 % → **Λ = 2.93 ± 0.17** | |
+| v1.0 model | 0.454 % ± 0.006 % | 847 ns |
+| **v1.1 model (pulse CZ + leakage + leakage-removing reset), memory-Z** | **0.374 % ± 0.004 %** | 928 ns |
+| v1.1 model, memory-X (\|+⟩ logical state, phase flips) | 0.370 % ± 0.005 % | 928 ns |
+| Logical lifetime | **248 µs** = 3.3 × best physical T1 (75.6 µs) | |
+| Distance-5 projection (same physics, 49 qubits) | 0.107 % ± 0.007 % → **Λ = 3.52 ± 0.23** | |
 
-The v1.0, lifetime and distance-5 rows are memory-Z. The two bases differ by 0.015 %, which is 2.5 standard errors.
+The v1.0, lifetime and distance-5 rows are memory-Z. The two bases differ by 0.004 %, inside one standard error.
 The ± values are 1σ Monte Carlo errors of the fits. The distance-5 projection compares distance 3 and distance 5 over
 5–15 rounds, a shorter fit than the headline rows.
 
@@ -87,29 +87,29 @@ v1.1 is better than v1.0 despite the slower CZ. The physically modelled control 
 
 | | eps / round | P_L (50 rounds) | leaked data / measure |
 |---|---|---|---|
-| Leakage not modelled | 0.372 % | 0.151 | — |
-| No leakage removal | 0.405 % | 0.170 | 1.2e-3 / 1.6e-3 |
-| **Leakage-removing reset (chosen)** | **0.368 %** | **0.156** | 7.8e-5 / 1.2e-4 |
-| + DQLR each round (30 ns, 5e-4 error) | 0.406 % | 0.171 | 7.3e-6 / 1.1e-4 |
-| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.195 / 0.205 | 6.2e-4 / 6.6e-5 |
+| Leakage not modelled | 0.368 % | 0.151 | — |
+| No leakage removal | 0.412 % | 0.168 | 1.2e-3 / 1.6e-3 |
+| **Leakage-removing reset (chosen)** | **0.377 %** | **0.157** | 6.9e-5 / 1.1e-4 |
+| + DQLR each round (30 ns, 5e-4 error) | 0.409 % | 0.170 | 7.1e-6 / 1.1e-4 |
+| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.192 / 0.203 | 5.9e-4 / 6.4e-5 |
 
 **Decision:** the leakage-removing reset is enough for Alpha-1. DQLR removes data-qubit leakage but costs more than it
 saves at distance 3, even at 10× leakage. It is carried to Beta as an option to re-test at distance 5.
 
-**Error budget** (eps change when one source is removed): T1 −78 %, CZ/1q control −40 %, Tφ −30 %, readout −17 %,
-reset −11 %, leakage −4 %, thermal 0 %, ZZ +1 %. Changes of a few per cent are within the Monte Carlo noise.
+**Error budget** (eps change when one source is removed): T1 −80 %, CZ/1q control −38 %, Tφ −29 %, readout −16 %,
+reset −10 %, leakage −2 %, thermal −1 %, ZZ +2 %. Changes of a few per cent are within the Monte Carlo noise.
 
 **Sensitivity** (single change):
 
 | Change | eps change |
 |---|---|
-| Dielectric Q ×2 | −38 % |
+| Dielectric Q ×2 | −35 % |
 | T_eff 35 mK | −26 % |
-| Readout 300 ns | −25 % |
-| CZ residual 5e-4 | −20 % |
-| Readout separation 0.25 % | −8 % |
-| Flux noise ×3 | +9 % |
-| CZ residual 2e-3 | +41 % |
+| Readout 300 ns | −24 % |
+| CZ residual 5e-4 | −19 % |
+| Readout separation 0.25 % | −9 % |
+| Flux noise ×3 | +7 % |
+| CZ residual 2e-3 | +38 % |
 
 These ranks set the Beta-1 upgrade list.
 
@@ -170,7 +170,7 @@ rebuilt from the extracted circuit:
 
 | Criterion | Threshold | Result |
 |---|---|---|
-| d=3 logical error per round | ≤ 0.6 % | 0.375 % (memory-Z), 0.360 % (memory-X) ✔ |
+| d=3 logical error per round | ≤ 0.6 % | 0.374 % (memory-Z), 0.370 % (memory-X) ✔ |
 | Logical lifetime vs best T1 | > 2× | 3.3× ✔ |
 | CZ coherent error / leakage | ≤ 5e-4 / ≤ 2e-4 | 8.1e-5 / 5.7e-5 mean ✔; **worst-pair leakage 2.3e-4 exceeds 2e-4** (Lc = 4 recalibration, was 1.3e-4) |
 | Idle ZZ at park | ≤ 10 kHz | 3.9 kHz mean (5.0 kHz re-nulled post-layout) ✔ |

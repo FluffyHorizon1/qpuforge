@@ -1,44 +1,44 @@
-CZ calibration: 16 unique frequency combinations for 24 pairs (0 simulated, 16 cached)
 1. Pulse-level CZ calibration (physical tunable couplers, 3-knob calibration per pair)
+CZ calibration: 16 unique frequency combinations for 24 pairs (0 simulated, 16 cached)
    24 pairs: t_cz 35.6-49.2 ns (mean 43.6; v1.0 abstract model 23.3 ns)
    coherent pulse error 8.1e-05, leakage 5.7e-05 per CZ (max 2.3e-04), flux-noise error 3.1e-05, residual idle ZZ 3.9 kHz
    control error handed to the emulator 1.06e-03 (incl. 1e-03 residual allowance); total CZ error incl. decoherence 1.86e-03
 
 2. Headline: distance-3 memory, logical error per round (fit over 5-25 rounds)
-   v1.0 model (abstract coupler, no leakage):     eps 0.4452% +- 0.0057%, round 847 ns
-   v1.1 model (pulse-level CZ, leakage, LRR):     eps 0.3754% +- 0.0036%, round 928 ns, detection 0.0458
-   logical lifetime 247 us vs best physical T1 75.6 us
-   v1.1 model, memory-X (|+>_L, phase flips):     eps 0.3604% +- 0.0050%
+   v1.0 model (abstract coupler, no leakage):     eps 0.4539% +- 0.0057%, round 847 ns
+   v1.1 model (pulse-level CZ, leakage, LRR):     eps 0.3738% +- 0.0036%, round 928 ns, detection 0.0458
+   logical lifetime 248 us vs best physical T1 75.6 us
+   v1.1 model, memory-X (|+>_L, phase flips):     eps 0.3698% +- 0.0050%
 
 3. Leakage handling (eps fit over 5-25 rounds; 50-round experiment for the long-run behaviour)
-   leakage not modelled               eps 0.3715% | 50 rounds: P_L 0.1508, leaked data 0.0e+00 meas 0.0e+00, round 926 ns
-   no leakage removal                 eps 0.4053% | 50 rounds: P_L 0.1697, leaked data 1.2e-03 meas 1.6e-03, round 926 ns
-   leakage-removing reset (v1.1)      eps 0.3684% | 50 rounds: P_L 0.1558, leaked data 7.8e-05 meas 1.2e-04, round 926 ns
-   LRR + data-qubit leakage removal   eps 0.4059% | 50 rounds: P_L 0.1706, leaked data 7.3e-06 meas 1.1e-04, round 956 ns
-   stress: 10x CZ leakage, LRR only             50 rounds: P_L 0.1951, leaked data 6.2e-04
-   stress: 10x CZ leakage, LRR + DQLR           50 rounds: P_L 0.2053, leaked data 6.6e-05
+   leakage not modelled               eps 0.3676% | 50 rounds: P_L 0.1512, leaked data 0.0e+00 meas 0.0e+00, round 926 ns
+   no leakage removal                 eps 0.4116% | 50 rounds: P_L 0.1682, leaked data 1.2e-03 meas 1.6e-03, round 926 ns
+   leakage-removing reset (v1.1)      eps 0.3768% | 50 rounds: P_L 0.1569, leaked data 6.9e-05 meas 1.1e-04, round 926 ns
+   LRR + data-qubit leakage removal   eps 0.4087% | 50 rounds: P_L 0.1697, leaked data 7.1e-06 meas 1.1e-04, round 956 ns
+   stress: 10x CZ leakage, LRR only             50 rounds: P_L 0.1921, leaked data 5.9e-04
+   stress: 10x CZ leakage, LRR + DQLR           50 rounds: P_L 0.2034, leaked data 6.4e-05
 
 4. Error budget (leave one source out; change in eps)
-   without T1       eps 0.0820%  (-78%)
-   without Tphi     eps 0.2633%  (-30%)
-   without control  eps 0.2255%  (-40%)
-   without readout  eps 0.3133%  (-17%)
-   without reset    eps 0.3359%  (-11%)
-   without zz       eps 0.3793%  (+1%)
-   without leakage  eps 0.3601%  (-4%)
-   without thermal  eps 0.3750%  (-0%)
+   without T1       eps 0.0761%  (-80%)
+   without Tphi     eps 0.2672%  (-29%)
+   without control  eps 0.2310%  (-38%)
+   without readout  eps 0.3129%  (-16%)
+   without reset    eps 0.3380%  (-10%)
+   without zz       eps 0.3814%  (+2%)
+   without leakage  eps 0.3668%  (-2%)
+   without thermal  eps 0.3716%  (-1%)
 
 5. Sensitivity (single changes to v1.1)
-   CZ residual control error 1e-3 -> 5e-4     eps 0.2993%  (-20%)
-   CZ residual control error 1e-3 -> 2e-3     eps 0.5287%  (+41%)
-   dielectric Q x2 (T1 x~2)                   eps 0.2346%  (-38%)
-   readout 500 -> 300 ns                      eps 0.2806%  (-25%)
-   effective temperature 45 -> 35 mK          eps 0.2774%  (-26%)
-   flux noise x3 (6 uPhi0)                    eps 0.4079%  (+9%)
-   readout separation error 0.5% -> 0.25%     eps 0.3467%  (-8%)
+   CZ residual control error 1e-3 -> 5e-4     eps 0.3016%  (-19%)
+   CZ residual control error 1e-3 -> 2e-3     eps 0.5163%  (+38%)
+   dielectric Q x2 (T1 x~2)                   eps 0.2421%  (-35%)
+   readout 500 -> 300 ns                      eps 0.2839%  (-24%)
+   effective temperature 45 -> 35 mK          eps 0.2747%  (-26%)
+   flux noise x3 (6 uPhi0)                    eps 0.3990%  (+7%)
+   readout separation error 0.5% -> 0.25%     eps 0.3388%  (-9%)
 
 6. Distance-5 projection with the v1.1 physics (49 qubits)
-   fit over 5-15 rounds: eps d=3 0.3882% +- 0.0090%, d=5 0.1327% +- 0.0069%  ->  Lambda = 2.93 +- 0.17
+   fit over 5-15 rounds: eps d=3 0.3752% +- 0.0089%, d=5 0.1067% +- 0.0066%  ->  Lambda = 3.52 +- 0.23
 
 7. Physical layout (designs/alpha1-v11/layout_cells.json, AF17_v11.gds)
    cells: measure arm 129.3 um, data arm 131.9 um, coupler pad 253 um, coupler T-bar 43.5 um, readout pad 40.9 um
@@ -49,4 +49,4 @@ CZ calibration: 16 unique frequency combinations for 24 pairs (0 simulated, 16 c
    chip 5.8 x 5.8 mm, 14380 etch polygons
    DRC: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 34 width + 202 space violations
 
-review complete in 744 s -> designs/alpha1-v11/alpha1_v11_review.json
+review complete in 263 s -> designs/alpha1-v11/alpha1_v11_review.json

@@ -5,10 +5,11 @@ every such change is listed under **API changes**.
 
 ## [Unreleased]
 
-Clears the merged-etch width/space DRC of BF-49 and GF-97 (AF-17 keeps four ground necks the connectivity guard
-refuses to cut), adds a metal-connectivity check of the masks, and brings every CZ pair class within the 2e-4 leakage
-limit of the Alpha gate. **The masks are not fabrication-ready:** the connectivity check finds floating ground, shorted
-lines that do not reach the ground plane, and qubit junctions that do not land on metal (see Known issues).
+Clears the merged-etch width/space DRC of all three masks, makes their metal connectivity clean and gates it, and
+brings every CZ pair class within the 2e-4 leakage limit of the Alpha gate. Each qubit SQUID now lands on a ground
+lead, each qubit flux line is shorted to the plane, modelled airbridges ("ground straps") tie the enclosed ground to the
+plane, and the XY line is moved out of the qubit's cut-out after an extraction of the control-line couplings showed a
+sub-microsecond T1 limit (docs/design/mask-connectivity.md). No foundry DRC deck has been run (see Known issues).
 
 The decoding items of Phase Gamma: a union-find decoder, leakage-aware decoding from heralded leakage, per-shot impact
 injection with an impact veto, and linear-time fault enumeration. Study: `examples/decoder_study.cpp` ->
@@ -19,16 +20,37 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 
 ### Added
 - `layout.hpp`:
+  - `detail::place_ground_straps` (`detail::Strap`, `detail::IslandIndex`, `detail::island_index`,
+    `detail::foot_comp`, `detail::UnionFindLite`; `kStrapW`, `kStrapMaxSpan`, `kStrapLinePenalty`,
+    `kStrapCouplerPenalty`): ground straps (modelled airbridges, GDS layers 4 = span, 5 = feet) that tie every floating
+    ground fragment and every shorted-line pocket to the ground plane, chosen by Kruskal over candidate straps. A strap
+    never spans a qubit; it may span lines, coupler bodies and bus strips. `ChipLayout::straps`.
+  - Unreachable ground fragments smaller than `kRemoveFragmentUm2` (2500 µm²) are etched away
+    (`ConnectivityReport::fragments_removed`).
+  - `ConnectivityReport::straps`, `straps_landed`, `strap_lines_crossed`, `strap_couplers_crossed`; `clean()` now also
+    requires every strap to land.
+  - `qubit_control_lines` (`kXYEnd`, `kXYLevel`), `line_coupling` (`LineCoupling`), `line_budget` (`LineBudget`,
+    `kLineT1Margin`), `line_budget_summary`, `line_budget_json`: the qubit's capacitance to its XY line and to its
+    shorted flux line (each panel weighted by sin(βz) from the short), and the T1 limit of each line at every qubit's
+    idle frequency against its design T1. The reviews record it under `layout.control_lines`.
+  - `extract_capacitance(..., excite, panel_charge)`: optional per-panel charges (`PanelCharge`).
+  - `kSquidGap`, `kTongueW`: the qubit SQUID's span and ground-lead width.
+- Gate criteria `connectivity` and `lines` in the three reviews; `drc` now includes the mask width/space check.
+- Tests: `layout_geometry` checks the strap placer (a pocket gets one strap, never over a qubit; a pocket ringed by a
+  qubit gets none); `layout_presets` requires each committed chip to be connectivity-clean, with one junction per qubit
+  and coupler and one flux line per qubit, and DRC 0 + 0. Four checks more than before (one and three).
+- `docs/design/mask-connectivity.md`.
+- `layout.hpp` (earlier in this cycle):
   - `detail::fill_ground_slivers`: mask clean-up that merges two cut-outs separated by a strip of ground narrower than
     the minimum (projection metric). It removes ground only; a gap that touches island metal is left to the DRC.
-  - `detail::guarded_fill`: the clean-up as `assemble_chip` runs it, with a connectivity guard: a fill that would cut
-    ground off the ground plane is undone, and the DRC reports the neck it leaves.
+  - `detail::guarded_fill`: the clean-up with a connectivity guard: a fill that would cut ground off the ground plane
+    is undone, and the DRC reports the neck it leaves. (`assemble_chip` no longer uses it: see Changed.)
   - `detail::metal_map` (`MetalMap`): exact connected components of the metal (outline minus etch) by scanline and
     union-find.
   - `ConnectivityReport` (`ChipLayout::conn`), `connectivity_summary`, `connectivity_json` (LVS-lite): conductors
     sharing metal, conductors on the plane, shorted lines (resonators, qubit and coupler flux lines) reaching the plane,
-    floating ground fragments, junctions landing on metal at both ends, fills undone. The reviews report it under
-    `layout.connectivity`; it is not gated.
+    floating ground fragments, junctions joining an island to the plane, ground straps. The reviews record it under
+    `layout.connectivity` and gate it.
   - `detail::etch_of` (cut-outs minus metal, factored out of `assemble_chip`); `cell_ground_holes` (the same clean-up
     on the ground cut-outs of the extraction cells).
   - `set_bus_knob` / `bus_knob`, `kBusRetract`, `CouplerGeom::g_b` (`bus_end_gap_um` in the cell file),
@@ -38,9 +60,8 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - `alpha1_v11_review`: the Alpha simulation gate computed from per-pair maxima (`exit_criteria`), the extraction errors,
   the re-null check and the connectivity report.
 - Tests: `layout_geometry` (bus knob, shorted staircase end, ground-sliver fill, metal map, guarded fill) and
-  `layout_presets` (the three committed chips: placement clean, no DRC marker except the necks the guard kept, no
-  conductor shorted or merged, extraction on target, exchange re-nullable; connectivity printed; label `layout`, about
-  3 minutes). `pulse_cz` checks the two pair classes with the most leakage with and without the fallback.
+  `layout_presets` (the three committed chips: placement clean, DRC 0 + 0, connectivity clean, extraction on target,
+  exchange re-nullable; label `layout`, a few minutes). `pulse_cz` checks the two pair classes with the most leakage with and without the fallback.
 - `docs/design/cz-leakage.md`.
 
 - `unionfind.hpp`: `UnionFindDecoder`, Delfosse-Nickerson union-find with weighted growth and peeling
@@ -78,29 +99,38 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
 
 ### Changed
+- **Qubit SQUID.** `xmon` cuts a 10 µm ground lead out of the qubit's (−x, −y) inner corner, 10 µm from the SQUID stub;
+  the SQUID region bridges stub → lead. Before, it ended in etch on its ground side (0 of 17 qubit SQUIDs landed). A
+  junction now counts as landed only if it joins an island to the ground plane.
+- **Qubit flux line** shorted again into the (−x, −y) corner next to the SQUID (the corner is strapped to the plane).
+- **XY line** ends open outside the qubit's cut-out, 247 µm right of and 279 µm below the qubit centre (it ran into the
+  qubit's (+x, −y) corner and coupled 3.0 fF: a T1 limit of 0.2 µs at 5.5 GHz). Now 0.029–0.030 fF on AF-17.
+- **Sliver fill** in `assemble_chip` is no longer guarded (`detail::guarded_fill` stays in the library): ground a
+  fill cuts off is strapped back or removed. AF-17's four ground necks are gone.
+- **Cells re-synthesised** (warm start) with the SQUID ground lead, and every mask, preview and review regenerated.
+  AF-17: arms 123.4 / 125.7 µm (127.4 / 129.8 before); E_C within 0.12 %, couplings within 5.0 %, readout C −0.5 %.
+  Beta-1 cells (also GF-97): E_C within 0.08 %, couplings within 5.4 %, readout C +0.3 %. Both re-null the parked
+  exchange (AF-17 couplers 102 MHz below their sweet spot).
+- **Masks**: DRC 0 + 0 on all three; metal connectivity clean on all three (BF49_GF97_CONN).
+- **Gates.** The mask width/space DRC, metal connectivity and the control-line T1 budget are gated in the Alpha, Beta and
+  Gamma reviews (ROADMAP.md). Alpha-1 v1.1: 8 of 8 criteria (control lines 23.8× / 22.4× the design T1 for XY / flux).
+  BETA_GAMMA_GATES
+- `qpuforge gds` prints the connectivity summary and exits 2 unless both the DRC and the connectivity are clean.
+- `tools/gds_preview.py` draws the ground straps.
 - **Layout cells.** The bus is never drawn narrower than its strip: below that, the direct-coupling knob of the
   synthesis pulls the bus ends back from the qubits instead of shrinking the T-bar to a sliver (0.075 µm on the 0.4
   AF-17 cells, 0.25 µm on BF-49). The synthesis aims the direct coupling 1.5 % above target so that the parked exchange
   can always be re-nulled by parking the coupler below its sweet spot.
-- **Qubit flux line.** In 0.4 it ended in a "short" that a 1 µm etch slit separated from the ground next to the SQUID
-  (a DRC width violation at every qubit). That ground is enclosed by the arm and T-bar cut-outs and floats, so no short
-  drawn into it reaches the plane. The line now ends open with a full 6 µm trench; the short to the plane is open
-  (Known issues). `stair(..., short_end)` trims the trench beside a shorted end, for lines that end on real ground.
-- **Cells and masks regenerated.** `designs/alpha1-v11/layout_cells.json` and `designs/beta1/layout_cells.json`
-  (also used by GF-97) were re-synthesised; `AF17_v11.gds`, `BF49.gds`, `GF97.gds` and their previews regenerated. Mask
-  DRC (width + space violations), 0.4 → now: AF-17 34 + 202 → 0 + 4, BF-49 98 + 504 → 0 + 0, GF-97 194 + 1,016 → 0 + 0.
-  The four AF-17 markers are ground necks (0.42 and 1.59 µm) that are the only link between a ground region and the
-  plane. Fine-mesh extraction: AF-17 cells E_C within 0.05 %, couplings within 4.6 %, readout capacitance −0.5 %; BF-49
-  cells E_C within 0.08 %, couplings within 5.5 %, readout capacitance −0.05 %. The couplers re-null 75–95 MHz below
-  their sweet spot (205 MHz on the 0.4 AF-17 cells). The extraction treats enclosed ground fragments as grounded.
+- `stair(..., short_end)` trims the trench beside a shorted end, so the short meets the ground without the 1 µm etch slit
+  0.4 left beside each qubit flux-line "short" (a DRC width violation at every qubit).
+- **Mask DRC** (width + space violations), 0.4 → now: AF-17 34 + 202 → 0 + 0, BF-49 98 + 504 → 0 + 0,
+  GF-97 194 + 1,016 → 0 + 0.
 - **CZ calibration (CZ model version 4).** A pair whose plain `1 - F_avg` calibration fails the 2e-4 leakage limit is
   re-calibrated with the objective `1 - F_avg + 10 · leakage`; the repeat is kept only if it meets the limit, its
   1 − F_avg is no worse and it stays within 5e-4. 15 of the 16 pair classes keep their version-2 calibration bit for bit.
   5.81/5.29 GHz (Q8–Q11 on AF-17) goes from 2.33e-4 to 1.60e-5 leakage and from 4.06e-4 to 3.55e-4 coherent error; its
   gate is 3.5 ns longer and its total CZ error 0.5 % higher. Largest leakage over the 16 classes: 1.20e-4 (5.87/5.29).
   `results/cz_cache.json` regenerated; caches of other model versions are rejected.
-- The layout criteria of the Alpha, Beta and Gamma gates (ROADMAP.md) list the mask DRC and metal connectivity as
-  reported, required before fabrication, and not gated in simulation.
 - Regenerated on the merged tree with CZ model version 4 and the new cells (`results/PROVENANCE.md`): the three reviews
   at 100000 shots, `BETA-1.md` and `GAMMA-1.md`, the Alpha-1 v1.1 characterisation rehearsal, the three GDS files and
   their previews, and the test log. Alpha-1 v1.1: memory-Z 0.377 % ± 0.004 % per round, memory-X 0.360 %, Λ(3→5)
@@ -122,14 +152,13 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   as before. `--loss-tangent` without `--materials` is an error.
 
 ### Known issues
-- **The masks are not fabrication-ready.** Metal connectivity (`layout.connectivity` in the reviews):
-  - ground enclosed by cut-outs floats: between the qubit arms (the arm and T-bar cut-outs seal the inner corners for
-    arm lengths below about 132 µm), around the buses, and in pockets near the resonators and coupler flux lines;
-  - shorted lines that end in such a pocket do not reach the plane, and the qubit flux lines end open: no DC return;
-  - the qubit SQUID junctions end in etch on their ground side; the coupler junctions land;
-  - the XY and flux lines' capacitance to the qubits, and the resulting T1 limit, are not modelled;
-  - the extraction treats every enclosed ground fragment as grounded.
-- AF-17 keeps four DRC space violations (ground necks below 4 µm), one each at Q7, Q10, Q13 and Q16.
+- **No foundry DRC deck has been run.** The masks pass the in-house checks (placement, 4 µm width/space on the merged
+  etch layer, metal connectivity, control-line budget). Corner-to-corner spacing and airbridge rules are not checked.
+- **Ground straps are modelled, not extracted.** A strap's capacitance to the coupler body or bus strip it crosses
+  (about 0.2 fF over a 6 µm bus at 3 µm bridge height) is not in the extraction cells.
+- **The flux lines' mutual inductance to the SQUID loops** (the flux coupling itself and its own T1 channel) is not
+  modelled; the control-line budget covers their capacitive coupling only.
+
 ## [0.4.0] (unreleased)
 
 Finishes the software side of Phases Alpha and Beta and starts Phase Gamma: an exact decoder at any number of defects,

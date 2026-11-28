@@ -202,12 +202,29 @@ struct CouplerElement {
     double residual_ctrl_err{1e-3};             // pulse distortion, calibration drift, TLS, crosstalk (not simulated)
 };
 
+// Flux-line distortion after predistortion (q18, docs/design/flux-line-distortion.md). Opt-in and OFF by default: when
+// off nothing is computed, nothing is written, and every number is unchanged. When on, calibrate_chip_cz adds
+// CZCalibration::err_distortion ON TOP of residual_ctrl_err (no carve-out), so it reaches err_2q_ctrl and the emulators.
+// The residual step response of each line (mover and coupler) is modelled as
+//     s(t) = 1 + static_offset + sum_k amplitude_k * exp(-t / tau_k)
+// i.e. the fractional error left after predistortion: a static gain/offset error plus uncorrected exponential tails.
+struct FluxTail { double amplitude{0}, tau_ns{0}; };
+struct FluxLineSpec {
+    bool enabled{false};
+    double static_offset{0};          // fractional flux-step error that persists through the gate (e.g. 3e-4)
+    std::vector<FluxTail> tails;      // residual tails (fraction of the step, time constant in ns)
+};
+
 // Leakage handling (qec.hpp frame model).
 struct LeakageSpec {
     bool model{true};                 // simulate leakage at all
     bool reset_removes_leakage{false};// measure-qubit reset also returns |2> -> |0> (multi-level reset)
     bool dqlr{false};                 // data-qubit leakage removal each round (leakage iSWAP to the reset measure qubit)
     double dqlr_ns{30}, dqlr_eff{0.98}, dqlr_err{5e-4};
+    // DQLR with heralding (docs/design/data-leakage-herald.md): the removal pulse leaves the leakage on the measure
+    // qubit as |2> instead of dumping it, so that qubit's next 3-state readout can herald it. Needs the
+    // leakage-removing reset, which then clears it.
+    bool dqlr_transfer{false};
     double leak_1q{1e-6};             // per single-qubit gate (DRAG-level)
     double transport{0.05};           // probability a CZ with a leaked partner moves the leakage (|21> -> |12>)
 };
@@ -228,6 +245,7 @@ struct ChipDesign {
     // without gates.cz_flux_noise follows tunable_coupler.model_coupler, so the PR #2 Alpha-1 files keep it.
     bool cz_flux_noise{false};
     CouplerElement coupler;
+    FluxLineSpec flux_line;       // design JSON: tunable_coupler.flux_line (written only when enabled)
     LeakageSpec leakage;
     bool active_reset{false};
     double reset_err{0.002};
@@ -279,6 +297,18 @@ inline ChipDesign design_from_json(const Json& j) {
     D.coupler.f_on_GHz = tc.get("f_on_GHz", D.coupler.f_on_GHz);
     D.coupler.t_rise_ns = tc.get("t_rise_ns", D.coupler.t_rise_ns);
     D.coupler.residual_ctrl_err = tc.get("residual_ctrl_err", D.coupler.residual_ctrl_err);
+    if (const Json& fl = tc["flux_line"]; fl.is_obj()) {
+        D.flux_line.enabled = fl.get("enabled", false);
+        D.flux_line.static_offset = fl.get("static_offset", 0.0);
+        const Json& ts = fl["tails"];
+        for (std::size_t i = 0; i < ts.size(); ++i) {
+            FluxTail t; t.amplitude = ts[i].get("amplitude", 0.0); t.tau_ns = ts[i].get("tau_ns", 0.0);
+            if (!(t.tau_ns > 0) || !std::isfinite(t.amplitude))
+                throw std::runtime_error("tunable_coupler.flux_line.tails[" + std::to_string(i) + "]: needs tau_ns > 0 and a finite amplitude");
+            D.flux_line.tails.push_back(t);
+        }
+        if (!std::isfinite(D.flux_line.static_offset)) throw std::runtime_error("tunable_coupler.flux_line.static_offset must be finite");
+    }
     const Json& lk = j["leakage"];
     D.leakage.model = lk.get("model", D.leakage.model);
     D.leakage.reset_removes_leakage = lk.get("reset_removes_leakage", D.leakage.reset_removes_leakage);
@@ -286,6 +316,7 @@ inline ChipDesign design_from_json(const Json& j) {
     D.leakage.dqlr_ns = lk.get("dqlr_ns", D.leakage.dqlr_ns);
     D.leakage.dqlr_eff = lk.get("dqlr_eff", D.leakage.dqlr_eff);
     D.leakage.dqlr_err = lk.get("dqlr_err", D.leakage.dqlr_err);
+    D.leakage.dqlr_transfer = lk.get("dqlr_transfer", D.leakage.dqlr_transfer);
     D.leakage.leak_1q = lk.get("leak_1q", D.leakage.leak_1q);
     D.leakage.transport = lk.get("transport", D.leakage.transport);
     const Json& qs = j["qubits"];
@@ -342,11 +373,20 @@ inline Json design_to_json(const ChipDesign& D) {
     tc.set("physical", D.coupler.physical); tc.set("f_max_GHz", D.coupler.f_max_GHz); tc.set("alpha_GHz", D.coupler.alpha_GHz);
     tc.set("g_qc_MHz", D.coupler.g_qc_MHz); tc.set("f_on_GHz", D.coupler.f_on_GHz); tc.set("t_rise_ns", D.coupler.t_rise_ns);
     tc.set("residual_ctrl_err", D.coupler.residual_ctrl_err);
+    if (D.flux_line.enabled) {    // only when on, so designs without the term are written byte-for-byte as before
+        Json fl = Json::object();
+        fl.set("enabled", true); fl.set("static_offset", D.flux_line.static_offset);
+        Json ts = Json::array();
+        for (const auto& t : D.flux_line.tails) { Json o = Json::object(); o.set("amplitude", t.amplitude); o.set("tau_ns", t.tau_ns); ts.push(o); }
+        fl.set("tails", ts);
+        tc.set("flux_line", fl);
+    }
     j.set("tunable_coupler", tc);
     Json lk = Json::object();
     lk.set("model", D.leakage.model); lk.set("reset_removes_leakage", D.leakage.reset_removes_leakage); lk.set("dqlr", D.leakage.dqlr);
     lk.set("dqlr_ns", D.leakage.dqlr_ns); lk.set("dqlr_eff", D.leakage.dqlr_eff); lk.set("dqlr_err", D.leakage.dqlr_err);
     lk.set("leak_1q", D.leakage.leak_1q); lk.set("transport", D.leakage.transport);
+    if (D.leakage.dqlr_transfer) lk.set("dqlr_transfer", true);   // written only when set: design files without it are unchanged
     j.set("leakage", lk);
     Json qs = Json::array();
     for (const auto& q : D.qubits) {

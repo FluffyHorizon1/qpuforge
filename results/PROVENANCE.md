@@ -5,29 +5,44 @@ the commands below to reproduce them.
 
 | Output | Program and arguments | Source | Compiler | OpenMP threads | Finished (UTC) | Runtime |
 |---|---|---|---|---|---|---|
-| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` (`.txt` = stdout and stderr) | `0b2ea59bfac1a8206e75f33017711e65a3a14491` (clean tree: `main` 2e19180 merged into `scs-bot/fab-readiness`) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:24:14Z | 399 s |
-| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:43:15Z | 1141 s |
-| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:36Z | 982 s |
-| `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
+| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` (`.txt` = stdout and stderr) | `ae466624dfdd53b5e88a42095c7066f12a439fcc` (clean tree, build directory configured at that commit) | g++ 13.3.0 | 4 (informational) | 2026-11-28T06:57:18Z | 1518 s (three reviews in parallel on 4 cores) |
+| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T07:09:56Z | 2277 s (in parallel) |
+| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T07:08:45Z | 2205 s (in parallel) |
+| `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | `fill_spec.py` and templates as committed with them | — | — | — | — |
 | `results/design_study.{csv,txt}` | `design_study > results/design_study.txt` from the repository root (default: 300 trajectories; the program writes the CSV itself) | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27 (time not recorded) | 31 s |
 | `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 500 checks, 0 failed) | `8de7512` (clean tree a0a5686: `main` after #21 and #24) | g++ 13.3.0 | 4 (informational) | 2026-11-28T05:47:52Z | 918 s |
-| `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from <cells0.json>` (`<cells0.json>`: the 0.4 cell file, `git show 5125500:designs/alpha1-v11/layout_cells.json`, which was `designs/alpha1-v11/layout_cells.json` at `0900b14`), output copied to the committed path | `0900b14` (`layout.hpp` changed afterwards, in `cf0455e`, and so did `src/`; see **Cell files**) | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 267 s |
-| `designs/beta1/layout_cells.json` (also used by GF-97) | same, with `designs/beta1/beta1.json` and the 0.4 Beta-1 cell file | same | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 280 s |
-| `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` (exit status 2: the mask DRC is not clean) | `0b2ea59` (as the reviews) | g++ 13.3.0 | — | 2026-11-28T02:17:35Z | — |
-| `designs/alpha1-v11/example_characterisation_synthetic.json`, `example_gate_report_synthetic.json` | the first two commands of `CHARACTERISATION-PLAN.md` §7 with `virtual.json` → `designs/alpha1-v11/example_characterisation_synthetic.json` and `--out designs/alpha1-v11/example_gate_report_synthetic.json`; the hidden-dephasing pair as written there (output not committed) | `0b2ea59` (as the reviews) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:58Z | 22 s (all four) |
-| `designs/alpha1-v11/AF17_v11_layout.{png,svg}`, `AF17_v11_detail.{png,svg}`, `docs/from-committed-layout/af17-{full,zoom,q5}.svg` | `python3 tools/gds_preview.py designs/alpha1-v11/AF17_v11.gds <out>`; detail `--zoom 1550,2450,2250,3150`, zoom `--zoom 1350,2250,2700,3600`, Q5 `--zoom 1580,2480,2020,2920` | matplotlib 3.10 | — | — | 2026-11-28 | — |
+| `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` (warm start from the previous committed cell file, `git show 0629252:designs/alpha1-v11/layout_cells.json`), output copied to the committed path | `xmon` with the SQUID ground lead (`layout.hpp` as in `b889856` minus the XY-line move, which does not enter the cells) | g++ 13.3.0 | 2 | 2026-11-28T05:00Z | 1318 s (two syntheses in parallel) |
+| `designs/beta1/layout_cells.json` (also used by GF-97) | same, with `designs/beta1/beta1.json` and the previous committed Beta-1 cell file | same | g++ 13.3.0 | 2 | 2026-11-28T05:00Z | 1301 s |
+| `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` (exit status 0: DRC and connectivity clean) | `da83b64` (clean tree; `layout.hpp` unchanged since) | g++ 13.3.0 | — | 2026-11-28T05:05:02Z | 208 s |
+| `designs/alpha1-v11/example_characterisation_synthetic.json`, `example_gate_report_synthetic.json` | the first two commands of `CHARACTERISATION-PLAN.md` §7 with `virtual.json` → `designs/alpha1-v11/example_characterisation_synthetic.json` and `--out designs/alpha1-v11/example_gate_report_synthetic.json`; the hidden-dephasing pair as written there (output not committed) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:58Z | 22 s (all four) |
+| `designs/alpha1-v11/AF17_v11_layout.{png,svg}`, `AF17_v11_detail.{png,svg}`, `docs/from-committed-layout/af17-{full,zoom,q5}.svg` | `python3 tools/gds_preview.py designs/alpha1-v11/AF17_v11.gds <out>`; detail `--zoom 1550,2450,2250,3150`, zoom `--zoom 1350,2250,2700,3600`, Q5 `--zoom 1580,2480,2020,2920` (ground straps in violet) | matplotlib 3.10 | — | — | 2026-11-28 | — |
 | `designs/beta1/BF49_layout.{png,svg}`, `designs/gamma1/GF97_layout.{png,svg}` | `python3 tools/gds_preview.py designs/beta1/BF49.gds <out>`, `python3 tools/gds_preview.py designs/gamma1/GF97.gds <out>` | matplotlib 3.10 | — | — | 2026-11-28 | — |
 | `results/surgery_study.{txt,json}` | `OMP_NUM_THREADS=4 surgery_study 100000` (CZ model v4; sections 1 to 3 reproduce the `d837044` run byte for byte, sections 4 to 6 are new) | `c7728233d97bd6d44301339f3f5ea5e228671bdc` (`scs-bot/surgery-next`; clean tree, fresh build directory) | g++ 13.3.0 | 4 (informational) | 2026-11-28T10:53:28Z | 4342 s |
 | `results/cz_cache.json` | `qpuforge cz designs/alpha1-v11/alpha1_v11.json --cache results/cz_cache.json` from an empty cache (16 calibrations simulated); every review reuses it (0 simulated, 16 cached) | CZ model version 4 (`pulse.hpp` and `src/` as committed with this file) | g++ 13.3.0 | 2 | 2026-11-28T01:32:18Z | 259 s |
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 | `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `86bfdab97c68960fa308e82c6ca28d914abf1a47` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:28:50Z | 2671 s |
 | `results/decoder_sweeps.{json,txt}` | `decoder_sweeps` (`OMP_NUM_THREADS=4 ./build/decoder_sweeps`) | `5e69544f153985be9ae2b042b467f762f06f85d2` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:30:44Z | 57 s |
+| `results/flux_distortion_study.{txt,json}` | `flux_distortion_study` (`OMP_NUM_THREADS=2 ./build/flux_distortion_study`; pulse simulations only, no Monte Carlo; CZ model v4) | `a1fcda1d95b8428bac9372e0f5a6ff4a9c4de4f7` (clean tree) | g++ 13.3.0 | 2 (informational) | 2026-11-28T10:40:55Z | 976 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
   The reviews, the GDS files and the characterisation rehearsal were regenerated from the clean tree
   `0b2ea59` (`main` at 2e19180 merged into `scs-bot/fab-readiness`): each review JSON says `source_tree_dirty: false`.
   The test log was made later, from `8de7512` (clean tree a0a5686, which `main` has after #21 and #24).
   `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
+- **Source stamp.** The review and study programs write the commit they were built from into their JSON
+  (`provenance.source_commit`), and `provenance.source_tree_dirty`: `true` if tracked files differed from that commit
+  when the program was built (untracked files do not count). The stamp is taken by every build that brings a
+  program's dependencies up to date (`cmake/git_stamp.cmake`): `cmake --build build`, with or without
+  `--target <program>`, and `make` or `ninja` for the default target or for the program. It therefore describes the
+  tree the binary was built from, whenever its build directory was configured. The Makefile rules `<program>/fast`
+  are the exception: they skip the dependencies, so `make <program>/fast` links the program with the stamp of the last
+  ordinary build, even after compiling it from a newer commit. For recorded runs, commit, run `cmake --build build`
+  and then run the programs: the build directory does not have to be configured again. Build before the first run and
+  not between runs: a run rewrites tracked files (the committed outputs), and a build made after that records
+  `source_tree_dirty: true`. A binary that is not rebuilt after a commit keeps the stamp of the tree it was built
+  from. The stamp is `"unknown"` / `false` outside a git checkout, without git, and for a program compiled by hand.
+  The outputs in the table predate this: their stamp was taken when CMake configured the build directory, and a
+  directory configured at an earlier commit would have recorded that commit.
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
@@ -94,3 +109,5 @@ the commands below to reproduce them.
 - **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
 - **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `8de7512`
   (tree a0a5686, which `main` has after #21 and #24): 500 checks passed, 0 failed.
+  The `flux_predistortion` group (32 checks, `fluxline.hpp`) was added after this log; it has not been regenerated
+  for it.

@@ -38,7 +38,9 @@
     "results/design_study.csv",
     "results/design_study.txt",
     "results/test_output.txt",
-    "results/cz_cache.json"
+    "results/cz_cache.json",
+    "results/flux_distortion_study.json",
+    "results/flux_distortion_study.txt"
   ],
   "gds": [
     {

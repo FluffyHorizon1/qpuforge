@@ -2,6 +2,7 @@
 #include "qpuforge/qpuforge.hpp"
 #include "qpuforge/layout.hpp"
 #include "qpuforge/gds.hpp"
+#include "qpuforge/fem.hpp"
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -668,6 +669,197 @@ static void test_pulse_cz() {
     }
 }
 
+static void test_flux_predistortion() {
+    std::puts("[flux predistortion] line response vs closed forms, predistortion, the CZ on a given drive, pulse history (fluxline.hpp)");
+    // (a) partial fractions of a cascade with a low-pass against a step-by-step integration of the sections in sequence
+    {
+        FluxLine L; L.sections = {{0.02, 30}, {-0.01, 400}}; L.rise_ns = 1.0;
+        const auto P = L.parallel();
+        double dc = P.c0;
+        for (double r : P.r) dc += r;
+        const double h = 5e-3, pl = std::log(9.0) / L.rise_ns;
+        double wl = 0, w1 = 0, w2 = 0, worst = 0;
+        for (int n = 0; n < 400000; ++n) {              // 2 us in 5 ps steps: low-pass, then each section on the output before it
+            wl += (1 - wl) * -std::expm1(-pl * h);
+            const double y1 = wl + 0.02 * (wl - w1); w1 += (wl - w1) * -std::expm1(-h / 30.0);
+            const double y2 = y1 - 0.01 * (y1 - w2); w2 += (y1 - w2) * -std::expm1(-h / 400.0);
+            if (n % 4000 == 0) worst = std::max(worst, std::abs(y2 - L.step((n + 1) * h)));
+        }
+        // a section followed by its analytic inverse (-a / (1 + a), (1 + a) tau) is the identity
+        FluxLine I; I.sections = {{0.03, 50}, {-0.03 / 1.03, 1.03 * 50}};
+        double dev = 0;
+        for (double t : {0.0, 1.0, 10.0, 50.0, 200.0, 5000.0}) dev = std::max(dev, std::abs(I.step(t) - 1));
+        std::printf("  two sections and a low-pass: DC gain - 1 = %.1e, step response vs sequential integration %.1e; section x inverse: |step - 1| < %.1e\n", dc - 1, worst, dev + 1e-16);
+        CHECK(std::abs(dc - 1) < 1e-12, "DC gain %.15f", dc);
+        CHECK(worst < 5e-6, "cascade step response off by %.2e", worst);
+        CHECK(dev < 1e-12, "section followed by its inverse deviates by %.2e", dev);
+        bool threw = false;
+        try { FluxLine B; B.sections = {{0.01, 20}, {0.02, 20}}; (void)B.parallel(); } catch (const std::invalid_argument&) { threw = true; }
+        CHECK(threw, "two sections with one time constant must be refused");
+    }
+    // (b) the running filter: integral of the step response in one piece and in uneven pieces vs the closed form
+    {
+        FluxLine L; L.sections = {{-0.04, 80}};
+        const double T = 300, exact = T - 0.04 * 80 * (1 - std::exp(-T / 80));
+        FluxLineFilter one(L), many(L);
+        const double i1 = one.advance(1.0, T);
+        double i2 = 0;
+        for (double h : {0.3, 11.0, 0.05, 97.65, 41.0, 150.0}) i2 += many.advance(1.0, h);
+        std::printf("  integral of a -4 %% / 80 ns step response over 300 ns: closed form %.9f, one step %+.1e, six steps %+.1e\n", exact, i1 - exact, i2 - exact);
+        CHECK(std::abs(i1 - exact) < 1e-10 && std::abs(i2 - exact) < 1e-10, "filter integral %.3e / %.3e", i1 - exact, i2 - exact);
+        CHECK(std::abs(one.value(1.0) - L.step(T)) < 1e-12 && std::abs(many.value(1.0) - L.step(T)) < 1e-12, "filter state after 300 ns");
+    }
+    // (c) pulses through a line: area (unit DC gain), superposition and the idle shortcut, delay
+    {
+        FluxChannel ch; ch.line.sections = {{0.02, 50}};
+        const FluxAwg awg{};
+        std::vector<double> e;
+        for (int k = 0; k <= 2400; ++k) e.push_back(k * 1.0);
+        const FluxPulse p1{10.0, 1.0, 7, 26}, p2{60.0, -0.7, 7, 21};
+        const auto y1 = flux_line_output(ch, awg, {p1}, e), y2 = flux_line_output(ch, awg, {p2}, e), y12 = flux_line_output(ch, awg, {p1, p2}, e);
+        double area = 0, sup = 0;
+        for (std::size_t i = 0; i < y1.size(); ++i) { area += y1[i]; sup = std::max(sup, std::abs(y12[i] - y1[i] - y2[i])); }
+        FluxChannel late = ch; late.line.delay_ns = 0.37;
+        std::vector<double> es = e;
+        for (auto& t : es) t += 0.37;
+        const auto yd = flux_line_output(late, awg, {p1}, es);
+        double dd = 0;
+        for (std::size_t i = 0; i < y1.size(); ++i) dd = std::max(dd, std::abs(yd[i] - y1[i]));
+        std::printf("  pulse on a +2 %% / 50 ns line: delivered area %.10f ns (programmed %.1f), flat top %.5f, 20 ns after the pulse %+.5f; two pulses vs sum %.1e; delayed line %.1e\n",
+                    area, 26.0 + 7.0, y1[30], y1[70], sup, dd);
+        CHECK(std::abs(area - 33.0) < 1e-9, "area through the line %.12f", area);
+        CHECK(y1[30] > 1.005 && y1[30] < 1.02 && y1[70] < -0.002 && y1[70] > -0.02, "overshoot on the flat top and undershoot after the pulse: %.5f, %.5f", y1[30], y1[70]);
+        CHECK(sup < 1e-13, "superposition violated by %.2e", sup);
+        CHECK(dd < 1e-12, "delay is not a pure shift: %.2e", dd);
+        bool threw = false;
+        try { (void)flux_line_output(ch, awg, {p1, FluxPulse{30.0, 1.0, 7, 26}}, e); } catch (const std::invalid_argument&) { threw = true; }
+        CHECK(threw, "overlapping pulses must be refused");
+    }
+    // (d) predistortion at 1 GS/s: exact for one section; two sections; a 10 % amplitude misfit leaves 10 % of the tail; DAC
+    {
+        FluxAwg awg; awg.sample_ns = 1.0;
+        std::vector<double> e;
+        for (int k = 0; k <= 600; ++k) e.push_back(k * 1.0);
+        const std::vector<FluxPulse> train{{10.0, 0.2, 7, 26}};
+        const auto ideal = flux_line_output(FluxChannel{}, awg, train, e);
+        auto worst = [&](const FluxChannel& c) { const auto y = flux_line_output(c, awg, train, e); double w = 0; for (std::size_t i = 0; i < y.size(); ++i) w = std::max(w, std::abs(y[i] - ideal[i])); return w; };
+        FluxChannel one; one.line.sections = {{0.02, 300}}; one.correction = one.line.sections;
+        FluxChannel two; two.line.sections = {{-0.03, 20}, {0.02, 300}}; two.correction = two.line.sections;
+        FluxChannel raw = one; raw.correction.clear();
+        FluxChannel off = one; off.correction[0].a *= 0.9;
+        const double w1 = worst(one), w2 = worst(two), wr = worst(raw), wo = worst(off);
+        std::printf("  predistortion, 1 GS/s, worst sample average vs the programme (step 0.2): one section %.1e, two sections %.1e, none %.1e, amplitude fitted 10 %% low %.1e\n", w1, w2, wr, wo);
+        CHECK(w1 < 1e-14, "exact single-section predistortion leaves %.2e", w1);
+        CHECK(w2 < 2e-5 * 0.2, "two-section predistortion leaves %.2e", w2);
+        CHECK(wo > 0.07 * wr && wo < 0.13 * wr, "10 %% amplitude misfit leaves %.2e of %.2e", wo, wr);
+        FluxAwg dac = awg; dac.bits = 8; dac.full_scale = 1.0;
+        const auto yq = flux_line_output(FluxChannel{}, dac, train, e);
+        double grid = 0, err = 0;
+        for (std::size_t i = 0; i < yq.size(); ++i) { grid = std::max(grid, std::abs(yq[i] * 256 - std::round(yq[i] * 256))); err = std::max(err, std::abs(yq[i] - ideal[i])); }
+        CHECK(grid < 1e-9 && err <= 0.5 / 256 + 1e-12 && err > 1e-4, "8-bit DAC: off the code grid by %.1e, error %.2e", grid, err);
+    }
+    // (e) the CZ on a drive. The calibrated 5.99/5.29 GHz pair of the committed CZ cache (model version 4): the checks
+    // compare simulations of this pulse with one another, so they do not need it to stay the optimum.
+    CouplerElement ce; ce.physical = true;
+    CZCalibration cal; cal.f_mover = 5.99; cal.f_target = 5.29; cal.g12_MHz = 9.80913517582;
+    const CZSystem S = cz_system_of(cal, -0.22, -0.22, ce);
+    CZPulse P; P.flux1_int = 0.177195160734; P.fluxc_on = 0.323639047416; P.t_rise = 7; P.t_flat = 26.1037246895;
+    const auto r0 = simulate_cz(S, P, CZModel::dt_ns);
+    {
+        const auto rd = simulate_cz_drive(S, cz_ideal_drive(S, P));
+        FluxSetup F;
+        const auto rg = simulate_cz_drive(S, cz_gate_drive(S, P, F, cz_nominal_command(S, P)));
+        std::printf("  simulate_cz 1-F %.4e, leakage %.2e; the same steps as a drive: dF %.1e, dphase %.1e rad; line model with ideal lines (%zu steps): dF %.1e\n", 1 - r0.fidelity, r0.leakage,
+                    std::abs(rd.fidelity - r0.fidelity), std::abs(rd.cphase - r0.cphase), cz_gate_edges(P, F).size() - 1, std::abs(rg.fidelity - r0.fidelity));
+        CHECK(1 - r0.fidelity < 1e-3 && r0.leakage < 1e-3, "the reference pulse is no longer a CZ: 1-F %.2e", 1 - r0.fidelity);
+        CHECK(std::abs(rd.fidelity - r0.fidelity) < 1e-13 && std::abs(rd.leakage - r0.leakage) < 1e-13 && std::abs(rd.cphase - r0.cphase) < 1e-9, "ideal drive differs from simulate_cz");
+        CHECK(std::abs(rg.fidelity - r0.fidelity) < 3e-6, "ideal lines through the line model: dF %.2e", rg.fidelity - r0.fidelity);
+        CHECK(std::abs(cz_fidelity_in_frame(rg, cz_frame(rg)) - rg.fidelity) < 1e-13, "fidelity in the gate's own frame");
+    }
+    // (f) a tail far slower than the gate only rescales the pulse, and the amplitude calibration removes it
+    {
+        FluxSetup F, I; F.pad_ns = 0; I.pad_ns = 0;
+        F.mover.line.sections = {{0.01, 1e9}}; F.coupler.line.sections = {{0.01, 1e9}};
+        CZCommand up = cz_nominal_command(S, P); up.amp_mover *= 1.01; up.amp_coupler *= 1.01;
+        const auto slow = simulate_cz_drive(S, cz_gate_drive(S, P, F, cz_nominal_command(S, P))), scaled = simulate_cz_drive(S, cz_gate_drive(S, P, I, up));
+        const auto fixed = simulate_cz_drive(S, cz_gate_drive(S, P, F, cz_matched_command(S, P, F))), ref = simulate_cz_drive(S, cz_gate_drive(S, P, I, cz_nominal_command(S, P)));
+        const double sc = flux_amplitude_scale(F.mover, F.awg, P.t_rise, P.t_flat);
+        std::printf("  +1 %% tail of 1 s: 1-F %.3e as programmed (pulse scaled by 1.01 on ideal lines: %.3e); amplitude scale %.6f, then 1-F %.4e (ideal lines %.4e)\n",
+                    1 - slow.fidelity, 1 - scaled.fidelity, sc, 1 - fixed.fidelity, 1 - ref.fidelity);
+        CHECK(1 - slow.fidelity > 10 * (1 - ref.fidelity), "a 1 %% amplitude error must show: %.2e", 1 - slow.fidelity);
+        CHECK(std::abs(slow.fidelity - scaled.fidelity) < 1e-7, "slow tail vs scaled pulse: %.3e", slow.fidelity - scaled.fidelity);
+        CHECK(std::abs(sc - 1 / 1.01) < 1e-5, "amplitude scale %.7f", sc);
+        CHECK(std::abs(fixed.fidelity - ref.fidelity) < 1e-7, "amplitude calibration leaves %.2e", fixed.fidelity - ref.fidelity);
+    }
+    // (g) history: the same gate right after another pulse on a +0.3 % / 300 ns line. The flux offset against an
+    // independent quadrature of the tail; the shift of the mover's phase against the frequency shift of the bare transmon
+    {
+        FluxSetup F; F.pad_ns = 0;
+        F.mover.line.sections = {{0.003, 300}}; F.coupler.line.sections = {{0.003, 300}};
+        const CZCommand cmd = cz_matched_command(S, P, F);
+        const double T = P.duration(), t2 = std::ceil(T / 0.05) * 0.05;
+        const auto Wa = cz_gate_drive(S, P, F, cmd);
+        const auto Wh = cz_train_drive(S, P, F, t2, {{0.0, cmd.amp_mover, P.t_rise, P.t_flat}, {t2, cmd.amp_mover, P.t_rise, P.t_flat}}, {{t2, cmd.amp_coupler, P.t_rise, P.t_flat}});
+        double off = 0, quad = 0, dur = 0, phase_pred = 0;
+        for (std::size_t s = 0; s < Wa.h.size(); ++s) { off += (Wh.f1[s] - Wa.f1[s]) * Wa.h[s]; dur += Wa.h[s]; phase_pred -= 2 * PI * (S.q1.f01(Wh.f1[s]) - S.q1.f01(Wa.f1[s])) * Wa.h[s]; }
+        off /= dur;
+        // after a pulse x(t) that has ended, a section's output is -a times its low-pass state: -a / tau * integral of x(s) exp(-(t - s) / tau) ds
+        const int nq = 4000;
+        for (int k = 0; k < nq; ++k) {
+            const double sk = (k + 0.5) * T / nq, x = cmd.amp_mover * cz_pulse_shape(sk, P.t_rise, P.t_flat);
+            quad += -0.003 / 300 * x * (T / nq) * 300 * (std::exp(-(t2 - sk) / 300) - std::exp(-(t2 + dur - sk) / 300)) / dur;      // mean over the second gate
+        }
+        const auto ra = simulate_cz_drive(S, Wa), rh = simulate_cz_drive(S, Wh);
+        const CZFrame fa = cz_frame(ra), fh = cz_frame(rh);
+        const double fixed = (1 - cz_fidelity_in_frame(rh, fa)) - (1 - ra.fidelity), free = (1 - rh.fidelity) - (1 - ra.fidelity);
+        const double dth = std::remainder(fh.th_mover - fa.th_mover, 2 * PI);
+        std::printf("  second of two pulses on a +0.3 %% / 300 ns line: mean mover flux offset %+.3e Phi0 (quadrature %+.3e), mover phase %+.4f rad (bare transmon %+.4f),\n"
+                    "    added error %.2e with the first gate's virtual Z, %.2e with its own\n", off, quad, dth, phase_pred, fixed, free);
+        CHECK(std::abs(off - quad) < 2e-3 * std::abs(quad), "history offset %.4e vs quadrature %.4e", off, quad);
+        CHECK(off < 0 && std::abs(off) > 1e-4 * cmd.amp_mover && std::abs(off) < 3e-3 * cmd.amp_mover, "offset %.3e out of range", off);
+        CHECK(std::abs(dth - phase_pred) < 0.1 * std::abs(phase_pred), "mover phase shift %.4f vs %.4f", dth, phase_pred);
+        CHECK(fixed > 3 * free && free > 0 && fixed > 1e-5, "fixed-frame error %.2e should exceed the free-frame error %.2e", fixed, free);
+    }
+    // (h) response to constant flux offsets: against the curvature recipe of calibrate_cz_pair (simulate_cz with the
+    // interaction flux moved), a direct simulation with both lines offset, and the bare transmon's phase
+    {
+        const CZDrive W = cz_ideal_drive(S, P);
+        const auto R = cz_offset_response(S, W);
+        const double hc = 2e-4, e0 = 1 - r0.fidelity;
+        auto inf = [&](double d1) { CZPulse q = P; q.flux1_int += d1; return 1 - simulate_cz(S, q, CZModel::dt_ns).fidelity; };
+        const double c1 = (inf(hc) - 2 * e0 + inf(-hc)) / (hc * hc);
+        const double dm = 3e-5, dc = -5e-5;
+        CZDrive V = W;
+        for (auto& f : V.f1) f += dm;
+        for (auto& f : V.fc) f += dc;
+        const auto rw = simulate_cz_drive(S, W), rv = simulate_cz_drive(S, V);
+        const double dfree = rw.fidelity - rv.fidelity, dfixed = rw.fidelity - cz_fidelity_in_frame(rv, cz_frame(rw));
+        double bare = 0;
+        for (std::size_t s = 0; s < W.h.size(); ++s) bare -= 2 * PI * (S.q1.f01(W.f1[s] + 1e-5) - S.q1.f01(W.f1[s] - 1e-5)) / 2e-5 * W.h[s];
+        std::printf("  offset response: 1-F per Phi0^2 on the mover line %.3e free (curvature recipe %.3e), %.3e fixed; mover phase %.0f rad/Phi0 (bare transmon %.0f)\n"
+                    "    offsets %+.0e / %+.0e Phi0: added %.4e free (predicted %.4e), %.4e fixed (predicted %.4e)\n", R.free_mm, c1 / 2, R.fixed_mm, R.phase_mover, bare,
+                    dm, dc, dfree, R.added_free(dm, dc), dfixed, R.added_fixed(dm, dc));
+        CHECK(std::abs(R.free_mm - c1 / 2) < 0.02 * c1 / 2, "free response %.4e vs half the curvature %.4e", R.free_mm, c1 / 2);
+        CHECK(std::abs(R.added_free(dm, dc) - dfree) < 0.01 * dfree && std::abs(R.added_fixed(dm, dc) - dfixed) < 0.01 * dfixed, "response vs direct simulation: free %.4e / %.4e, fixed %.4e / %.4e",
+              R.added_free(dm, dc), dfree, R.added_fixed(dm, dc), dfixed);
+        CHECK(std::abs(R.phase_mover - bare) < 0.1 * std::abs(bare), "mover phase per flux %.1f vs bare transmon %.1f", R.phase_mover, bare);
+        CHECK(R.fixed_mm > 5 * R.free_mm, "fixed virtual Z should cost several times more: %.3e vs %.3e", R.fixed_mm, R.free_mm);
+    }
+    // (i) CZ start times of a compiled program: three time slices, the second without a CZ
+    {
+        auto cz = [](int a, int b) { Gate g; g.op = Op::CZ; g.q = {a, b}; g.name = "cz"; return g; };
+        Gate rz; rz.op = Op::RZ; rz.q = {2}; rz.theta = 0.3; rz.name = "rz";
+        Compiled prog;
+        Moment m1; m1.ops = {cz(0, 1)}; m1.duration_ns = 40.0;
+        Moment m2; m2.ops = {rz}; m2.duration_ns = 0.4;
+        Moment m3; m3.ops = {cz(2, 1), cz(0, 3)}; m3.duration_ns = 44.5;
+        prog.moments = {m1, m2, m3};
+        const auto st = cz_starts(prog);
+        CHECK(st.size() == 3 && st[0].t_ns == 0.0 && st[0].a == 0 && st[0].b == 1 && std::abs(st[1].t_ns - 40.4) < 1e-12 && st[1].a == 1 && st[1].b == 2 &&
+              std::abs(st[2].t_ns - 40.4) < 1e-12 && st[2].a == 0 && st[2].b == 3, "CZ start times of a three-slice program");
+    }
+}
+
 static void test_leakage_frame() {
     std::puts("[leakage] frame model: inert when off, Markov steady state, leakage-removing reset, DQLR");
     const auto D = surface_chip(3); const auto R = analyze(D);
@@ -808,7 +1000,7 @@ static void test_layout() {
             last = b[i + 2]; if (last == 0x08) ++boundaries;
             ++records; i += std::size_t(n);
         }
-        const std::size_t expect = L.etch.size() + L.jj.size() + L.bumps.size() + 1;
+        const std::size_t expect = L.etch.size() + L.jj.size() + L.bumps.size() + 3 * L.straps.size() + 1;
         std::printf("  AF-17 layout: %zu etch polygons, placement %s; GDSII: %d records, %d boundaries (expected %zu), ends with ENDLIB: %s\n", L.etch.size(),
                     L.problems.empty() ? "clean" : "violations", records, boundaries, expect, last == 0x04 ? "yes" : "no");
         CHECK(ok && last == 0x04 && std::size_t(boundaries) == expect, "GDSII stream structure");
@@ -1922,6 +2114,28 @@ static void test_layout_geometry() {
         bool merged = false; for (const auto& h : holes) merged |= h.contains(151, 50);
         CHECK(merged, "the 2 um sliver away from the pocket was not merged");
     }
+    {   // ground straps: a pocket inside a closed 10 um ring gets one strap across the ring; a strap never spans a qubit
+        // island (here a qubit drawn in the ring's left side forces the strap to another side), and a pocket ringed
+        // only by a qubit gets none
+        const Rect outline{0, 0, 300, 100};
+        const std::vector<Rect> ring{{20, 20, 80, 30}, {20, 70, 80, 80}, {20, 30, 30, 70}, {70, 30, 80, 70}};
+        std::vector<std::pair<std::string, std::vector<Rect>>> isl{{"Q1", {{22, 32, 28, 68}}}};
+        std::vector<Rect> holes = ring;
+        for (const auto& r : ring) holes.push_back(r.shift(100, 0));                                         // second ring
+        isl.push_back({"Q2", {{121, 77, 179, 79}, {121, 21, 179, 23}, {121, 21, 123, 79}, {177, 21, 179, 79}}});  // qubit ring 1 um inside the outer edge
+        std::vector<Rect> metal; for (const auto& [n, rs] : isl) metal.insert(metal.end(), rs.begin(), rs.end());
+        const auto e = detail::etch_of(holes, metal);
+        const auto M = detail::metal_map(outline, e);
+        const auto I = detail::island_index(isl);
+        std::vector<char> eligible(std::size_t(M.n_comp), 1);
+        for (const auto& [n, rs] : isl) eligible[std::size_t(M.at(rs.front().cx(), rs.front().cy()))] = 0;
+        const int plane = M.at(1, 1);
+        const auto S = detail::place_ground_straps(M, I, eligible, plane);
+        bool over_q = false; for (const auto& st : S) for (const auto& [n, rs] : isl) for (const auto& r : rs) over_q |= st.span.intersects(r);
+        const bool p1 = std::any_of(S.begin(), S.end(), [&](const detail::Strap& st) { return M.at(st.foot_a.cx(), st.foot_a.cy()) == M.at(50, 50) || M.at(st.foot_b.cx(), st.foot_b.cy()) == M.at(50, 50); });
+        std::printf("  ground straps: %zu placed; first pocket strapped: %s; any strap over a qubit: %s\n", S.size(), p1 ? "yes" : "no", over_q ? "yes" : "no");
+        CHECK(S.size() == 1 && p1 && !over_q, "ground straps: %zu, pocket %d, over qubit %d", S.size(), int(p1), int(over_q));
+    }
 }
 
 // ---------------------------------------------------------------- layout_presets: the committed chips are mask-clean and on target
@@ -1958,10 +2172,11 @@ static void test_layout_presets() {
         // the only DRC markers left are the ground necks the connectivity guard kept (one per undone fill)
         CHECK(L.drc_count("width") == 0 && L.drc_count("space") == L.conn.fills_reverted, "%s mask DRC: %d width + %d space violations, %d fills undone",
               c.name, L.drc_count("width"), L.drc_count("space"), L.conn.fills_reverted);
-        // connectivity is reported, not gated (floating ground, shorted lines and junction landing are open); what must
-        // hold already: no two conductors share metal and no conductor is shorted to the plane
-        CHECK(L.conn.islands_merged == 0 && L.conn.islands_on_plane == 0, "%s: %d conductors merged, %d on the plane", c.name, L.conn.islands_merged,
-              L.conn.islands_on_plane);
+        // connectivity (LVS-lite, with the ground straps): every conductor its own net, every shorted line and every
+        // ground fragment on the plane, every SQUID from its island to the plane
+        CHECK(L.conn.clean(), "%s: %s", c.name, connectivity_summary(L).c_str());
+        CHECK(L.conn.junctions == int(c.D.qubits.size() + c.D.couplings.size()) && L.conn.flux_lines == int(c.D.qubits.size()),
+              "%s: %d junctions, %d flux lines", c.name, L.conn.junctions, L.conn.flux_lines);
         CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);
         CHECK(std::abs(P.park_gap_MHz) < 0.05, "%s parked exchange not re-nullable (%.3f MHz)", c.name, P.park_gap_MHz);
     }
@@ -2249,6 +2464,187 @@ static NoiseModel with_leakage(const ChipDesign& D, const ChipReport& R, NoiseMo
         nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, 2e-3};
     }
     return nm;
+}
+
+// ---------------------------------------------------------------- herald weights derived from the leakage model
+// The model's prior (probability that a measure qubit is leaked at its readout) against the sampler: the expected
+// number of true heralds per shot is the sum of the priors times the fidelity.
+static double model_true_heralds(const MemorySetup& M, double fidelity) {
+    double s = 0; for (double p : M.herald_model.prior) s += p;
+    return s * fidelity;
+}
+// failures of the streaming decoder alone on the syndromes of a herald run: heralds sampled (same draws) but not used
+static long plain_stream(const MemorySetup& M, const StreamingUnionFind& S, long shots, std::uint64_t seed, FrameRunOptions o) {
+    o.herald.use_in_decoder = false; o.stream = &S;
+    return run_memory_frame(M, shots, seed, o).logical_errors;
+}
+static void test_herald_weights() {
+    std::puts("[herald weights] weights derived from the leakage model: the model's leak probabilities against the sampler, logical gain against the fixed factors");
+    const auto D = surface_chip(5); const auto R = analyze(D);
+    const auto nm = stressed_leakage(D, R, 2e-3);
+    auto M = prepare_memory(D, R, nm, 10);
+    prepare_herald_model(M);
+    const auto& H = M.herald_model;
+    const long shots = 20000;
+    FrameRunOptions fixed; fixed.herald.on = true;
+    FrameRunOptions blind = fixed; blind.herald.use_in_decoder = false;
+    FrameRunOptions der = fixed; der.herald.derived = true;
+    const auto rb = run_memory_frame(M, shots, 515, blind), rf = run_memory_frame(M, shots, 515, fixed), rd = run_memory_frame(M, shots, 515, der);
+    // 1. the leakage chain against the Monte Carlo, and how much of each herald it explains
+    const double mc_true = rb.heralds_per_shot * rb.herald_true_frac, model_true = model_true_heralds(M, fixed.herald.fidelity);
+    std::size_t edges = 0; for (const auto& v : H.cond) edges += v.size();
+    std::printf("  d=5, 10 rounds, CZ leakage 2e-3: true heralds per shot %.4f sampled, %.4f from the model (%+.1f%%); the look-back of %d rounds leaves at most %.3f of a herald unexplained\n",
+                mc_true, model_true, 100 * (model_true / mc_true - 1), H.max_rounds, H.worst_unexplained);
+    std::printf("  %ld consequence signatures, %zu (bit, edge) entries; conditional fault probability kept %.1f, below the pruning limit %.1f, without a graph edge %.2f\n",
+                H.requests, edges, H.kept_mass, H.pruned_mass, H.dropped_mass);
+    CHECK(std::abs(model_true / mc_true - 1) < 0.05, "leak probability at readout: model %.4f vs sampled %.4f true heralds per shot", model_true, mc_true);
+    CHECK(H.worst_unexplained < 0.05 && H.dropped_mass < 0.02 * H.kept_mass, "leakage chain: %.3f unexplained, %.2f of %.1f without an edge", H.worst_unexplained,
+          H.dropped_mass, H.kept_mass);
+    // 2. logical gain on the same syndromes, exact matching and union-find
+    FrameRunOptions ub = blind, uf = fixed, ud = der; ub.method = uf.method = ud.method = DecodeMethod::UnionFind;
+    const auto qb = run_memory_frame(M, shots, 515, ub), qf = run_memory_frame(M, shots, 515, uf), qd = run_memory_frame(M, shots, 515, ud);
+    std::printf("  same syndromes, %ld shots: exact matching %ld failures without heralds, %ld fixed factors, %ld derived weights; union-find %ld, %ld, %ld\n",
+                shots, rb.logical_errors, rf.logical_errors, rd.logical_errors, qb.logical_errors, qf.logical_errors, qd.logical_errors);
+    CHECK(100 * rd.logical_errors <= 102 * rf.logical_errors && 10 * rd.logical_errors < 8 * rb.logical_errors, "derived weights, exact matching: %ld (fixed %ld, none %ld)",
+          rd.logical_errors, rf.logical_errors, rb.logical_errors);
+    CHECK(100 * qd.logical_errors <= 102 * qf.logical_errors && 10 * qd.logical_errors < 8 * qb.logical_errors, "derived weights, union-find: %ld (fixed %ld, none %ld)",
+          qd.logical_errors, qf.logical_errors, qb.logical_errors);
+    // 3. heralds that never fire change nothing; the fixed-factor result does not depend on the model being built
+    FrameRunOptions never = der; never.herald.fidelity = 0; never.herald.false_rate = 0;
+    const auto rn = run_memory_frame(M, shots, 515, never), plain = run_memory_frame(M, shots, 515);
+    const auto M0 = prepare_memory(D, R, nm, 10);
+    const auto rf0 = run_memory_frame(M0, shots, 515, fixed);
+    CHECK(rn.logical_errors == plain.logical_errors && rf0.logical_errors == rf.logical_errors, "no heralds: %ld vs %ld failures; fixed factors %ld vs %ld",
+          rn.logical_errors, plain.logical_errors, rf0.logical_errors, rf.logical_errors);
+    // 4. the streaming decoder with heralds: one window over the whole shot is the batch decoder, and a sliding window
+    //    uses the heralds too (the run and its comparison are decoded by the same decoder)
+    {
+        const int nd = int(M.exp.detectors.size());
+        const StreamingUnionFind whole(nd, M.dem.edges, M.exp.detector_round, M.exp.rounds + 2, 1), slide(nd, M.dem.edges, M.exp.detector_round, 6, 3);
+        FrameRunOptions wd = der, wf = fixed, sb = blind, sd = der, sn = never; wd.stream = wf.stream = &whole; sb.stream = sd.stream = sn.stream = &slide;
+        const auto a = run_memory_frame(M, shots, 515, wd), b = run_memory_frame(M, shots, 515, wf);
+        const auto c = run_memory_frame(M, shots, 515, sb), e = run_memory_frame(M, shots, 515, sd), f = run_memory_frame(M, shots, 515, sn);
+        std::printf("  streaming union-find with heralds: one window %ld derived, %ld fixed (batch %ld, %ld); window 6 / commit 3: %ld without heralds, %ld derived\n",
+                    a.logical_errors, b.logical_errors, qd.logical_errors, qf.logical_errors, c.logical_errors, e.logical_errors);
+        CHECK(a.logical_errors == qd.logical_errors && b.logical_errors == qf.logical_errors, "one window with heralds is not the batch decoder (%ld vs %ld, %ld vs %ld)",
+              a.logical_errors, qd.logical_errors, b.logical_errors, qf.logical_errors);
+        // heralds that are sampled and ignored, and heralds that never fire, both leave the plain streaming decoder
+        CHECK(c.logical_errors != qb.logical_errors && 10 * e.logical_errors < 8 * c.logical_errors && f.logical_errors == plain_stream(M, slide, shots, 515, never),
+              "streaming with heralds: blind %ld (batch %ld), never firing %ld, derived %ld", c.logical_errors, qb.logical_errors, f.logical_errors, e.logical_errors);
+    }
+}
+
+// ---------------------------------------------------------------- data-qubit leakage heralding (DQLR with transfer)
+static void test_dqlr_herald() {
+    std::puts("[dqlr herald] DQLR that leaves the leakage on the measure qubit: sampler against the model, heralds of data-qubit leakage, logical gain");
+    const auto D = surface_chip(5); const auto R = analyze(D);
+    // the data qubits leak (2e-3 per CZ); leakage-removing reset and DQLR
+    auto nm = noise_model(D, R);
+    nm.leakage = true; nm.leak_1q = 0; nm.leak_transport = 0.05; nm.reset_removes_leakage = true; nm.dqlr = true; nm.dqlr_eff = 0.98; nm.dqlr_err = 5e-4;
+    for (const auto& p : R.pairs) if (p.designed) {
+        const int a = D.index_of(p.a), b = D.index_of(p.b);
+        nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {D.qubits[std::size_t(a)].role == "data" ? a : b, 2e-3};
+    }
+    const long shots = 20000;
+    FrameRunOptions h; h.herald.on = true; h.herald.derived = true;
+    FrameRunOptions blind = h; blind.herald.use_in_decoder = false;
+    // dump (the 0.4 model): the measure-qubit readout sees almost none of the data-qubit leakage
+    auto Md = prepare_memory(D, R, nm, 10);
+    prepare_herald_model(Md);
+    const auto db = run_memory_frame(Md, shots, 616, blind), dd = run_memory_frame(Md, shots, 616, h);
+    // transfer
+    auto nt = nm; nt.dqlr_transfer = true;
+    auto Mt = prepare_memory(D, R, nt, 10);
+    prepare_herald_model(Mt);
+    const auto tb = run_memory_frame(Mt, shots, 616, blind), td = run_memory_frame(Mt, shots, 616, h);
+    const double mc_d = db.heralds_per_shot * db.herald_true_frac, mc_t = tb.heralds_per_shot * tb.herald_true_frac;
+    const double mo_d = model_true_heralds(Md, h.herald.fidelity), mo_t = model_true_heralds(Mt, h.herald.fidelity);
+    std::printf("  d=5, 10 rounds, data-qubit CZ leakage 2e-3, %.2f leakage events per shot; true heralds per shot: dump %.4f (model %.4f), transfer %.4f (model %.4f)\n",
+                tb.leak_events_per_shot, mc_d, mo_d, mc_t, mo_t);
+    std::printf("  leaked fraction data / measure: dump %.2e / %.2e, transfer %.2e / %.2e\n", db.leak_frac_data, db.leak_frac_meas, tb.leak_frac_data, tb.leak_frac_meas);
+    std::printf("  failures of %ld: dump %ld without heralds, %ld with; transfer %ld without heralds, %ld with derived weights\n", shots, db.logical_errors, dd.logical_errors,
+                tb.logical_errors, td.logical_errors);
+    CHECK(std::abs(mo_t / mc_t - 1) < 0.05 && std::abs(mo_d / mc_d - 1) < 0.15, "true heralds per shot: transfer %.4f vs model %.4f, dump %.4f vs model %.4f", mc_t, mo_t, mc_d, mo_d);
+    // most leakage events are now heralded one round later: about eff x fidelity of them (less those that end first)
+    CHECK(mc_t > 0.8 * tb.leak_events_per_shot && mc_t > 5 * mc_d, "transfer heralds %.4f per shot for %.4f events (dump %.4f)", mc_t, tb.leak_events_per_shot, mc_d);
+    CHECK(tb.leak_frac_meas > 5 * db.leak_frac_meas && tb.leak_frac_data < 1.5 * db.leak_frac_data, "leaked fractions: transfer %.2e / %.2e, dump %.2e / %.2e",
+          tb.leak_frac_data, tb.leak_frac_meas, db.leak_frac_data, db.leak_frac_meas);
+    CHECK(10 * td.logical_errors < 7 * tb.logical_errors, "the heralds of transferred leakage do not lower the logical error by 30%% (%ld vs %ld)", td.logical_errors, tb.logical_errors);
+    CHECK(Mt.herald_model.worst_unexplained < 0.01, "transfer: %.3f of a herald unexplained", Mt.herald_model.worst_unexplained);
+    // transfer off: bit for bit the sampler of before (the flag alone changes nothing without DQLR)
+    auto n0 = stressed_leakage(D, R, 2e-3), n1 = n0; n1.dqlr_transfer = true;
+    const auto r0 = run_memory_frame(prepare_memory(D, R, n0, 6), 5000, 9), r1 = run_memory_frame(prepare_memory(D, R, n1, 6), 5000, 9);
+    CHECK(r0.logical_errors == r1.logical_errors && r0.leak_frac_meas == r1.leak_frac_meas && r0.mean_defects == r1.mean_defects, "the transfer flag without DQLR changed the run");
+}
+
+// ---------------------------------------------------------------- operation counts of the streaming decoder
+static void test_stream_ops() {
+    std::puts("[stream ops] operation counters of the union-find decoders, the pre-decoder, the profile runner");
+    const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+    const auto M = prepare_memory(D, R, nm, 12);
+    const int nd = int(M.exp.detectors.size());
+    const auto& uf = M.decoder->union_find();
+    // 1. counting changes nothing; the counts add up
+    {
+        Xoshiro256 rng(31);
+        UFScratch a, b; StreamScratch sa, sb, sp;
+        const StreamingUnionFind S(nd, M.dem.edges, M.exp.detector_round, 6, 3);
+        long differ = 0, bad_counts = 0, uncleared = 0, pre_pairs = 0, trials = 3000, cleared = 0, with_defects = 0;
+        std::vector<int> def; std::vector<std::uint8_t> on(static_cast<std::size_t>(nd)), got(static_cast<std::size_t>(nd));
+        for (long t = 0; t < trials; ++t) {
+            std::fill(on.begin(), on.end(), 0);
+            for (const auto& e : M.dem.edges) if (rng.uniform() < (t % 2 ? 3 : 1) * e.p) { on[std::size_t(e.a)] ^= 1; if (e.b >= 0) on[std::size_t(e.b)] ^= 1; }
+            def.clear(); for (int k = 0; k < nd; ++k) if (on[std::size_t(k)]) def.push_back(k);
+            UFOpCounts c;
+            const int p0 = uf.decode(def, a), p1 = uf.decode_counted(def, b, c);
+            if (p0 != p1 || a.correction != b.correction) ++differ;
+            if (c.loads != long(def.size()) || c.corrections != long(b.correction.size()) || c.growth_iters != b.iterations || c.finds < c.unions || c.hops < 0 ||
+                c.edge_updates > c.edge_visits || (!def.empty() && c.peel_steps < c.corrections))
+                ++bad_counts;
+            StreamOptions so; so.count = true;
+            const int q0 = S.decode(def, sa), q1 = S.decode(def, sb, so);
+            if (q0 != q1 || sa.committed != sb.committed) ++differ;
+            long commits = 0, loads = 0;
+            for (int w = 0; w < S.n_windows(); ++w) {
+                commits += sb.counts[std::size_t(w)].commits; loads += sb.counts[std::size_t(w)].loads;
+                if ((sb.cleared[std::size_t(w)] == 0) != (sb.counts[std::size_t(w)].loads == 0) || sb.cleared[std::size_t(w)] == 1) ++bad_counts;
+            }
+            if (commits != long(sb.committed.size()) || loads < long(def.size())) ++bad_counts;
+            // the pre-decoder: the committed correction still clears the syndrome
+            so.predecode = true;
+            S.decode(def, sp, so);
+            std::fill(got.begin(), got.end(), 0);
+            for (auto [x, y] : sp.committed) { got[std::size_t(x)] ^= 1; if (y >= 0) got[std::size_t(y)] ^= 1; }
+            if (got != on) ++uncleared;
+            for (int w = 0; w < S.n_windows(); ++w) { pre_pairs += sp.counts[std::size_t(w)].pre_pairs; cleared += sp.cleared[std::size_t(w)] == 1; with_defects += sp.cleared[std::size_t(w)] != 0; }
+        }
+        std::printf("  %ld syndromes (d=5, 12 rounds): counted and plain decoding differ on %ld, inconsistent counts on %ld; with the pre-decoder %ld uncleared, %ld pairs removed, %ld of %ld windows with defects cleared\n",
+                    trials, differ, bad_counts, uncleared, pre_pairs, cleared, with_defects);
+        CHECK(differ == 0 && bad_counts == 0, "operation counters: %ld decodings differ, %ld inconsistent counts", differ, bad_counts);
+        CHECK(uncleared == 0 && pre_pairs > 0 && cleared > 0, "pre-decoder: %ld uncleared, %ld pairs, %ld windows cleared", uncleared, pre_pairs, cleared);
+    }
+    // 2. the profile runner decodes the syndromes of run_memory_frame, and its histograms account for every window
+    {
+        const StreamingUnionFind S(nd, M.dem.edges, M.exp.detector_round, 6, 3);
+        UFCostModel one; one.name = "unit"; one.fixed = 5; for (long& v : one.per) v = 1;
+        const long shots = 6000;
+        FrameRunOptions so; so.stream = &S;
+        const auto ref = run_memory_frame(M, shots, 88, so);
+        const auto P = run_stream_profile(M, S, shots, 88, false, {one}), Q = run_stream_profile(M, S, shots, 88, true, {one});
+        long nw = 0, empty = 0; for (const auto& [v, k] : P.cycles_hist[0]) { nw += k; if (v == one.empty) empty += k; }
+        long nloads = 0; for (const auto& [v, k] : P.count_hist[0]) nloads += k;
+        std::printf("  profile of %ld shots, window 6 / commit 3: %ld failures (run_memory_frame %ld); %ld windows, %.1f%% without defects; with the pre-decoder %ld failures, %.1f%% of the windows with defects cleared\n",
+                    shots, P.logical_errors, ref.logical_errors, P.windows, 100.0 * double(P.windows_empty) / double(P.windows), Q.logical_errors,
+                    100.0 * double(Q.windows_cleared) / double(Q.windows - Q.windows_empty));
+        CHECK(P.logical_errors == ref.logical_errors, "profile runner: %ld failures, run_memory_frame %ld", P.logical_errors, ref.logical_errors);
+        CHECK(P.windows == shots * S.n_windows() && nw == P.windows && nloads == P.windows && empty == P.windows_empty && P.windows_cleared == 0 &&
+              P.windows_empty + P.windows_uf == P.windows && Q.windows_cleared > 0 && Q.windows_empty + Q.windows_cleared + Q.windows_uf == Q.windows,
+              "profile histograms: %ld windows, %ld in the cycle histogram, %ld empty (%ld)", P.windows, nw, empty, P.windows_empty);
+        CHECK(StreamProfile::mean(Q.cycles_hist[0]) < StreamProfile::mean(P.cycles_hist[0]) && StreamProfile::quantile(P.cycles_hist[0], 0.999) <= StreamProfile::max(P.cycles_hist[0]) &&
+              StreamProfile::mean(P.latency_hist[0]) >= StreamProfile::mean(P.cycles_hist[0]) &&
+              StreamProfile::mean(P.stream_latency_hist[0]) >= StreamProfile::mean(P.latency_hist[0]) && !P.stream_late_hist[0].empty(),
+              "profile statistics (mean cycles %.2f, with the pre-decoder %.2f)", StreamProfile::mean(P.cycles_hist[0]), StreamProfile::mean(Q.cycles_hist[0]));
+    }
 }
 
 static void test_surgery() {
@@ -2699,6 +3095,200 @@ static void test_surgery_routing() {
                 CHECK(rb.p[0] > 1.5 * ra.p[0] && rb.rounds == ra.rounds && Eb.circuit.n > Ea.circuit.n, "a strip of 5 does not raise the ZZ error (%.4f vs %.4f)", rb.p[0], ra.p[0]);
             }
         }
+// q18 (docs/design/flux-line-distortion.md): the opt-in flux-line distortion term. Off by default and then invisible
+// (no key written, the same bits); on, it is added on top of residual_ctrl_err and reaches err_2q_ctrl (what the
+// emulators read). No pulse simulation here: the Alpha-1 v1.1 calibrations come from a copy of results/cz_cache.json.
+static void test_flux_line() {
+    std::puts("[pulse] q18 flux-line distortion term: opt-in, additive to residual_ctrl_err, sensitivity table from the cz cache");
+    auto dump = [](const Json& j) { std::ostringstream os; j.dump(os); return os.str(); };
+    // design files: off by default, not written when off, round trip when on, malformed tails refused
+    {
+        CHECK(!alpha1_v11(3).flux_line.enabled && !alpha1(3).flux_line.enabled && !beta1(5).flux_line.enabled, "flux_line is off in every preset");
+        CHECK(!design_to_json(alpha1_v11(3))["tunable_coupler"].has("flux_line"), "flux_line not written when off");
+        auto D = alpha1_v11(3);
+        D.flux_line.enabled = true; D.flux_line.static_offset = 3e-4; D.flux_line.tails = {{2e-3, 15.0}, {-5e-4, 400.0}};
+        const auto B = design_from_json(Json::parse(dump(design_to_json(D))));
+        CHECK(B.flux_line.enabled && B.flux_line.static_offset == 3e-4 && B.flux_line.tails.size() == 2 &&
+              B.flux_line.tails[1].amplitude == -5e-4 && B.flux_line.tails[1].tau_ns == 400.0, "flux_line round trip");
+        const auto off = design_from_json(Json::parse(R"({"tunable_coupler": {"flux_line": {"enabled": false, "static_offset": 1e-3}}})"));
+        CHECK(!off.flux_line.enabled && !design_to_json(off)["tunable_coupler"].has("flux_line"), "enabled:false reads as off and is not written back");
+        bool threw = false;
+        try { design_from_json(Json::parse(R"({"tunable_coupler": {"flux_line": {"enabled": true, "tails": [{"amplitude": 1e-3, "tau_ns": 0}]}}})")); }
+        catch (const std::exception&) { threw = true; }
+        CHECK(threw, "a tail with tau_ns <= 0 is refused");
+    }
+    // effective error over the hold: closed forms
+    {
+        FluxLineSpec L; L.enabled = true; L.static_offset = -2e-4;
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 2e-4) < 1e-18, "static offset taken as is (magnitude)");
+        L.static_offset = 0; L.tails = {{1e-3, 1e6}};
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 1e-3) < 1e-7, "slow tail ~ its amplitude over the hold");
+        L.tails = {{1e-3, 0.5}};
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 1e-3 * 0.5 / 30) < 1e-12, "fast tail averages to a*tau/T");
+        L.tails = {{1e-3, 20.0}};
+        CHECK(std::abs(flux_line_eps_eff(L, 40) - 1e-3 * 0.5 * (1 - std::exp(-2.0))) < 1e-15, "a*(tau/T)(1-exp(-T/tau))");
+        L.static_offset = 1e-3 * 0.5 * (1 - std::exp(-2.0)); L.tails = {{-1e-3, 20.0}};
+        CHECK(flux_line_eps_eff(L, 40) < 1e-15, "a static offset cancels an opposite averaged tail");
+    }
+    // the sensitivity table of docs/design/q17-q18-feasibility.md, from the committed calibrations (16 pair classes)
+    const std::string cache_src = std::string(QPUFORGE_SOURCE_DIR) + "/results/cz_cache.json";
+    std::vector<CZCalibration> ents;
+    {
+        std::ifstream f(cache_src); std::stringstream ss; ss << f.rdbuf();
+        const Json j = Json::parse(ss.str());
+        for (const auto& kv : j["entries"].items()) ents.push_back(cz_coherent_from_json(kv.second));
+        CHECK(ents.size() == 16, "cz cache has the 16 Alpha-1 v1.1 pair classes (%zu)", ents.size());
+        for (double eps : {1e-4, 3e-4, 1e-3}) {
+            std::vector<double> e;
+            for (const auto& c : ents) e.push_back(flux_distortion_err(c.err_flux_quasistatic, c.pulse, eps));
+            std::sort(e.begin(), e.end());
+            const double med = 0.5 * (e[7] + e[8]), worst = e.back();
+            std::printf("  eps %.0e: median %.2e, worst pair %.2e (upper bound: both lines at the larger step)\n", eps, med, worst);
+            const double s = (eps / 1e-4) * (eps / 1e-4);
+            CHECK(std::abs(med / s - 4.82e-5) < 0.01e-5 && std::abs(worst / s - 9.78e-5) < 0.01e-5, "table at eps %.0e", eps);
+        }
+    }
+    // through calibrate_chip_cz (cached, no simulation): off = the same bits, on = additive and reaches err_2q_ctrl
+    {
+        const std::string cache = temp_path("flux_line_cz_cache.json");
+        std::filesystem::copy_file(cache_src, cache, std::filesystem::copy_options::overwrite_existing);
+        const auto D0 = load_design(std::string(QPUFORGE_SOURCE_DIR) + "/designs/alpha1-v11/alpha1_v11.json");
+        auto run = [&](const ChipDesign& D, ChipReport& R) { R = analyze(D); return calibrate_chip_cz(D, R, false, cache); };
+        ChipReport R0, Rz, Rd, Ron;
+        const auto c0 = run(D0, R0);
+        auto Dz = D0; Dz.flux_line.enabled = true;                               // on, zero error
+        auto Dd = D0; Dd.flux_line.enabled = false; Dd.flux_line.static_offset = 1e-3;   // configured but off
+        auto Don = D0; Don.flux_line.enabled = true; Don.flux_line.static_offset = 3e-4; Don.flux_line.tails = {{1e-3, 200.0}};
+        const auto cz = run(Dz, Rz), cd = run(Dd, Rd), con = run(Don, Ron);
+        CHECK(dump(cz_calibration_json(cd)) == dump(cz_calibration_json(c0)), "off (even with values set): calibration JSON byte-identical");
+        CHECK(dump(cz_calibration_json(c0)).find("err_distortion") == std::string::npos, "off: no err_distortion key");
+        bool same = c0.size() == cz.size() && c0.size() == con.size() && !c0.empty();
+        bool additive = same, pairs_ok = true, leak_same = true;
+        double worst = 0;
+        for (std::size_t i = 0; same && i < c0.size(); ++i) {
+            same = same && cz[i].err_ctrl == c0[i].err_ctrl && cz[i].err_total == c0[i].err_total && cz[i].err_distortion == 0.0;
+            const double d = con[i].err_distortion;
+            worst = std::max(worst, d);
+            additive = additive && d > 0 && con[i].err_residual == c0[i].err_residual && con[i].err_flux_quasistatic == c0[i].err_flux_quasistatic &&
+                       std::abs((con[i].err_ctrl - c0[i].err_ctrl) - d) < 1e-15 && std::abs((con[i].err_total - c0[i].err_total) - d) < 1e-15;
+            const double eps = flux_line_eps_eff(Don.flux_line, con[i].t_flat_ns);
+            additive = additive && con[i].flux_eps_eff == eps && eps > 3e-4 && eps < 1.3e-3;
+        }
+        for (std::size_t k = 0; k < R0.pairs.size(); ++k) {
+            const auto& p0 = R0.pairs[k]; const auto& p1 = Ron.pairs[k];
+            if (!p0.designed) continue;
+            pairs_ok = pairs_ok && p1.err_2q_ctrl > p0.err_2q_ctrl && Rz.pairs[k].err_2q_ctrl == p0.err_2q_ctrl;
+            leak_same = leak_same && p1.leak_2q == p0.leak_2q;
+        }
+        std::printf("  Alpha-1 v1.1, static 3e-4 + tail 1e-3 @ 200 ns: worst-pair err_distortion %.2e on top of residual %.1e\n",
+                    worst, D0.coupler.residual_ctrl_err);
+        CHECK(same, "enabled with zero error: err_ctrl / err_total bit-identical to off");
+        CHECK(additive, "on: err_distortion added on top of the unchanged terms (residual_ctrl_err not carved out)");
+        CHECK(pairs_ok && leak_same, "on: err_2q_ctrl (emulator input) grows, leak_2q unchanged; zero error leaves err_2q_ctrl alone");
+        const auto n0 = noise_model(D0, R0), n1 = noise_model(Don, Ron);
+        bool nm = !n0.err_2q_pair.empty();
+        for (const auto& [k, v] : n1.err_2q_pair) nm = nm && v > n0.err_2q_pair.at(k);
+        CHECK(nm, "on: the emulators' per-pair control error includes the term");
+        CHECK(dump(cz_calibration_json(con)).find("\"err_distortion\"") != std::string::npos, "on: err_distortion written to the calibration JSON");
+        std::error_code ec; std::filesystem::remove(cache, ec);
+    }
+}
+
+// q17 (docs/design/q17-q18-feasibility.md): FEM reference cross-check scaffold. Importers for Elmer and Palace
+// exports, the qpuforge.fem_crosscheck.v0 format, and the model-vs-reference deviation, which is reported against the
+// stated tolerance and never enforced. Fixtures in tests/data/fem are SYNTHETIC (no solver run); no solver is needed.
+static void test_fem() {
+    std::puts("[layout] q17 FEM cross-check scaffold: Elmer / Palace importers, fem_crosscheck.v0, reported deviation");
+    using namespace layout;
+    const std::string dir = std::string(QPUFORGE_TEST_DATA) + "/fem/";
+    auto slurp = [](const std::string& p) { std::ifstream f(p); std::stringstream ss; ss << f.rdbuf(); return ss.str(); };
+    auto dump = [](const Json& j) { std::ostringstream os; j.dump(os); return os.str(); };
+    const std::vector<std::string> names{"qa", "coupler", "bus", "qb"};
+    const auto E = fem::import_elmer(slurp(dir + "pair_elmer_CapacitanceMatrix.dat"), names, "synthetic");
+    const auto P = fem::import_palace(slurp(dir + "pair_palace_terminal-C.csv"), names, "synthetic");
+    const auto J = fem::load_reference(dir + "pair_reference.json");
+    {
+        double d = 0;
+        for (int i = 0; i < 4; ++i) for (int k = 0; k < 4; ++k) d = std::max({d, std::abs(E.at(i, k) - J.at(i, k)), std::abs(P.at(i, k) - J.at(i, k))});
+        std::printf("  Elmer (lumped, flipped) and Palace (Maxwell) fixtures vs the v0 JSON: max |dC| %.1e fF\n", d);
+        CHECK(d < 1e-10, "both importers give the committed Maxwell matrix (%.2e fF)", d);
+        CHECK(E.solver == "elmer" && P.solver == "palace" && J.solver == "palace" && J.cell == "pair" && J.mesh.has("note"), "solver / cell / provenance carried");
+        CHECK(E.at(0, 1) < 0 && E.at(0, 0) == J.at(0, 0) && E.asymmetry == 0, "Elmer lumped off-diagonals flipped to Maxwell, diagonal kept");
+        const auto R2 = fem::reference_from_json(Json::parse(dump(fem::reference_to_json(P))));
+        bool same = R2.names == P.names && R2.C_fF.size() == P.C_fF.size() && R2.solver == "palace";
+        for (std::size_t k = 0; same && k < P.C_fF.size(); ++k) same = std::abs(R2.C_fF[k] - P.C_fF[k]) <= 1e-9 * std::abs(P.C_fF[k]);
+        CHECK(same, "fem_crosscheck.v0 round trip");
+        // the Maxwell convention read as is: the same matrix written with negative off-diagonals
+        std::string mx;
+        for (int i = 0; i < 4; ++i) { for (int k = 0; k < 4; ++k) { char b[40]; std::snprintf(b, sizeof b, "%.9e ", J.at(i, k) * 1e-15); mx += b; } mx += "\n"; }
+        const auto Em = fem::import_elmer(mx, names, "", false);
+        CHECK(std::abs(Em.at(1, 3) - J.at(1, 3)) < 1e-9, "Elmer file in the Maxwell convention (lumped = false)");
+    }
+    // malformed inputs are refused with a message
+    {
+        auto refused = [](auto&& f) { try { f(); } catch (const std::exception&) { return true; } return false; };
+        CHECK(refused([&] { fem::import_elmer("1e-13 2e-15\n2e-15 1e-13\n", names); }), "Elmer: row length vs names");
+        CHECK(refused([&] { fem::import_elmer("1e-13 x\n2e-15 1e-13\n", {"a", "b"}); }), "Elmer: non-number");
+        CHECK(refused([&] { fem::import_elmer("1e-13 -2e-15\n-2e-15 1e-13\n", {"a", "b"}); }), "Elmer: Maxwell file read as lumped is caught");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n2, 1e-13, -1e-15\n1, -1e-15, 1e-13\n", {"a", "b"}); }), "Palace: terminal index order");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n1, 1e-13, -1e-15\n2, -1e-15\n", {"a", "b"}); }), "Palace: column count");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n1, 1e-13, -1e-15\n2, -1e-15, 1e-13\n", {"a", "a"}); }), "duplicate conductor name");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n1, 1e-13, -1e-14\n2, -1e-15, 1e-13\n", {"a", "b"}); }), "asymmetry above 5 %%");
+        CHECK(refused([&] { fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v1"})")); }), "wrong schema");
+        CHECK(refused([&] { fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v0", "solver": {"name": "comsol"}, "conductors": ["a"], "maxwell_fF": [[1]]})")); }),
+              "unknown solver");
+        CHECK(refused([&] { fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v0", "solver": {"name": "elmer"}, "units": "pF", "conductors": ["a"], "maxwell_fF": [[1]]})")); }),
+              "units other than fF");
+        const auto ok = fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v0", "solver": {"name": "elmer"}, "conductors": ["a", "b"], "maxwell_fF": [[10, -1], [-1.0001, 12]]})"));
+        CHECK(ok.asymmetry > 0 && ok.at(0, 1) == ok.at(1, 0), "small asymmetry kept as an indicator, matrix symmetrised");
+    }
+    // deviation: a model 1 % above the reference everywhere -> dC +1 %, dE_C and dG = 1/1.01 - 1; ground is model-only
+    {
+        CapacitanceMatrix M; M.n = 5; M.names = {"qa", "coupler", "bus", "qb", "ground"};
+        M.C_fF.assign(25, 0.0);
+        for (int i = 0; i < 4; ++i) for (int k = 0; k < 4; ++k) M.C_fF[std::size_t(i) * 5 + std::size_t(k)] = 1.01 * J.at(i, k);
+        for (int i = 0; i < 4; ++i) { M.C_fF[std::size_t(i) * 5 + 4] = M.C_fF[std::size_t(4) * 5 + std::size_t(i)] = -50; }
+        M.C_fF[24] = 400;
+        const auto c = fem::compare_fem(M, J);
+        std::printf("  %s\n", fem::comparison_summary(c).c_str());
+        const double r = 1 / 1.01 - 1;
+        CHECK(c.shared.size() == 4 && c.model_only == std::vector<std::string>{"ground"} && c.C.size() == 10 && c.EC.size() == 4 && c.G.size() == 6,
+              "shared conductors / ground dropped (0 V boundary = sub-matrix)");
+        CHECK(std::abs(c.max_rel_C - 0.01) < 1e-12 && std::abs(c.max_rel_EC - r) < 1e-12 && std::abs(c.max_rel_G - r) < 1e-12,
+              "deviations %.3e / %.3e / %.3e", c.max_rel_C, c.max_rel_EC, c.max_rel_G);
+        CHECK(c.within() && !c.tol.enforced, "1 %% is within the stated 2/2/5 %% tolerance, which is reported only");
+        fem::FemTolerance tight; tight.rel_C = tight.rel_EC = tight.rel_G = 0.005;
+        const auto t = fem::compare_fem(M, J, tight);
+        const Json tj = fem::comparison_json(t);
+        CHECK(!t.within() && !tj.get("within_tolerance", true) && !tj["tolerance"].get("enforced", true) &&
+              fem::comparison_summary(t).find("outside, reported only") != std::string::npos,
+              "outside a tighter tolerance: reported (JSON and summary), not a failure");
+        // E_C from the reference agrees with layout::triple_circuit on a 3x3 matrix (same convention)
+        std::array<double, 9> C3{}; for (int i = 0; i < 3; ++i) for (int k = 0; k < 3; ++k) C3[std::size_t(i) * 3 + std::size_t(k)] = J.at(i == 2 ? 3 : i, k == 2 ? 3 : k);
+        std::vector<double> sub(9); for (int k = 0; k < 9; ++k) sub[std::size_t(k)] = C3[std::size_t(k)];
+        std::vector<double> ec, g; fem::circuit_of(sub, 3, ec, g);
+        const auto tc = triple_circuit(C3);
+        CHECK(std::abs(ec[0] - tc.EC_m) < 1e-12 && std::abs(ec[1] - tc.EC_c) < 1e-12 && std::abs(g[1] - tc.G_mc) < 1e-12 && std::abs(g[2] - tc.G_md) < 1e-12,
+              "E_C / G convention of layout::triple_circuit");
+        bool threw = false;
+        try { auto Jx = J; Jx.names[1] = "nope"; fem::compare_fem(M, Jx); } catch (const std::exception&) { threw = true; }
+        CHECK(threw, "a reference conductor missing from the model cell is an error");
+    }
+    // end to end with a real MoM extraction (two pads in a ground cut-out): its own export, through Palace's CSV, is a
+    // zero deviation, and the ground conductor is dropped
+    {
+        Conductor a; a.name = "a"; a.rects = {{-150, -50, -50, 50}};
+        Conductor b; b.name = "b"; b.rects = {{50, -50, 150, 50}};
+        Conductor G; G.name = "ground"; G.ground = true; G.outline = {-300, -200, 300, 200}; G.holes = {{-200, -100, 200, 100}};
+        const auto M = extract_capacitance({a, b, G}, 11.45, MeshOptions{2.0, 40, 1.6});
+        std::string csv = "i, C[i][1] (F), C[i][2] (F)\n";
+        for (int i = 0; i < 2; ++i) { char l[128]; std::snprintf(l, sizeof l, "%d, %.12e, %.12e\n", i + 1, M.at(i, 0) * 1e-15, M.at(i, 1) * 1e-15); csv += l; }
+        auto ref = fem::import_palace(csv, {"a", "b"}); ref.cell = "two_pad";
+        const auto c = fem::compare_fem(M, ref);
+        std::printf("  MoM two-pad cell (%d panels, C_aa %.2f fF, C_ab %.3f fF) vs its own Palace-format export: %s\n", M.panels, M.at(0, 0), -M.at(0, 1),
+                    fem::comparison_summary(c).c_str());
+        CHECK(std::abs(c.max_rel_C) < 1e-9 && std::abs(c.max_rel_EC) < 1e-9 && std::abs(c.max_rel_G) < 1e-9 && c.model_only == std::vector<std::string>{"ground"},
+              "MoM vs its own export: zero deviation");
     }
 }
 
@@ -2720,6 +3310,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"frame_vs_statevector", test_frame_vs_statevector},
     {"eigensolver", test_eigensolver},
     {"pulse_cz", test_pulse_cz},
+    {"flux_predistortion", test_flux_predistortion},
     {"leakage_frame", test_leakage_frame},
     {"calibrated_noise_plumbing", test_calibrated_noise_plumbing},
     {"layout", test_layout},
@@ -2741,10 +3332,15 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"heralds", test_heralds},
     {"impact_veto", test_impact_veto},
     {"streaming_uf", test_streaming_uf},
+    {"herald_weights", test_herald_weights},
+    {"dqlr_herald", test_dqlr_herald},
+    {"stream_ops", test_stream_ops},
     {"surgery", test_surgery},
     {"surgery_cnot", test_surgery_cnot},
     {"surgery_joint", test_surgery_joint},
     {"surgery_routing", test_surgery_routing},
+    {"flux_line", test_flux_line},
+    {"fem", test_fem},
 };
 
 // test_qpuforge            run every test

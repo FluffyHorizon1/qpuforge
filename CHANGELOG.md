@@ -5,10 +5,14 @@ every such change is listed under **API changes**.
 
 ## [Unreleased]
 
-Clears the merged-etch width/space DRC of BF-49 and GF-97 (AF-17 keeps four ground necks the connectivity guard
-refuses to cut), adds a metal-connectivity check of the masks, and brings every CZ pair class within the 2e-4 leakage
-limit of the Alpha gate. **The masks are not fabrication-ready:** the connectivity check finds floating ground, shorted
-lines that do not reach the ground plane, and qubit junctions that do not land on metal (see Known issues).
+Clears the merged-etch width/space DRC of all three masks, makes their metal connectivity clean and gates it, and
+brings every CZ pair class within the 2e-4 leakage limit of the Alpha gate. Each qubit SQUID now lands on a ground
+lead, each qubit flux line is shorted to the plane, modelled airbridges ("ground straps") tie the enclosed ground to the
+plane, and the XY line is moved out of the qubit's cut-out after an extraction of the control-line couplings showed a
+sub-microsecond T1 limit (docs/design/mask-connectivity.md). The masks are DRC- and connectivity-clean in the model (2D
+LVS-lite connectivity with modelled airbridges, treated as ideal ground); airbridges, EM and inductance are not
+verified, and no foundry DRC deck has been run. **A review found three high-severity electrical problems with this
+approach (shared ground bridge, flux lines that cannot tune the qubits, coupler-dominated XY drive): see Known issues.**
 
 The decoding items of Phase Gamma: a union-find decoder, leakage-aware decoding from heralded leakage, per-shot impact
 injection with an impact veto, and linear-time fault enumeration. Study: `examples/decoder_study.cpp` ->
@@ -26,6 +30,11 @@ Lattice surgery, next steps: one decoder pass that returns all observables of an
 union-find on one graph whose edges carry an observable mask); a two-pass correlated decoder that uses the detectors
 of both Pauli types; operations between patches that are not adjacent, through a routing strip; and a chip account for
 two and three d = 5 patches with their routing region. `surgery_study` sections 4 to 6.
+The next decoding items of Phase Gamma: herald weights derived from the leakage model instead of fixed factors,
+heralding of data-qubit leakage through DQLR (measured, and found to cost more than it recovers), and an
+operation-count model of the streaming union-find decoder with two stated hardware cost models. The hardware part is a
+model: nothing was synthesised or run on an FPGA. Study: `examples/decoder_study2.cpp` ->
+`results/decoder_study2.{txt,json}`.
 
 A strict command line: each command accepts only its own options, and an unknown, misspelt or repeated option, a
 missing value or a malformed number is a usage error (exit 1), reported before any file is read.
@@ -33,19 +42,60 @@ missing value or a malformed number is a usage error (exit 1), reported before a
 The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_CONTRACT.md`): a reader for the
 `forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
 
+A model of the flux lines and of their digital correction (`fluxline.hpp`), and a study of what the CZ gates of
+Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> `results/flux_distortion_study.{txt,json}`,
+`docs/design/flux-line-predistortion.md`). The calibration does not use the model: no cache entry or review number changes.
+
 ### Added
+- `fluxline.hpp`:
+  - `FluxLine` (first-order sections, `FluxSection`, in cascade with the step response 1 + a exp(-t / tau), a
+    single-pole low-pass, a delay), `FluxLineFilter` (its response to a held drive in closed form), `FluxAwg` (sample-and-hold, DAC resolution),
+    `FluxChannel`, `Predistorter` (digital first-order inverses of a fit of the line), `flux_line_output` (the flux a
+    channel delivers for a train of pulses).
+  - `CZDrive`, `simulate_cz_drive` (the propagator and fidelity of `simulate_cz` for any mover and coupler flux),
+    `cz_ideal_drive` (reproduces `simulate_cz`), `CZFrame`, `cz_frame`, `cz_fidelity_in_frame` (the fidelity with virtual Z
+    gates calibrated in another context), `cz_offset_response` (added error per unit of constant flux offset, with free
+    and with fixed virtual Z gates).
+  - `FluxSetup`, `cz_gate_drive`, `cz_train_drive` (a gate on two channels, on its own or inside pulse trains),
+    `cz_matched_command` and `flux_amplitude_scale` (the amplitude calibration on a distorted line), `cz_system_of` (the
+    pair system of a stored calibration), `cz_starts` (CZ start times of a compiled program).
+- `pulse.hpp`: `pair_system` (the system `design_pair_system` builds for a given direct coupling; no change of arithmetic).
+- `examples/flux_distortion_study.cpp` and its smoke test (`smoke_flux_distortion_study`).
+- Tests: group `flux_predistortion` (label `pulse`, 32 checks, about 3 s). 541 validation checks in all; the committed
+  `results/test_output.txt` predates the group and holds 500.
 - `layout.hpp`:
+  - `detail::place_ground_straps` (`detail::Strap`, `detail::IslandIndex`, `detail::island_index`,
+    `detail::foot_comp`, `detail::UnionFindLite`; `kStrapW`, `kStrapMaxSpan`, `kStrapLinePenalty`,
+    `kStrapCouplerPenalty`): ground straps (modelled airbridges, GDS layers 4 = span, 5 = feet) that tie every floating
+    ground fragment and every shorted-line pocket to the ground plane, chosen by Kruskal over candidate straps. A strap
+    never spans a qubit; it may span lines, coupler bodies and bus strips. `ChipLayout::straps`.
+  - Unreachable ground fragments smaller than `kRemoveFragmentUm2` (2500 µm²) are etched away
+    (`ConnectivityReport::fragments_removed`).
+  - `ConnectivityReport::straps`, `straps_landed`, `strap_lines_crossed`, `strap_couplers_crossed`; `clean()` now also
+    requires every strap to land.
+  - `qubit_control_lines` (`kXYEnd`, `kXYLevel`), `line_coupling` (`LineCoupling`), `line_budget` (`LineBudget`,
+    `kLineT1Margin`), `line_budget_summary`, `line_budget_json`: the qubit's capacitance to its XY line and to its
+    shorted flux line (each panel weighted by sin(βz) from the short), and the T1 limit of each line at every qubit's
+    idle frequency against its design T1. The reviews record it under `layout.control_lines`.
+  - `extract_capacitance(..., excite, panel_charge)`: optional per-panel charges (`PanelCharge`).
+  - `kSquidGap`, `kTongueW`: the qubit SQUID's span and ground-lead width.
+- Gate criterion `connectivity` in the three reviews; `drc` now includes the mask width/space check; the control-line
+  budget is printed and recorded (`layout.control_lines`), not gated.
+- Tests: `layout_geometry` checks the strap placer (a pocket gets one strap, never over a qubit; a pocket ringed by a
+  qubit gets none); `layout_presets` requires each committed chip to be connectivity-clean, with one junction per qubit
+  and coupler and one flux line per qubit, and DRC 0 + 0. Four checks more than before (one and three).
+- `docs/design/mask-connectivity.md`.
+- `layout.hpp` (earlier in this cycle):
   - `detail::fill_ground_slivers`: mask clean-up that merges two cut-outs separated by a strip of ground narrower than
     the minimum (projection metric). It removes ground only; a gap that touches island metal is left to the DRC.
-  - `detail::guarded_fill`: the clean-up as `assemble_chip` runs it, with a connectivity guard: a fill that would cut
-    ground off the ground plane is undone, and the DRC reports the neck it leaves. `ChipLayout::slivers_filled` counts
-    the fills kept (`layout.drc.ground_sliver_fills` in the reviews).
+  - `detail::guarded_fill`: the clean-up with a connectivity guard: a fill that would cut ground off the ground plane
+    is undone, and the DRC reports the neck it leaves. (`assemble_chip` no longer uses it: see Changed.)
   - `detail::metal_map` (`MetalMap`): exact connected components of the metal (outline minus etch) by scanline and
     union-find.
   - `ConnectivityReport` (`ChipLayout::conn`), `connectivity_summary`, `connectivity_json` (LVS-lite): conductors
     sharing metal, conductors on the plane, shorted lines (resonators, qubit and coupler flux lines) reaching the plane,
-    floating ground fragments, junctions landing on metal at both ends, fills undone. The reviews report it under
-    `layout.connectivity`; it is not gated.
+    floating ground fragments, junctions joining an island to the plane, ground straps. The reviews record it under
+    `layout.connectivity` and gate it.
   - `detail::etch_of` (cut-outs minus metal, factored out of `assemble_chip`); `cell_ground_holes` (the same clean-up
     on the ground cut-outs of the extraction cells).
   - `set_bus_knob` / `bus_knob`, `kBusRetract`, `CouplerGeom::g_b` (`bus_end_gap_um` in the cell file),
@@ -55,9 +105,8 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - `alpha1_v11_review`: the Alpha simulation gate computed from per-pair maxima (`exit_criteria`), the extraction errors,
   the re-null check and the connectivity report.
 - Tests: `layout_geometry` (bus knob, shorted staircase end, ground-sliver fill, metal map, guarded fill) and
-  `layout_presets` (the three committed chips: placement clean, no DRC marker except the necks the guard kept, no
-  conductor shorted or merged, extraction on target, exchange re-nullable; connectivity printed; label `layout`, about
-  3 minutes). `pulse_cz` checks the two pair classes with the most leakage with and without the fallback.
+  `layout_presets` (the three committed chips: placement clean, DRC 0 + 0, connectivity clean, extraction on target,
+  exchange re-nullable; label `layout`, a few minutes). `pulse_cz` checks the two pair classes with the most leakage with and without the fallback.
 - `docs/design/cz-leakage.md`.
 - `unionfind.hpp`: `UnionFindDecoder`, Delfosse-Nickerson union-find with weighted growth and peeling
   (docs/design/union-find-decoder.md), with its work arrays `UFScratch`. `DecodeMethod::UnionFind`,
@@ -160,6 +209,33 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `cli_materials_budget`, `cli_materials_run_refused`, `cli_materials_layout_refused`, `cli_materials_gds_refused`,
   `cli_materials_qec`, `cli_materials_cz_missing_chip`, `cli_materials_hwgate_missing_chip` and `cli_loss_tangent_alone`
   for the other sub-commands. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
+- `qec.hpp`, herald weights derived from the leakage model (docs/design/derived-herald-weights.md):
+  - `HeraldSpec::derived`; `HeraldModel` (`MemorySetup::herald_model`), `build_herald_model`, `prepare_herald_model`.
+    Per heralded readout: the probability that the qubit was leaked, and the probability of a fault on each
+    decoder-graph edge given that it was. Weights are log-likelihood ratios; an edge more likely than not is applied.
+  - `frame_detail::leak_chain` (`LeakChain`): one leakage excitation followed through the circuit with the sampler's
+    transitions (forward pass, backward smoothing per readout, forward continuation).
+  - `fault_signatures(F, E, list, steps)`: the linear-time enumeration for any list of mechanisms.
+  - `qpuforge qec --herald --herald-weights fixed|derived` (`--herald-factor` and `--herald-rule` apply to `fixed`).
+- Data-qubit leakage heralding (docs/design/data-leakage-herald.md): `LeakageSpec::dqlr_transfer` (`dqlr_transfer` in
+  the chip JSON, written only when set), `NoiseModel::dqlr_transfer`, `FrameProgram::dqlr_transfer`,
+  `FrameProgram::FMoment::dqlr_to`. The DQLR pulse leaves the leakage on the measure qubit, and that qubit's next
+  3-state readout heralds it. `qpuforge qec --leakage-removal lrr+dqlr --herald --dqlr-herald`.
+- `unionfind.hpp`, for the hardware model (docs/design/streaming-union-find-fpga.md):
+  - `UFOpCounts` and `UnionFindDecoder::decode_counted`: loads, growth steps, edge visits and updates, finds, pointer
+    hops, unions, peeling steps, corrections. The plain `decode()` is the same template with an empty counter.
+  - `StreamOptions` for `StreamingUnionFind::decode`: `scaled` (heralds through the streaming decoder), `predecode`
+    (an isolated-pair pre-decoder), `count` (per-window counts in `StreamScratch::counts` and `cleared`).
+    `StreamingUnionFind::global()`, `window_vertices`, `window_edges`, `committed_rounds`.
+  - `UFCostModel`, with `serial_bram()` and `parallel_growth()`: cycles per window from the counts.
+- `qec.hpp`: `run_stream_profile` and `StreamProfile`: histograms per window of every counter, of the cycles per
+  committed round and of the queueing latency, for a list of cost models.
+- `examples/decoder_study2.cpp` and `results/decoder_study2.{txt,json}`; `docs/design/derived-herald-weights.md`,
+  `data-leakage-herald.md`, `streaming-union-find-fpga.md`.
+- Tests: groups `herald_weights` (7 checks), `dqlr_herald` (6) and `stream_ops` (5), label `qec`: 18 checks on top of
+  the 500 below (`results/test_output.txt` predates them). The thread-count determinism digest also covers the herald
+  model, derived weights through the batch and the streaming decoder, DQLR with heralding, and the operation profile.
+  CLI guards for the two new options, and `cli_herald_stream` (below).
 - 500 validation checks in all (`results/test_output.txt`): 346 on `main` before the decoding work (the 321 of 0.4.0
   plus 25 in `materials`), plus 21 from the decoding work (#20), 48 from fabrication readiness (#19), 3 from the
   streaming decoder (#27) and 82 from lattice surgery (#21). The 0.4 groups now give 328: fabrication readiness added
@@ -200,35 +276,72 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - CLI: `hwgate --out`, `cz --out`, the `synth-chip` data file and the `gds --cells` write-back fail with "cannot write"
   (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
   `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
+- Review and study programs (`alpha1_v11_review`, `beta1_review`, `gamma1_review`, `decoder_study`, `decoder_sweeps`,
+  `surgery_study`): `provenance.source_commit` and `provenance.source_tree_dirty` now describe the tree the program was
+  built from. They were compile definitions (`QPUFORGE_GIT_SHA`, `QPUFORGE_GIT_DIRTY`; no longer read) computed when
+  CMake configured the build directory, so a directory configured at one commit and rebuilt after later commits kept
+  writing the old commit into its outputs. The stamp is now taken on every build: the target `qpuforge_git_stamp_update`
+  runs `cmake/git_stamp.cmake`, which rewrites the one source file of a small static library (`qpuforge_git_stamp`) only
+  when the commit or the dirty flag changes. A new commit costs one small compile and six relinks, and a build directory
+  does not have to be configured again before a recorded run. The Makefile rules `<program>/fast` skip a program's
+  dependencies and therefore do not take the stamp. The dirty flag means what it did (tracked files modified, untracked
+  files not counted) but is now read at every build: a build made after a recorded run has rewritten its tracked output
+  files records `true`. Outside a git checkout or without git the stamp is `"unknown"` / `false`, as it is for a program
+  compiled by hand (`examples/git_stamp.hpp`), and the build still works; a source tree unpacked inside another
+  repository no longer takes that repository's commit. Two new CTest guards (label `unit`, reported as skipped where git
+  is not installed): `git_stamp` runs the script on a scratch repository, and `git_stamp_wiring` configures a copy of
+  `CMakeLists.txt` once, with a few lines in place of each program source, and builds it again after each commit. Every
+  program that includes `git_stamp.hpp` must then print the new commit, and nothing but the stamp may be compiled.
+  `fp_contract_flags` now requires the `QPUFORGE_COMPILE_OPTIONS` line for every `add_executable` and `add_library` in
+  `CMakeLists.txt` (the target helper, `test_determinism` and the new library).
+
+- `qpuforge qec --decoder uf-stream --herald` decoded with the batch union-find decoder in two places. The
+  "decoded without heralds" comparison copied the options before the streaming decoder was attached. And
+  `run_memory_frame` sent every shot that had a herald to `decode_scaled`, whatever `FrameRunOptions::stream` said, so
+  the run itself was a mixture of the two decoders. Heralds now go through the streaming decoder
+  (`StreamOptions::scaled`), and the comparison copies the run's own options. `cli_herald_stream` pins it: with heralds
+  that never fire, the run and its comparison must agree, and must differ from `--decoder uf`.
 
 ### Changed
+- **Qubit SQUID.** `xmon` cuts a 10 µm ground lead out of the qubit's (−x, −y) inner corner, 10 µm from the SQUID stub;
+  the SQUID region bridges stub → lead. Before, it ended in etch on its ground side (0 of 17 qubit SQUIDs landed). A
+  junction now counts as landed only if it joins an island to the ground plane.
+- **Qubit flux line** shorted again into the (−x, −y) corner next to the SQUID (the corner is strapped to the plane).
+- **XY line** ends open outside the qubit's cut-out, 247 µm right of and 279 µm below the qubit centre (it ran into the
+  qubit's (+x, −y) corner and coupled 3.0 fF: a T1 limit of 0.2 µs at 5.5 GHz). Now 0.029–0.030 fF on AF-17.
+- **Sliver fill** in `assemble_chip` is no longer guarded (`detail::guarded_fill` stays in the library): ground a
+  fill cuts off is strapped back or removed. AF-17's four ground necks are gone.
+- **Cells re-synthesised** (warm start) with the SQUID ground lead, and every mask, preview and review regenerated.
+  AF-17: arms 123.4 / 125.7 µm (127.4 / 129.8 before); E_C within 0.12 %, couplings within 5.0 %, readout C −0.5 %.
+  Beta-1 cells (also GF-97): E_C within 0.08 %, couplings within 5.4 %, readout C +0.3 %. Both re-null the parked
+  exchange (AF-17 couplers 102 MHz below their sweet spot).
+- **Masks**: DRC 0 + 0 on all three; metal connectivity clean on all three: 0 floating ground fragments (143 / 405 /
+  821 before), every shorted line and every SQUID on the plane, with 122 / 373 / 774 ground straps (AF-17 / BF-49 /
+  GF-97).
+- **Gates.** The mask width/space DRC (`drc`) and metal connectivity (`connectivity`) are gated in the Alpha, Beta and
+  Gamma reviews (ROADMAP.md). The control-line T1 budget (10× the design T1) is reported, not gated: AF-17 23.8× (XY) /
+  22.4× (flux); the Beta-1 cells (BF-49, GF-97) 11.4× / **9.7×**. Alpha-1 v1.1: 7 of 7 criteria; Beta-1: 10 of 10;
+  Gamma-1: 9 of 9.
+- `qpuforge gds` prints the connectivity summary and exits 2 unless both the DRC and the connectivity are clean.
+- `tools/gds_preview.py` draws the ground straps.
 - **Layout cells.** The bus is never drawn narrower than its strip: below that, the direct-coupling knob of the
   synthesis pulls the bus ends back from the qubits instead of shrinking the T-bar to a sliver (0.075 µm on the 0.4
   AF-17 cells, 0.25 µm on BF-49). The synthesis aims the direct coupling 1.5 % above target so that the parked exchange
   can always be re-nulled by parking the coupler below its sweet spot.
-- **Qubit flux line.** In 0.4 it ended in a "short" that a 1 µm etch slit separated from the ground next to the SQUID
-  (a DRC width violation at every qubit). That ground is enclosed by the arm and T-bar cut-outs and floats, so no short
-  drawn into it reaches the plane. The line now ends open with a full 6 µm trench; the short to the plane is open
-  (Known issues). `stair(..., short_end)` trims the trench beside a shorted end, for lines that end on real ground.
-- **Cells and masks regenerated.** `designs/alpha1-v11/layout_cells.json` and `designs/beta1/layout_cells.json`
-  (also used by GF-97) were re-synthesised; `AF17_v11.gds`, `BF49.gds`, `GF97.gds` and their previews regenerated. Mask
-  DRC (width + space violations), 0.4 → now: AF-17 34 + 202 → 0 + 4, BF-49 98 + 504 → 0 + 0, GF-97 194 + 1,016 → 0 + 0.
-  The four AF-17 markers are ground necks (0.42 and 1.59 µm) that are the only link between a ground region and the
-  plane. Fine-mesh extraction: AF-17 cells E_C within 0.05 %, couplings within 4.6 %, readout capacitance −0.5 %; BF-49
-  cells E_C within 0.08 %, couplings within 5.5 %, readout capacitance −0.05 %. The couplers re-null 75–95 MHz below
-  their sweet spot (205 MHz on the 0.4 AF-17 cells). The extraction treats enclosed ground fragments as grounded.
+- `stair(..., short_end)` trims the trench beside a shorted end, so the short meets the ground without the 1 µm etch slit
+  0.4 left beside each qubit flux-line "short" (a DRC width violation at every qubit).
+- **Mask DRC** (width + space violations), 0.4 → now: AF-17 34 + 202 → 0 + 0, BF-49 98 + 504 → 0 + 0,
+  GF-97 194 + 1,016 → 0 + 0.
 - **CZ calibration (CZ model version 4).** A pair whose plain `1 - F_avg` calibration fails the 2e-4 leakage limit is
   re-calibrated with the objective `1 - F_avg + 10 · leakage`; the repeat is kept only if it meets the limit, its
   1 − F_avg is no worse and it stays within 5e-4. 15 of the 16 pair classes keep their version-2 calibration bit for bit.
   5.81/5.29 GHz (Q8–Q11 on AF-17) goes from 2.33e-4 to 1.60e-5 leakage and from 4.06e-4 to 3.55e-4 coherent error; its
   gate is 3.5 ns longer and its total CZ error 0.5 % higher. Largest leakage over the 16 classes: 1.20e-4 (5.87/5.29).
   `results/cz_cache.json` regenerated; caches of other model versions are rejected.
-- The layout criteria of the Alpha, Beta and Gamma gates (ROADMAP.md) list the mask DRC and metal connectivity as
-  reported, required before fabrication, and not gated in simulation.
 - Regenerated on the merged tree with CZ model version 4 and the new cells (`results/PROVENANCE.md`): the three reviews
   at 100000 shots, `BETA-1.md` and `GAMMA-1.md`, the Alpha-1 v1.1 characterisation rehearsal, the three GDS files and
   their previews, and the test log. Alpha-1 v1.1: memory-Z 0.377 % ± 0.004 % per round, memory-X 0.360 %, Λ(3→5)
-  projection 2.95 ± 0.18; the Alpha gate, now computed per pair, passes. Beta-1: 9 of 9 criteria pass; Gamma-1: 8 of 8.
+  projection 2.95 ± 0.18; the Alpha gate, now computed per pair, passes. Beta-1 and Gamma-1 pass every criterion (counts under Gates above).
 - `enumerate_faults` is linear in the number of rounds (docs/design/linear-fault-enumeration.md): faults are propagated
   to the next measurement cut and finished with precomputed per-qubit tails. Output unchanged, fault by fault.
 - The matching decoder's DP, blossom and greedy paths read distances through an oracle, so that `decode_scaled` can
@@ -236,7 +349,7 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - **Behaviour change:** a malformed number, an unknown circuit (`ghz:x`) and an unknown `--basis`, `--decoder`,
   `--preset` or `--phase` value are usage errors (exit 1); they used to exit 2, numbers with "error: stoi". The usage
   text and README document the exit statuses: 0 done, 1 usage error, 2 error while running (also `gds`: layout not
-  DRC-clean), 3 `hwgate`: gate not passed, `surgery`: a noiseless check failed.
+  DRC- and connectivity-clean), 3 `hwgate`: gate not passed, `surgery`: a noiseless check failed.
 - CLI: the usage text lists every option of every command (`budget --seed`, `qec --seed --cache --leakage-removal`,
   `synth-chip --cache`, `hwgate --seed --cache` and most `new` options were missing), and a usage error prints the
   usage of its command only. Options may come before the positional arguments.
@@ -273,6 +386,15 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
   members `a`, `b`, `obs` and `p`. `obs` may be a mask of up to 8 observables; `decode()` and `decode_scaled()` then
   return the XOR of the masks along the matching instead of 0 or 1. The constructor from a `DetectorErrorModel` is
   unchanged.
+- `UnionFindDecoder::decode` is now a wrapper around a private template; its signature and results are unchanged.
+  `StreamingUnionFind::decode(defects, ws)` is unchanged; `decode(defects, ws, StreamOptions)` is new. `StreamScratch`
+  gained members. A `StreamingUnionFind` now also keeps the whole detector graph (`global()`).
+- `FrameRunOptions::stream` together with heralds used in the decoder: the shots with a herald are decoded by the
+  streaming decoder (they were decoded by the batch one). The streaming decoder must then be built from the setup's
+  own detector error model; `run_memory_frame` throws otherwise.
+- `unionfind.hpp` adds `UFOpCounts`, `UFCostModel`, `StreamOptions` and the `uf_detail` namespace to `qpuforge`;
+  `qec.hpp` adds `HeraldModel`, `StreamProfile`, `fault_signatures`, `build_herald_model`, `prepare_herald_model`,
+  `run_stream_profile`, and `frame_detail::LeakChain` / `leak_chain`.
 - `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
 - `frame_detail::FaultDesc` (internal) gained `owner`.
 - `enumerate_faults(F, E, long* steps = nullptr)` and `optimize_cz(S, fluxc_on, t_rise, dt, max_eval, leak_weight = 0,
@@ -300,14 +422,23 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
   ranges above, a sidecar without `produced_by.tool`, or inconsistent `placeholders` / `contains_placeholders`.
 
 ### Known issues
-- **The masks are not fabrication-ready.** Metal connectivity (`layout.connectivity` in the reviews):
-  - ground enclosed by cut-outs floats: between the qubit arms (the arm and T-bar cut-outs seal the inner corners for
-    arm lengths below about 132 µm), around the buses, and in pockets near the resonators and coupler flux lines;
-  - shorted lines that end in such a pocket do not reach the plane, and the qubit flux lines end open: no DC return;
-  - the qubit SQUID junctions end in etch on their ground side; the coupler junctions land;
-  - the XY and flux lines' capacitance to the qubits, and the resulting T1 limit, are not modelled;
-  - the extraction treats every enclosed ground fragment as grounded.
-- AF-17 keeps four DRC space violations (ground necks below 4 µm), one each at Q7, Q10, Q13 and Q16.
+- **Not ready to merge: open review findings** (details in docs/design/mask-connectivity.md):
+  - the SQUID ground lead and the flux-line short share one modelled airbridge to the plane (galvanic T1 channel,
+    estimated 0.1–1 µs; the pocket is treated as ideal ground);
+  - the flux-line short couples only ~0.004–0.011 pH to the SQUID loop (~90–290 mA for Φ0/2): the flux lines do not
+    yet tune the qubits;
+  - the XY bump pad is ~30 µm from two coupler pads (C ≈ 1.4–1.6 fF against 0.036 fF to the qubit): the 0.03 fF /
+    23.8× control-line figures do not hold;
+  - the connectivity gate counts single-bridge chains as ideal ground; the junction rule and the control-line model
+    lack mutation-resistant tests; `line_budget` overstates the flux T1 limit by (f01/5.5 GHz)².
+- **Control-line budget missed on BF-49 and GF-97.** The flux line's T1 limit is 9.7× the design T1 of the worst
+  qubit (budget 10×), so the budget is reported, not gated. The XY line meets it (11.4×).
+- **No foundry DRC deck has been run.** The masks pass the in-house checks (placement, 4 µm width/space on the merged
+  etch layer, metal connectivity, control-line budget). Corner-to-corner spacing and airbridge rules are not checked.
+- **Ground straps are modelled, not extracted.** A strap's capacitance to the coupler body or bus strip it crosses
+  (about 0.2 fF over a 6 µm bus at 3 µm bridge height) is not in the extraction cells.
+- **The flux lines' mutual inductance to the SQUID loops** (the flux coupling itself and its own T1 channel) is not
+  modelled; the control-line budget covers their capacitive coupling only.
 
 ## [0.4.0] (unreleased)
 

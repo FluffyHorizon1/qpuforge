@@ -26,6 +26,17 @@ chip.json ──► device physics ─────────► noise model �
 * [`designs/gamma1/GAMMA-1.md`](designs/gamma1/GAMMA-1.md): **Gamma-1 (GF-97)**, a 97-qubit distance-7 memory.
 * [`ROADMAP.md`](ROADMAP.md): programme phases (Alpha → Beta → Gamma → Delta) with simulation and hardware exit criteria.
 
+### Unreleased: flux lines
+
+| Layer | Module | What it does |
+|---|---|---|
+| Flux-line model | `fluxline.hpp` | What a flux line does to the CZ pulse, and what the CZ needs from it. A line is a cascade of first-order sections (step response 1 + a exp(−t/τ)), a low-pass and a delay, evaluated in closed form; the AWG is a sample-and-hold with a DAC; the predistortion filter inverts a fit of the line. `simulate_cz_drive` runs the CZ of `pulse.hpp` on the flux that arrives, for a gate on its own or inside the pulse train of the memory cycle. `cz_fidelity_in_frame` scores a gate whose virtual Z gates were calibrated elsewhere, and `cz_offset_response` gives its error per unit of flux offset. The calibration does not use the model, so every review is unchanged |
+
+Study: [`results/flux_distortion_study.txt`](results/flux_distortion_study.txt) (`examples/flux_distortion_study.cpp`); design
+note: [`docs/design/flux-line-predistortion.md`](docs/design/flux-line-predistortion.md). A residual tail of 0.1 % with a time
+constant of 30–100 ns costs each CZ of the Alpha-1 v1.1 cycle 1.3e-3 when the gates are used as calibrated in isolation, and
+1.2e-4 when their virtual Z gates are calibrated in the cycle (the residual control-error allowance is 1e-3).
+
 ### Unreleased: Phase Gamma decoding
 
 | Layer | Module | What it does |
@@ -76,12 +87,13 @@ Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decod
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 509 validation checks (~15 min on 4 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 541 validation checks (~15 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
 ./build/gamma1_review          # Gamma-1 review       -> designs/gamma1/gamma1_review.json
 ./build/surgery_study          # lattice surgery      -> results/surgery_study.{txt,json}
+./build/flux_distortion_study  # flux-line requirements -> results/flux_distortion_study.{txt,json}
 python3 tools/fill_spec.py beta    # BETA-1.md from its template and review data (also: gamma)
 ```
 
@@ -89,7 +101,7 @@ python3 tools/fill_spec.py beta    # BETA-1.md from its template and review data
 
 The `json` and `gds` unit groups (64 checks) cover the JSON parser/writer (including a lossless design-file round trip for the `gen0`, `alpha1`, `alpha1v11` and `beta1` presets) and the GDSII stream writer (record framing, UNITS encoding, coordinate/record-length guards, reproducible `SOURCE_DATE_EPOCH` dates).
 
-- The four `smoke` entries run the review programs and the surgery study end to end with 200 shots. They write into the build tree and
+- The five `smoke` entries run the review programs and the surgery study end to end with 200 shots, and the flux-line study on a reduced set. They write into the build tree and
   leave the committed outputs untouched.
 - Each review program also takes `--out DIR`, `--cache FILE` and `--smoke`; see `examples/review_io.hpp`.
 - Committed review outputs, except the historical Alpha-1 v1.0 review, record their source commit, compiler, seeds and
@@ -116,7 +128,6 @@ qpuforge new chip.json --grid 3x3 --arch tunable --g-MHz 4  # grid / line / ring
 qpuforge analyze chip.json                                  # device report + design-rule check
 qpuforge analyze chip.json --materials sidecar.json         # apply an atomforge forge.materials.v0 sidecar first (add --loss-tangent to use Q = 1/tanδ)
 qpuforge qec chip.json --materials sidecar.json             # --materials works on run, budget, fab, qec, cz, synth-chip, hwgate too
-qpuforge materials apply chip.json sidecar.json --out chip2.json   # save the applied values, with a materials_source block
 qpuforge layout chip.json chip.svg                          # floor-plan
 qpuforge run chip.json examples/ghz5.qasm --traj 400        # emulate a circuit (mid-circuit measure/reset supported)
 qpuforge run chip.json xeb:10                               # also ghz:N qft:N bv:N
@@ -133,7 +144,7 @@ Designs are plain JSON, so you can edit any qubit or coupler by hand.
 
 Unknown options are errors: each command accepts only the options its usage lists (`qpuforge` without arguments), and an
 unknown, misspelt or repeated option, a missing value or a malformed number stops it before it reads any file. Exit
-status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC-clean), 3 `hwgate`: gate not passed,
+status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC- and connectivity-clean), 3 `hwgate`: gate not passed,
 `surgery`: a noiseless check failed.
 `qpuforge --help` (or `-h`, `help`) prints the usage and `qpuforge <command> --help` prints one command's usage, on stdout, exit 0.
 
@@ -157,7 +168,7 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 509 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 541 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -184,6 +195,12 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
   (36.2 vs 34.9 MHz). The designed g12 nulls the parked exchange (< 1e-5 MHz). Calibrated CZ: 40 ns, 1−F = 1.0e-4,
   leakage 6.6e-5, |φ−π| < 2e-3. Halving dt changes F by 6e-7. With 4/4/4 levels, one more coupler level changes the CZ
   phase by 6e-5 rad and one more qubit level by 2e-4 rad. The earlier default of 3 coupler levels was off by 4e-3 rad.
+* Flux lines: the partial fractions of a cascade with a low-pass match a step-by-step integration of the sections (8e-7), and
+  a section followed by its inverse is the identity. A pulse keeps its area through a line, and two pulses give the sum of
+  each. Predistortion at 1 GS/s is exact for one section. The CZ on a drive reproduces `simulate_cz` (3e-16). A slow 1 %
+  tail equals a pulse scaled by 1.01, and the amplitude calibration removes it. After an earlier pulse, the flux offset
+  matches a quadrature of the tail and the measure qubit's phase shift matches the bare transmon's frequency shift (−0.057
+  against −0.059 rad). The response to constant offsets matches the calibration's curvature recipe and a direct simulation.
 * Leakage frame model: bit-identical to the leakage-free model when all rates are zero. Gate-leakage plus seepage
   populations match the two-state Markov solution (within 4 %). A leakage-removing reset clears measure-qubit leakage
   (5× lower) and DQLR clears data-qubit leakage (3× lower).
@@ -193,10 +210,10 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
   conformal mapping (−1.3 % on the design mesh, −0.6 % refined). Overlapping conductors are rejected. The AF-17 chip
   passes the placement and island-spacing checks, all 17 resonators sit at their quarter-wave lengths, and the GDSII stream parses back record by record.
   A synthetic layer exercises the merged-etch width/space DRC; the ground-sliver clean-up and its connectivity guard, the
-  metal-connectivity map, the bus knob and the shorted staircase end have their own checks (`layout_geometry`). AF-17,
-  BF-49 and GF-97, assembled from the committed cells, pass the placement checks, meet the extraction targets and re-null
-  the parked exchange; their only DRC markers are the ground necks the guard keeps (4 on AF-17, none on the others), and
-  their connectivity report is printed (`layout_presets`). The masks are not fabrication-ready: see CHANGELOG, Known issues.
+  metal-connectivity map, the ground-strap placer, the bus knob and the shorted staircase end have their own checks
+  (`layout_geometry`). AF-17, BF-49 and GF-97, assembled from the committed cells, pass the placement checks and the
+  mask DRC (0 + 0), are connectivity-clean with their ground straps, meet the extraction targets and re-null the parked
+  exchange (`layout_presets`). No foundry DRC deck has been run: see CHANGELOG, Known issues.
   `tools/gds_preview.py` is an independent Python GDSII reader and renderer.
 * Matching: the blossom matcher agrees with brute force on 600 random graphs (complete and sparse, even and odd). In
   the decoder it agrees with the exact dynamic programme on 2,075 defect sets (weights to 3e-14, same logical
@@ -280,18 +297,23 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
 * **CZ residual control error is an assumption.** The pulse simulation gives the coherent error (≈ 1e-4), leakage, and
   flux-noise terms. Pulse distortion, calibration drift, TLS defects and crosstalk are not simulated. They enter as one
   allowance: 1e-3 for Alpha-1 v1.1 and 5e-4 for Beta-1. This allowance dominates the CZ error and is the single most
-  important number to measure on hardware.
+  important number to measure on hardware. `fluxline.hpp` models the flux lines and says what the allowance asks of
+  them (`results/flux_distortion_study.txt`), but the calibration does not use it: the allowance still stands for all of it.
 * Pulse simulation is closed-system: T1 and Tφ during the gate are applied by the processor and QEC emulators, and the
   1/f flux noise at the excursion point is added analytically (quasi-static). Spectator crossings use a Landau-Zener
   estimate, not a many-qubit pulse simulation.
 * Leakage is modelled at the frame level (flags, phase scrambling, transport, seepage, removal), not with 3-level
   dynamics in the QEC circuits. Heralded leakage (3-state readout) covers the measure qubits only, and the decoder
   uses fixed weight factors for heralded edges, not a posterior from the leakage model.
-* **No layout in this repository is fabrication-ready.** All three chips pass the placement and island-spacing checks.
-  On the merged etch layer (4 µm / 4 µm, projection metric) BF-49 and GF-97 have no width/space violations and AF-17
-  has 4 space violations (ground necks the connectivity guard keeps). The metal-connectivity check is not clean on any
-  of them: floating ground, qubit flux lines without a DC return, qubit junctions that do not land on metal (CHANGELOG,
-  Known issues).
+* **No layout in this repository is fabrication-ready.** All three chips are DRC- and connectivity-clean in the model;
+  airbridges, EM and inductance are not verified, and no foundry DRC deck has been run. A review of the connectivity
+  work found open electrical problems (shared ground bridge, flux lines that cannot tune the SQUIDs, coupler-dominated
+  XY drive: `docs/design/mask-connectivity.md`). The in-house checks are:
+  placement and island spacing, the 4 µm / 4 µm width/space check on the merged etch layer, and metal connectivity with
+  modelled ground straps (airbridges). The control-line T1 budget (10× the design T1) is met on AF-17 and missed by the
+  flux line on BF-49 and GF-97 (9.7×). The straps' capacitance to the coupler and bus
+  strips they cross and the flux lines' inductive coupling to the SQUIDs are not modelled
+  (`docs/design/mask-connectivity.md`).
 * **The hardware-gate chain has only seen synthetic data.** The virtual chip is generated by the same simulator that
   evaluates it, so the rehearsal tests the plumbing and the gate logic, not the model's agreement with a real chip.
 * **Impacts are a uniform burst with one recovery time.** `burst_floor` treats them as chip-wide; per-shot injection
@@ -329,6 +351,10 @@ See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on t
 3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, routes with bends
    and a router for more than three patches, a correlated decoder fast enough for real time, and a layout for the
    patches and their routing region.
+2. Multi-qubit pulse simulation of spectator crossings; a net-zero (bipolar) CZ and a flux-line term in the calibration
+   (the line model and its study are in `fluxline.hpp`).
+3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, a joint
+   multi-observable decoder and routing between patches.
 4. Data-qubit leakage heralding, and herald weights derived from the leakage model.
 5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.

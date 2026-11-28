@@ -1,0 +1,20 @@
+[layout] MoM capacitance vs exact results, geometry checks, width/space DRC, GDSII round trip, chip assembly
+  square plate 1 mm: 40.792 fF vs 40.811 fF (-0.04%)
+  CPW 10/6 um on Si: 0.1612 fF/um vs conformal mapping 0.1633 fF/um (-1.34%)
+  width/space check on a synthetic layer: 2 width, 1 space markers (expected 2, 1)
+  AF-17 mask DRC: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 0 width + 0 space violations
+  AF-17 layout: 14567 etch polygons, placement clean; GDSII: 75849 records, 15119 boundaries (expected 15119), ends with ENDLIB: yes
+  (layout: 5.9 s)
+[layout_geometry] bus knob continuity, shorted staircase end, ground-sliver fill (merges ground only, never island metal), metal connectivity, guarded fill
+  shorted staircase: 11 squares, 10 trench squares, 0 width + 0 space markers
+  ground-sliver fill: 1 rectangle(s) added, 0 space markers after
+  metal map of a closed ring: 2 components (plane 0, pocket 1, etch -1)
+  guarded fill: 1 kept, 1 undone; pocket on the plane: yes; 1 DRC marker(s) left
+  ground straps: 1 placed; first pocket strapped: yes; any strap over a qubit: no
+  (layout_geometry: 0.0 s)
+
+34 checks passed, 0 failed
+
+real	0m5.952s
+user	0m7.587s
+sys	0m0.036s

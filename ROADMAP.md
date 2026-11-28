@@ -13,7 +13,7 @@ assumptions listed in each design spec. They are design targets, not measured pe
 
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
-| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (500 validation checks on `main`) | n/a |
+| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (541 validation checks) | n/a |
 | **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11); mask not fabrication-ready: 4 DRC space violations, metal connectivity open | open: fabricate and characterise |
 | **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/beta1) | open |
 | **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/gamma1). Lattice-surgery ZZ, XX and CNOT simulated at d = 3, 5 (results/surgery_study.txt) | planned |
@@ -61,7 +61,9 @@ After this phase the model is calibrated against our own hardware, not just agai
 | Logical lifetime vs best physical T1 | > 2× |
 | CZ coherent error / leakage per gate (pulse simulation), every pair | ≤ 5e-4 / ≤ 2e-4 |
 | Idle ZZ at the coupler park point | ≤ 10 kHz |
-| Layout | Placement/spacing checks clean; extracted E_C within 3%, couplings within 6% of target; residual parked exchange re-nullable. Mask width/space DRC and metal connectivity (no floating ground, shorted lines reach the ground plane, junctions land at both ends) clean before fabrication (reported, not gated in simulation) |
+| Layout | Placement/spacing checks and mask width/space DRC clean; extracted E_C within 3%, couplings within 6% of target; residual parked exchange re-nullable |
+| Metal connectivity | Conductors separate; shorted lines and all ground on the plane (ground straps allowed); SQUIDs island-to-plane |
+| Control lines | Each qubit's XY and flux line T1 limits ≥ 10× its design T1 (reported; to be gated once all three chips meet it) |
 | Fabrication Monte Carlo at 2% junction spread | ≥ 90% collision-free |
 
 ### Alpha hardware gate (after fabrication)
@@ -89,7 +91,9 @@ model fitted to measured T1/T2, gate errors and leakage.
 
 **Main risks.**
 - TLS defects lowering T1 → mitigated by materials work: tantalum or improved surface treatment.
-- Flux-pulse distortion raising the CZ error → mitigated by predistortion and closed-loop calibration.
+- Flux-pulse distortion raising the CZ error → mitigated by predistortion and closed-loop calibration. Simulated
+  requirement for a tenth of the 1e-3 allowance (`docs/design/flux-line-predistortion.md`): residual tails of the corrected
+  step response below 0.09 % with the virtual Z gates of every CZ calibrated in the cycle, below 0.03 % without.
 - Frequency collisions after fabrication → mitigated by junction trimming and the flux-tunable qubits.
 - Wiring and packaging (~70 lines) → mitigated by flip-chip with an interposer.
 
@@ -123,7 +127,9 @@ Details are in `designs/beta1/BETA-1.md`.
 | Trimmed fabrication yield (0.5% spread) | ≥ 80% collision-free |
 | Leakage removal over 50 rounds | chosen scheme at least as good as the alternative |
 | Detection rate over 100 rounds with the leakage-removing reset | drift < 5% |
-| Layout | Placement/spacing checks clean; extracted E_C within 3%, couplings and readout capacitance within 6% of target; residual parked exchange re-nullable. Mask width/space DRC, metal connectivity and the foundry DRC deck clean before tape-out (reported, not gated in simulation) |
+| Layout | Placement/spacing checks and mask width/space DRC clean; extracted E_C within 3%, couplings and readout capacitance within 6% of target; residual parked exchange re-nullable. Foundry DRC deck clean before tape-out |
+| Metal connectivity | as Alpha |
+| Control lines | as Alpha |
 
 ### Beta hardware gate
 
@@ -162,7 +168,7 @@ the chip in the same data file.
 | Logical-error floor from high-energy impacts | < 10% of the distance-7 error |
 | Detection rate over 40 rounds with the leakage-removing reset | drift < 5% |
 | Trimmed fabrication yield (0.5% spread) | ≥ 80% collision-free |
-| Layout | as Beta (mask DRC and connectivity reported, not gated) |
+| Layout, metal connectivity, control lines | as Beta |
 
 ### Still open in Phase Gamma
 

@@ -1,0 +1,131 @@
+AF-17: metal connectivity clean: 205 components; islands merged 0, on the plane 0; shorted lines reaching the plane 58/58 (qubit flux lines 17/17); floating ground fragments 0; junctions landing island-to-plane 41/41; ground straps 122 (landed 122; crossing 47 lines, 41 coupler/bus strips); small fragments removed 0
+Q0   jj rel (-34,-23)-(-24,-19): ends comps 25/26, qubit comp 26; ground-side comp 25 (area 5027 um^2, not the plane), FQ0 comp 25 (same); straps on it: 1 | strap rel (-164,-82)-(-46,-72) len 118, other comp 0 (plane)
+Q1   jj rel (-34,-23)-(-24,-19): ends comps 1/2, qubit comp 2; ground-side comp 1 (area 5132 um^2, not the plane), FQ1 comp 1 (same); straps on it: 1 | strap rel (-166,-82)-(-46,-72) len 120, other comp 0 (plane)
+Q2   jj rel (-34,-23)-(-24,-19): ends comps 30/31, qubit comp 31; ground-side comp 30 (area 5132 um^2, not the plane), FQ2 comp 30 (same); straps on it: 1 | strap rel (-166,-82)-(-46,-72) len 120, other comp 0 (plane)
+Q3   jj rel (-34,-23)-(-24,-19): ends comps 80/81, qubit comp 81; ground-side comp 80 (area 5132 um^2, not the plane), FQ3 comp 80 (same); straps on it: 1 | strap rel (-84,-166)-(-74,-46) len 120, other comp 0 (plane)
+Q4   jj rel (-34,-23)-(-24,-19): ends comps 11/12, qubit comp 12; ground-side comp 11 (area 5027 um^2, not the plane), FQ4 comp 11 (same); straps on it: 1 | strap rel (-164,-82)-(-46,-72) len 118, other comp 0 (plane)
+Q5   jj rel (-34,-23)-(-24,-19): ends comps 35/36, qubit comp 36; ground-side comp 35 (area 5027 um^2, not the plane), FQ5 comp 35 (same); straps on it: 1 | strap rel (-81,-164)-(-71,-46) len 118, other comp 0 (plane)
+Q6   jj rel (-34,-23)-(-24,-19): ends comps 82/83, qubit comp 83; ground-side comp 82 (area 5027 um^2, not the plane), FQ6 comp 82 (same); straps on it: 1 | strap rel (-81,-164)-(-71,-46) len 118, other comp 47
+Q7   jj rel (-34,-23)-(-24,-19): ends comps 40/41, qubit comp 41; ground-side comp 40 (area 5132 um^2, not the plane), FQ7 comp 40 (same); straps on it: 1 | strap rel (-75,-166)-(-65,-46) len 120, other comp 4
+Q8   jj rel (-34,-23)-(-24,-19): ends comps 84/85, qubit comp 85; ground-side comp 84 (area 5132 um^2, not the plane), FQ8 comp 84 (same); straps on it: 1 | strap rel (-166,-84)-(-46,-74) len 120, other comp 58
+Q9   jj rel (-34,-23)-(-24,-19): ends comps 146/147, qubit comp 147; ground-side comp 146 (area 5132 um^2, not the plane), FQ9 comp 146 (same); straps on it: 1 | strap rel (-166,-84)-(-46,-74) len 120, other comp 0 (plane)
+Q10  jj rel (-34,-23)-(-24,-19): ends comps 86/87, qubit comp 87; ground-side comp 86 (area 5027 um^2, not the plane), FQ10 comp 86 (same); straps on it: 1 | strap rel (-81,-164)-(-71,-46) len 118, other comp 68
+Q11  jj rel (-34,-23)-(-24,-19): ends comps 159/160, qubit comp 160; ground-side comp 159 (area 5027 um^2, not the plane), FQ11 comp 159 (same); straps on it: 1 | strap rel (-81,-164)-(-71,-46) len 118, other comp 102
+Q12  jj rel (-34,-23)-(-24,-19): ends comps 190/191, qubit comp 191; ground-side comp 190 (area 5027 um^2, not the plane), FQ12 comp 190 (same); straps on it: 1 | strap rel (-81,-164)-(-71,-46) len 118, other comp 0 (plane)
+Q13  jj rel (-34,-23)-(-24,-19): ends comps 88/89, qubit comp 89; ground-side comp 88 (area 5132 um^2, not the plane), FQ13 comp 88 (same); straps on it: 1 | strap rel (-166,-82)-(-46,-72) len 120, other comp 0 (plane)
+Q14  jj rel (-34,-23)-(-24,-19): ends comps 171/172, qubit comp 172; ground-side comp 171 (area 5132 um^2, not the plane), FQ14 comp 171 (same); straps on it: 1 | strap rel (-70,-166)-(-60,-46) len 120, other comp 115
+Q15  jj rel (-34,-23)-(-24,-19): ends comps 198/199, qubit comp 199; ground-side comp 198 (area 5132 um^2, not the plane), FQ15 comp 198 (same); straps on it: 1 | strap rel (-166,-84)-(-46,-74) len 120, other comp 151
+Q16  jj rel (-34,-23)-(-24,-19): ends comps 179/180, qubit comp 180; ground-side comp 179 (area 5027 um^2, not the plane), FQ16 comp 179 (same); straps on it: 1 | strap rel (-81,-164)-(-71,-46) len 118, other comp 127
+    20                              QQQQQQ                                                   QQQQQQQQQQQQQQQ
+    18                              QQQQQQ                                                   QQQQQQQQQQQQQQQ
+    16                              QQQQQQ                                                   QQQQQQQQQQQQQQQ
+    14 aaaaaaaaaaaaaa               QQQQQQ                                                   QQQQQQQQQQQQQQQ
+    12 aaaaaaaaaaaaaa               QQQQQQ                                                   QQQQQQQQQQQQQQQ
+    10 aaaaaaaaaaaaaa               QQQQQQ                                                   QQQQQQQQQQQQQQQ
+     8 aaaaaaaaaa                   QQQQQQ                                                   QQQQQQQQQQQQQQQ
+     6 aaaaaaaaaa                   QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+     4 aaaaaaaaaa                   QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+     2 aaaaaaaaaa                   QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+     0 aaaaaaaaaa                   QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+    -2 aaaaaaaaaa                   QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+    -4 aaaaaaaaaa                   QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+    -6 aaaaaaaaaa                   QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+    -8                              QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+   -10                              QQQQQQ                                           QQQQQQQQQQQQQQQQ       
+   -12                     CCCCCC   QQQQQQ                                           QQQQQQQQQQQQQQQQ       
+   -14                     CCCCCC   QQQQQQ                                           QQQQQQQQQQQQQQQQ       
+   -16                     CCCCCC   QQQQQQ                                           QQQQQQQQQQQQQQQQ       
+   -18                     CCCCCC   QQQQQQ                                           QQQQQQQQQQQQQQQQ       
+   -20                     CCCCCC   QQQQQQ                                 PPPPPJJJJJQQQQQQQQQQQQQQQQ       
+   -22                     CCCCCC   QQQQQQ                                 PPPPPJJJJJQQQQQQQQQQQQQQQQ       
+   -24                     CCCCCC   QQQQQQ                                 PPPPP     QQQQQQQQQQQQQQQQ       
+   -26                     CCCCCC   QQQQQQ                                 PPPPP             QQQQQQQQ       
+   -28 CCCCCCCCCCCCCCCCCCCCCCCCCC   QQQQQQ                                 PPPPP             QQQQQQQQ       
+   -30 CCCCCCCCCCCCCCCCCCCCCCCCCC   QQQQQQ                                 PPPPP             QQQQQQQQ       
+   -32 CCCCCCCCCCCCCCCCCCCCCCCCCC   QQQQQQ                                 PPPPP             QQQQQQQQ       
+   -34 CCCCCCCCCCCCCCCCCCCCCCCCCC   QQQQQQ                                 PPPPP             QQQQQQQQ       
+   -36 CCCCCCCCCCCCCCCCCCCCCCCCCC   QQQQQQ                                 PPPPP             QQQQQQQQ       
+   -38                     CCCCCC   QQQQQQ                                 PPPPP             QQQQQQQQ       
+   -40                     CCCCCC   QQQQQQ               PPPPPPPPPPPPP     PPPPP             QQQQQQQQ       
+   -42                     CCCCCC   QQQQQQ               PPPPPPPPPPPPP     PPPPP             QQQQQQQQ       
+   -44                     CCCCCC   QQQQQQ               PPPPPPPPPPPPP     PPPPP             QQQQQQQQ       
+   -46                     CCCCCC   QQQQQQ               @@@@@PPPPPPPP     PPPPP             QQQQQQQQ       
+   -48                     CCCCCC   QQQQQQ               @@@@@PPPPPPPP     PPPPP             QQQQQQQQ       
+   -50                     CCCCCC   QQQQQQ               @@@@@PPPPPPPP     PPPPP             QQQQQQQQ       
+   -52                     CCCCCC   QQQQQQ               @@@@@PPPPPPPP     PPPPP             QQQQQQQQ       
+   -54                              QQQQQQ               @@@@@PPPPPPPP     PPPPP             QQQQQQQQ       
+   -56                              QQQQQQ               #####PPPPPPPPPPPPPPPP               QQQQQQQQ       
+   -58 bbbbbbbbbb                   QQQQQQ               #####  fffffPPPPPPPPP               QQQQQQQQ       
+   -60 bbbbbbbbbb                   QQQQQQ               #####  fffffPPPPPPPPP               QQQQQQQQ       
+   -62 bbbbbbbbbb                                        #####fffffffPPPPPPPPP               QQQQQQQQ       
+   -64 bbbbbbbbbb                                        #####fffffffPPPPPPPPP               QQQQQQQQ       
+   -66 bbbbbbbbbb                                        #####fffffffPPPPPPPPP               QQQQQQQQ       
+   -68 bbbbbbbbbb                                        #####fffff  PPPPPPPPP               QQQQQQQQ       
+   -70 bbbbbbbbbb                                        #####fffff  PPPPPPPPP               QQQQQQQQ       
+   -72 bbbbbbbbbb                                        #####ff     PPPPPPPPP               QQQQQQQQ       
+   -74 bbbbbbbbbbbbbb                                    #####ff     PPPPPPPPP               QQQQQQQQ       
+   -76 bbbbbbbbbbbbbb                                    #####ff     PPPPPPPPP               QQQQQQQQ       
+   -78 bbbbbbbbbbbbbb                                 fff#####     PPPPPPPPPPP               QQQQQQQQ       
+   -80 bbbbbbbbbbbbbb                                 fff#####     PPPPPPPPPPP               QQQQQQQQ       
+   -82 bbbbbbbbbbbbbb                               fffff#####                               QQQQQQQQ       
+   -84 bbbbbbbbbbbbbb                               fffff#####                               QQQQQQQQ       
+   -86 bbbbbbbbbbbbbb                               fffff#####                               QQQQQQQQ       
+   -88 bbbbbbbbbbbbbb                            ffffffff#####                               QQQQQQQQ       
+   -90 bbbbbbbbbbbbbb                            ffffffff#####                               QQQQQQQQ       
+   -92 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb      fffffff   #####                               QQQQQQQQ       
+   -94 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb      fffffff   #####                               QQQQQQQQ       
+   -96 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        fffffff   #####                               QQQQQQQQ       
+   -98 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb     ffffffff     #####                               QQQQQQQQ       
+  -100 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb     ffffffff     #####                               QQQQQQQQ       
+  -102 bbbbbbbbbbbbbbbbbbbbbbbbbbbbb      fffffff        #####                               QQQQQQQQ       
+  -104 bbbbbbbbbbbbbbbbbbbbbbbbbbbbb      fffffff        #####                               QQQQQQQQ       
+  -106 bbbbbbbbbbbbbbbbbbbbbbbbbbb        fffffff        #####                               QQQQQQQQ       
+  -108 bbbbbbbbbbbbbbbbbbbbbbbbbbb     ffffffff          #####                               QQQQQQQQ       
+  -110 bbbbbbbbbbbbbbbbbbbbbbbbbbb     ffffffff          #####                               QQQQQQQQ       
+  -112 bbbbbbbbbbbbbbbbbbbbbbbb      fffffff             #####     QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+  -114 bbbbbbbbbbbbbbbbbbbbbbbb      fffffff      bb     #####     QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+  -116 bbbbbbbbbbbbbbbbbbbbbb        fffffff      bb     #####     QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+  -118 bbbbbbbbbbbbbbbbbbbbbb     ffffffff     bbbbb     #####     QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+  -120 bbbbbbbbbbbbbbbbbbbbbb     ffffffff     bbbbb     #####     QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+  -122 bbbbbbbbbbbbbbbbbbb      fffffff        bbbbb     #####     QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+  -124 bbbbbbbbbbbbbbbbbbb      fffffff      bbbbbbb     #####                                              
+  -126 bbbbbbbbbbbbbbbbb        fffffff      bbbbbbb     #####                                              
+  -128 bbbbbbbbbbbbbbbbb     ffffffff     bbbbbbbbbb     #####                                              
+  -130 bbbbbbbbbbbbbbbbb     ffffffff     bbbbbbbbbb     #####                                         CCCCC
+  -132 bbbbbbbbbbbbbb      fffffff        bbbbbbbbbb     #####                                         CCCCC
+  -134 bbbbbbbbbbbbbb      fffffff      bbbbbbbbbbbb     #####                                         CCCCC
+  -136 bbbbbbbbbbbb        fffffff      bbbbbbbbbbbb     #####                                         CCCCC
+  -138 bbbbbbbbbbbb     ffffffff     bbbbbbbbbbbbbbb     #####                  BBB                    CCCCC
+  -140 bbbbbbbbbbbb     ffffffff     bbbbbbbbbbbbbbb     #####                  BBB                    CCCCC
+  -142 bbbbbbbbb      fffffff        bbbbbbbbbbbbbbb     #####                  BBB                         
+  -144 bbbbbbbbb      fffffff      bbbbbbbbbbbbbbbbb     #####                  BBB                         
+  -146 bbbbbbb        fffffff      bbbbbbbbbbbbbbbbb     #####                  BBB                         
+  -148 bbbbbbb     ffffffff     bbbbbbbbbbbbbbbbbbbb     #####                  BBB                         
+  -150 bbbbbbb     ffffffff     bbbbbbbbbbbbbbbbbbbb     #####                  BBB                         
+  -152 bbbbbbb   fffffff        bbbbbbbbbbbbbbbbbbbb     #####                  BBB                         
+  -154 bbbbbbb   fffffff      bbbbbbbbbbbbbbbbbbbbbbbbbbb@@@@@bbbbbbbbbb        BBB       ccc               
+  -156 bbbbbbb   fffffff      bbbbbbbbbbbbbbbbbbbbbbbbbbb@@@@@bbbbbbbbbb        BBB       ccc               
+  -158 bbbbbbb   fffff     bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb@@@@@bbbbbbbbbb        BBB       ccc               
+  -160 bbbbbbb   fffff     bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb@@@@@bbbbbbbbbb        BBB       ccc               
+  -162 bbbbbbb   fffff     bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb@@@@@bbbbbbbbbb        BBB       ccccccccccc       
+  -164 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -166 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -168 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -170 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -172 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -174 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -176 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -178 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -180 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -182 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -184 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -186 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -188 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -190 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -192 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -194 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -196 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -198 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+  -200 bbbbbbb   fffff   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb        BBB       ccccccccccc       
+legend: P = junction's ground-side component (comp 179), . = plane, letters = other ground comps, Q qubit, F flux line, f flux line metal merged into P, J junction region, # strap span, @ strap feet; ' ' etch
+qubits 17: junction ground side = flux-line component in 17; straps on the junction's ground component: 1 strap(s): 17 qubits;

@@ -15,6 +15,8 @@
 #include "gds.hpp"
 #include "pulse.hpp"
 #include <chrono>
+#include <set>
+#include <tuple>
 #include <fstream>
 
 namespace qpuforge {
@@ -180,7 +182,10 @@ inline std::string check_geometry(const std::vector<Conductor>& conds) {
     return "";
 }
 
-inline CapacitanceMatrix extract_capacitance(const std::vector<Conductor>& conds, double eps_r = 11.45, const MeshOptions& mo = {}) {
+// panel_charge (optional): the charge on every panel (fF x 1 V) with conductor `excite` at 1 V and the others at 0.
+struct PanelCharge { Rect r; int cond; double q_fF; };
+inline CapacitanceMatrix extract_capacitance(const std::vector<Conductor>& conds, double eps_r = 11.45, const MeshOptions& mo = {},
+                                             int excite = -1, std::vector<PanelCharge>* panel_charge = nullptr) {
     const auto t0 = std::chrono::steady_clock::now();
     if (const auto err = check_geometry(conds); !err.empty()) throw std::runtime_error("extract_capacitance: " + err);
     const auto P = mesh(conds, mo);
@@ -222,6 +227,8 @@ inline CapacitanceMatrix extract_capacitance(const std::vector<Conductor>& conds
         for (int i = 0; i < N; ++i) { double s = b[std::size_t(i)]; for (int j = 0; j < i; ++j) s -= A[std::size_t(i) * N + j] * b[std::size_t(j)]; b[std::size_t(i)] = s; }
         for (int i = N - 1; i >= 0; --i) { double s = b[std::size_t(i)]; for (int j = i + 1; j < N; ++j) s -= A[std::size_t(i) * N + j] * b[std::size_t(j)]; b[std::size_t(i)] = s / A[std::size_t(i) * N + i]; }
         for (int i = 0; i < N; ++i) Cr[std::size_t(k) * K + std::size_t(P[std::size_t(i)].cond)] += b[std::size_t(i)] / Kc * 1e15;
+        if (panel_charge && k == excite)
+            for (int i = 0; i < N; ++i) panel_charge->push_back({P[std::size_t(i)].r, P[std::size_t(i)].cond, b[std::size_t(i)] / Kc * 1e15});
     }
     double mx = 0, asym = 0;
     for (int i = 0; i < K; ++i) for (int j = 0; j < K; ++j) { mx = std::max(mx, std::abs(Cr[std::size_t(i) * K + j])); asym = std::max(asym, std::abs(Cr[std::size_t(i) * K + j] - Cr[std::size_t(j) * K + i])); }
@@ -293,8 +300,11 @@ struct Drawn {
 };
 
 // Qubit metal (cross + T-bars + readout pad + SQUID stub) and its cut-out, centred at (cx, cy).
+namespace detail { inline std::vector<Rect> subtract(const Rect& a, const Rect& b); }
+inline constexpr double kSquidGap = 10.0, kTongueW = 10.0;   // qubit SQUID span (stub to ground tongue) and tongue width (um)
 inline void xmon(const XmonParams& q, double cx, double cy, std::vector<Rect>& metal, std::vector<Rect>& holes, std::vector<Rect>* jj = nullptr) {
     const double hw = q.w_arm / 2;
+    const std::size_t first_hole = holes.size();
     for (int k = 0; k < 4; ++k) {
         metal.push_back(rot90({0, -hw, q.L - q.t_w, hw}, k).shift(cx, cy));
         metal.push_back(rot90({q.L - q.t_w, -q.T / 2, q.L, q.T / 2}, k).shift(cx, cy));
@@ -307,7 +317,15 @@ inline void xmon(const XmonParams& q, double cx, double cy, std::vector<Rect>& m
     holes.push_back(Rect{hw, hw, cl, cl}.shift(cx, cy));
     metal.push_back(Rect{-hw - q.squid_stub, -hw - q.squid_stub, -hw, -hw}.shift(cx, cy));
     holes.push_back(Rect{-hw - q.squid_stub - q.gap, -hw - q.squid_stub - q.gap, -hw, -hw}.shift(cx, cy));
-    if (jj) jj->push_back(Rect{-hw - q.squid_stub - q.gap, -hw - q.squid_stub + 2, -hw - q.squid_stub, -hw - 2}.shift(cx, cy));
+    // SQUID ground lead: a tongue of ground plane from the (-x,-y) corner pocket up beside the stub, kSquidGap from its
+    // -x face, so the SQUID bridges stub -> tongue (island to ground). The tongue is ground: it is cut out of every
+    // cut-out drawn so far. It stops kSquidGap below the -x arm.
+    const double s0 = -hw - q.squid_stub;                                 // stub's outer corner (local)
+    const Rect tongue = Rect{s0 - kSquidGap - kTongueW, -hw - q.gap - q.squid_stub, s0 - kSquidGap, -hw - kSquidGap}.shift(cx, cy);
+    std::vector<Rect> cut;
+    for (std::size_t i = first_hole; i < holes.size(); ++i) { auto pcs = detail::subtract(holes[i], tongue); cut.insert(cut.end(), pcs.begin(), pcs.end()); }
+    holes.resize(first_hole); holes.insert(holes.end(), cut.begin(), cut.end());
+    if (jj) jj->push_back(Rect{s0 - kSquidGap, s0 + 1, s0, s0 + 5}.shift(cx, cy));
 }
 // Readout claw (L-shape around the corner pad) + the start of the resonator centre conductor, leaving along the
 // diagonal between the two T-bars as a staircase of 10 um squares (CPW: 10 um centre, 6 um gaps).
@@ -740,6 +758,12 @@ inline std::vector<Rect> etch_of(const std::vector<Rect>& holes, std::vector<Rec
     return etch;
 }
 
+struct UnionFindLite {
+    std::vector<int> p;
+    explicit UnionFindLite(int n) : p(std::size_t(n)) { for (int i = 0; i < n; ++i) p[std::size_t(i)] = i; }
+    int find(int i) { while (p[std::size_t(i)] != i) { p[std::size_t(i)] = p[std::size_t(p[std::size_t(i)])]; i = p[std::size_t(i)]; } return i; }
+    bool unite(int a, int b) { a = find(a); b = find(b); if (a == b) return false; p[std::size_t(std::max(a, b))] = std::min(a, b); return true; }
+};
 // Connected components of the metal (the outline minus the etch), exact for Manhattan geometry. The chip is cut into
 // vertical columns; in each column, every horizontal strip between consecutive edge coordinates holds a set of disjoint
 // metal x-intervals. Intervals that overlap (by more than a rounding tolerance) in adjacent strips, or along a column
@@ -923,12 +947,240 @@ inline GuardedFill guarded_fill(const Rect& outline, std::vector<Rect>& holes, c
     G.kept = int(holes.size() - n_holes);
     return G;
 }
+
+// Ground straps (modelled airbridges): a strap is a kStrapW-wide bridge whose two kStrapW x kStrapW feet sit on ground
+// metal of two different metal components; it ties them together electrically without touching anything it spans.
+// place_ground_straps ties every component that may be grounded -- floating ground fragments, and components holding
+// only shorted lines (resonators, flux lines) with their pocket of ground -- to the ground plane, with the fewest and
+// shortest straps (Kruskal over candidate straps, cost = span + a penalty per island crossed). A strap may span etch,
+// ground, line centre conductors (R*, FQ*, FC*, XY*; penalty kStrapLinePenalty) and coupler bodies or bus strips (C*,
+// B*; penalty kStrapCouplerPenalty), never a qubit. Couplers and buses must be crossable: each plaquette's ground and
+// each strip between a coupler and its bus is enclosed by the coupler/bus bands between the qubits. A bridge over a
+// coupler or bus adds roughly eps0 * kStrapW * width / (bridge height) of capacitance to it, which the extraction cells
+// do not contain (about 0.2 fF over a 6 um bus at 3 um height). Feet never touch island metal; spans are at most
+// kStrapMaxSpan.
+inline constexpr double kStrapW = 10.0, kStrapMaxSpan = 150.0, kStrapLinePenalty = 40.0, kStrapCouplerPenalty = 80.0;
+struct Strap { Rect span, foot_a, foot_b; int lines_crossed{0}, couplers_crossed{0}; };
+struct IslandIndex {
+    std::vector<std::pair<Rect, int>> rs;    // island rects sorted by x0, with the island index
+    std::vector<char> kind;                  // 0: qubit (never bridged), 1: line, 2: coupler or bus
+    double wmax{0};
+    template <class F> void each(const Rect& q, F&& f) const {
+        auto it = std::lower_bound(rs.begin(), rs.end(), q.x0 - wmax - 1.0, [](const std::pair<Rect, int>& a, double v) { return a.first.x0 < v; });
+        for (; it != rs.end() && it->first.x0 < q.x1; ++it) if (it->first.intersects(q)) f(it->second);
+    }
+};
+inline IslandIndex island_index(const std::vector<std::pair<std::string, std::vector<Rect>>>& islands) {
+    IslandIndex I;
+    for (int i = 0; i < int(islands.size()); ++i) {
+        const std::string& n = islands[std::size_t(i)].first;
+        I.kind.push_back(n[0] == 'Q' ? 0 : (n[0] == 'R' || n.rfind("FQ", 0) == 0 || n.rfind("FC", 0) == 0 || n.rfind("XY", 0) == 0) ? 1 : 2);
+        for (const auto& r : islands[std::size_t(i)].second) { I.rs.push_back({r, i}); I.wmax = std::max(I.wmax, r.w()); }
+    }
+    std::sort(I.rs.begin(), I.rs.end(), [](const auto& a, const auto& b) { return a.first.x0 < b.first.x0; });
+    return I;
+}
+// component of the ground metal under a foot square, or -1 if the square is not wholly ground of one component
+inline int foot_comp(const MetalMap& M, const IslandIndex& I, const Rect& f) {
+    bool hit = false;
+    I.each(f.grow(-1e-6), [&](int) { hit = true; });
+    if (hit) return -1;
+    const double e = 0.25;
+    const std::array<double, 3> xs{f.x0 + e, f.cx(), f.x1 - e}, ys{f.y0 + e, f.cy(), f.y1 - e};
+    int c = -2;
+    for (double x : xs) for (double y : ys) {
+        const int k = M.at(x, y);
+        if (k < 0 || (c != -2 && k != c)) return -1;
+        c = k;
+    }
+    return c;
+}
+// eligible[c]: component c may carry a strap foot (plane, floating ground, shorted-line pockets)
+inline std::vector<Strap> place_ground_straps(const MetalMap& M, const IslandIndex& I, const std::vector<char>& eligible, int plane) {
+    struct Cand { double cost; int a, b; Strap s; };
+    std::map<std::pair<int, int>, Cand> best;
+    std::vector<std::vector<std::size_t>> ivs(std::size_t(M.n_comp));
+    for (std::size_t i = 0; i < M.comp.size(); ++i) ivs[std::size_t(M.comp[i])].push_back(i);
+    const double F = kStrapW;
+    const std::array<std::pair<int, int>, 4> dirs{{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
+    for (int T = 0; T < M.n_comp; ++T) {
+        if (T == plane || !eligible[std::size_t(T)]) continue;
+        // sample foot positions on the component's intervals (every 5 um along each, at most ~200 per component)
+        std::vector<std::pair<double, double>> pts;
+        for (std::size_t i : ivs[std::size_t(T)]) {
+            if (M.ix1[i] - M.ix0[i] < F || M.iy1[i] - M.iy0[i] < 1.0) continue;
+            for (double x = M.ix0[i] + F / 2; x <= M.ix1[i] - F / 2 + 1e-9; x += 5) pts.push_back({x, 0.5 * (M.iy0[i] + M.iy1[i])});
+        }
+        const std::size_t stride = std::max<std::size_t>(1, pts.size() / 200);
+        for (std::size_t k = 0; k < pts.size(); k += stride) {
+            // slide the foot vertically onto the component (the interval may be thinner than the foot)
+            for (double dy : {0.0, -F / 2 + 0.5, F / 2 - 0.5}) {
+                const double px = pts[k].first, py = pts[k].second + dy;
+                const Rect fa = rect_c(px, py, F, F);
+                if (foot_comp(M, I, fa) != T) continue;
+                for (const auto& [dx, dyy] : dirs) {
+                    int step = 0;
+                    for (double t = F; t <= kStrapMaxSpan + F; t += 2.0, ++step) {
+                        const double qx = px + dx * t, qy = py + dyy * t;
+                        const int c0 = M.at(qx, qy);
+                        if (c0 == T) continue;                   // still on the starting component (or back on it)
+                        const Rect fb = rect_c(qx, qy, F, F);
+                        if (c0 < 0 || !eligible[std::size_t(c0)] || foot_comp(M, I, fb) != c0) {
+                            // spanning: every 10 um, give up this direction once the span would cross a qubit
+                            if (step % 5 == 0) {
+                                const Rect sp{std::min(fa.x0, fb.x0), std::min(fa.y0, fb.y0), std::max(fa.x1, fb.x1), std::max(fa.y1, fb.y1)};
+                                bool bad = false; I.each(sp.grow(-1e-6), [&](int i) { if (!I.kind[std::size_t(i)]) bad = true; });
+                                if (bad) break;
+                            }
+                            continue;
+                        }
+                        const int U = c0;
+                        Strap s; s.foot_a = fa; s.foot_b = fb;
+                        s.span = {std::min(fa.x0, fb.x0), std::min(fa.y0, fb.y0), std::max(fa.x1, fb.x1), std::max(fa.y1, fb.y1)};
+                        std::set<int> crossed; I.each(s.span.grow(-1e-6), [&](int i) { crossed.insert(i); });
+                        bool bad = false;
+                        for (int i : crossed) { const int kd = I.kind[std::size_t(i)]; if (!kd) bad = true; else (kd == 1 ? s.lines_crossed : s.couplers_crossed)++; }
+                        if (bad) break;
+                        const double cost = (t - F) + kStrapLinePenalty * s.lines_crossed + kStrapCouplerPenalty * s.couplers_crossed;
+                        const auto key = std::make_pair(std::min(T, U), std::max(T, U));
+                        auto it = best.find(key);
+                        if (it == best.end() || cost < it->second.cost) best[key] = {cost, T, U, s};
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    std::vector<Cand> cs; for (auto& [k, c] : best) cs.push_back(c);
+    std::sort(cs.begin(), cs.end(), [](const Cand& a, const Cand& b) { return a.cost < b.cost || (a.cost == b.cost && std::tie(a.a, a.b) < std::tie(b.a, b.b)); });
+    UnionFindLite uf(M.n_comp);
+    std::vector<Strap> out;
+    for (const auto& c : cs) if (uf.unite(c.a, c.b)) out.push_back(c.s);
+    return out;
+}
 } // namespace detail
+
+// Flux line (FQ) and XY drive line (XY) of the qubit at (cx, cy), each from a bump pad. The flux line is shorted
+// (short_flux) into the (-x,-y) corner pocket next to the SQUID; the pocket is enclosed by the arm and T-bar cut-outs and
+// the ground straps (place_ground_straps) tie it to the plane. The XY line ends open below the qubit's (+x,-y) corner,
+// outside its cut-out, at x = cx + xy_end, y = cy - 156: its coupling capacitance is set by xy_end (see line_coupling).
+inline constexpr double kXYEnd = 247.0, kXYLevel = 279.0;
+inline void qubit_control_lines(double cx, double cy, std::vector<Rect>& fm, std::vector<Rect>& fh, std::vector<Rect>& xm, std::vector<Rect>& xh,
+                                bool short_flux, double xy_end = kXYEnd, double xy_level = kXYLevel) {
+    using detail::cpw_path; using detail::stair;
+    stair(cx - 156, cy - 156, cx - 61, cy - 61, fm, fh, short_flux);
+    cpw_path({{cx - 156, cy - 156}, {cx - 156, cy - 250}}, 10, 6, fm, fh, false);
+    fm.push_back(rect_c(cx - 156, cy - 262, 36, 36)); fh.push_back(rect_c(cx - 156, cy - 262, 52, 52));
+    cpw_path({{cx + xy_end, cy - xy_level}, {cx + xy_end + 20, cy - xy_level}}, 10, 6, xm, xh, false);
+    xm.push_back(rect_c(cx + xy_end + 32, cy - xy_level, 36, 36)); xh.push_back(rect_c(cx + xy_end + 32, cy - xy_level, 52, 52));
+}
+// Control-line coupling of one qubit: star-cell geometry (qubit, couplers and buses truncated, readout claw) plus its
+// flux and XY lines up to their bump pads. The T1 limit of a coupling C_c into a line matched (Z0) at its far end:
+// 1/T1 = omega^2 C_c^2 Z0 / C_sigma, with C_c the standing-wave weighted capacitance for the shorted flux line.
+struct LineCoupling {
+    double C_flux_fF{0};        // effective (standing-wave weighted) qubit-flux-line capacitance
+    double C_flux_open_fF{0};   // plain capacitance to the same pieces (what an open line would couple)
+    double C_xy_fF{0}, C_sigma_fF{0}, T1_flux_us{0}, T1_xy_us{0};
+};
+inline LineCoupling line_coupling(const XmonParams& q, const CouplerGeom& c, double p, double f_GHz, const MeshOptions& mo, double Z0 = 50,
+                                  double xy_end = kXYEnd, double xy_level = kXYLevel) {
+    std::vector<Conductor> cs;
+    std::vector<Rect> holes;
+    Conductor Q; Q.name = "qubit"; xmon(q, 0, 0, Q.rects, holes); cs.push_back(Q);
+    for (int k = 0; k < 4; ++k) {
+        auto E = coupler_and_bus(q, c, p, k, 0, 0, false);
+        Conductor C; C.name = "coupler" + std::to_string(k); C.rects = E.coupler; cs.push_back(C);
+        if (!E.bus.empty()) { Conductor B; B.name = "bus" + std::to_string(k); B.rects = E.bus; cs.push_back(B); }
+        holes.insert(holes.end(), E.holes.begin(), E.holes.end());
+    }
+    Conductor R; R.name = "readout"; R.rects = readout_claw(q, 0, 0, 170, &holes); cs.push_back(R);
+    // flux line drawn open and cut short by its last two squares (the short and the square joining it, both at ground
+    // potential in the real line), so that it is a separate conductor
+    std::vector<Rect> fm, xm;
+    qubit_control_lines(0, 0, fm, holes, xm, holes, false, xy_end, xy_level);
+    const int n = int(std::lround(95 / 5.0));                       // stair squares 0..n (see qubit_control_lines)
+    Conductor F; F.name = "flux";
+    for (int k = 0; k < int(fm.size()); ++k) if (k < n - 1 || k > n) F.rects.push_back(fm[std::size_t(k)]);
+    cs.push_back(F);
+    Conductor X; X.name = "xy"; X.rects = xm; cs.push_back(X);
+    Conductor G; G.name = "ground"; G.ground = true;
+    const double ext = q.L + c.g_c + c.t_w + 200 + 100;
+    G.outline = {-ext, -ext, ext, ext}; G.holes = cell_ground_holes(holes, cs);
+    cs.push_back(G);
+    std::vector<PanelCharge> pq;
+    const auto M = extract_capacitance(cs, 11.45, mo, 0, &pq);
+    LineCoupling o;
+    const double w = 2 * 3.14159265358979 * f_GHz * 1e9;
+    // a point at path distance z from the short of a line matched at its far end sees Re Z = Z0 sin^2(beta z): the
+    // qubit's coupling to the shorted flux line is its capacitance to each piece of the line weighted by sin(beta z)
+    // (panel charges with the qubit at 1 V)
+    const double beta = w * std::sqrt(0.5 * (11.45 + 1)) / 299792458.0 * 1e-6;   // rad / um
+    const double ls = 95 * std::sqrt(2.0);
+    const int fi = M.index("flux");
+    for (const auto& pc : pq) {
+        if (pc.cond != fi) continue;
+        const double x = pc.r.cx(), y = pc.r.cy();
+        const double z = (y < -161 && x < -140) ? ls + (-156 - y) : std::max(0.0, ((-61 - x) + (-61 - y)) / std::sqrt(2.0));
+        o.C_flux_open_fF -= pc.q_fF; o.C_flux_fF -= pc.q_fF * std::sin(beta * z);
+    }
+    o.C_xy_fF = M.mutual("qubit", "xy"); o.C_sigma_fF = M.self("qubit");
+    auto t1 = [&](double cc) { return cc > 0 ? o.C_sigma_fF * 1e-15 / (w * w * cc * 1e-15 * cc * 1e-15 * Z0) * 1e6 : 1e300; };
+    o.T1_flux_us = t1(o.C_flux_fF); o.T1_xy_us = t1(o.C_xy_fF);
+    return o;
+}
+
+// Control-line budget of a chip: the line couplings of its measure and data cells, and for every qubit the T1 limit
+// of each line at the qubit's idle frequency against the qubit's design T1 (analyze()). The budget asks each line's
+// limit to be at least kLineT1Margin times the design T1, so that the lines take at most ~10 % of the T1 budget each.
+inline constexpr double kLineT1Margin = 10.0;
+struct LineBudget {
+    LineCoupling meas, data;
+    double min_ratio_flux{0}, min_ratio_xy{0}, min_T1_flux_us{0}, min_T1_xy_us{0};
+    int worst_flux_qubit{-1}, worst_xy_qubit{-1};
+    bool ok() const { return min_ratio_flux >= kLineT1Margin && min_ratio_xy >= kLineT1Margin; }
+};
+inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const CellSet& S, const MeshOptions& mo, double Z0 = 50) {
+    LineBudget B;
+    B.meas = line_coupling(S.meas, S.cg, S.pitch, 5.5, mo, Z0);
+    B.data = line_coupling(S.data, S.cg, S.pitch, 5.5, mo, Z0);
+    B.min_ratio_flux = B.min_ratio_xy = B.min_T1_flux_us = B.min_T1_xy_us = 1e300;
+    for (std::size_t i = 0; i < D.qubits.size() && i < R.q.size(); ++i) {
+        const LineCoupling& c = D.qubits[i].role != "data" ? B.meas : B.data;
+        const double w = 2 * 3.14159265358979 * R.q[i].f01 * 1e9;
+        auto t1 = [&](double cc) { return c.C_sigma_fF * 1e-15 / (w * w * cc * 1e-15 * cc * 1e-15 * Z0) * 1e6; };
+        const double tf = t1(c.C_flux_fF), tx = t1(c.C_xy_fF);
+        B.min_T1_flux_us = std::min(B.min_T1_flux_us, tf); B.min_T1_xy_us = std::min(B.min_T1_xy_us, tx);
+        if (tf / R.q[i].T1_us < B.min_ratio_flux) { B.min_ratio_flux = tf / R.q[i].T1_us; B.worst_flux_qubit = D.qubits[i].id; }
+        if (tx / R.q[i].T1_us < B.min_ratio_xy) { B.min_ratio_xy = tx / R.q[i].T1_us; B.worst_xy_qubit = D.qubits[i].id; }
+    }
+    return B;
+}
+inline std::string line_budget_summary(const LineBudget& B) {
+    char b[600];
+    std::snprintf(b, sizeof b, "control lines: XY %.3f/%.3f fF, flux %.3f/%.3f fF effective (%.2f/%.2f fF if open; measure/data); "
+                  "T1 limits >= %.2f ms (XY), %.2f ms (flux): %.1fx (Q%d) and %.1fx (Q%d) the design T1 (budget %.0fx: %s)",
+                  B.meas.C_xy_fF, B.data.C_xy_fF, B.meas.C_flux_fF, B.data.C_flux_fF, B.meas.C_flux_open_fF, B.data.C_flux_open_fF,
+                  B.min_T1_xy_us / 1e3, B.min_T1_flux_us / 1e3, B.min_ratio_xy, B.worst_xy_qubit, B.min_ratio_flux, B.worst_flux_qubit,
+                  kLineT1Margin, B.ok() ? "met" : "NOT met");
+    return b;
+}
+inline Json line_budget_json(const LineBudget& B) {
+    Json j = Json::object();
+    j.set("C_xy_measure_fF", B.meas.C_xy_fF); j.set("C_xy_data_fF", B.data.C_xy_fF);
+    j.set("C_flux_measure_fF", B.meas.C_flux_fF); j.set("C_flux_data_fF", B.data.C_flux_fF);
+    j.set("C_flux_open_measure_fF", B.meas.C_flux_open_fF); j.set("C_flux_open_data_fF", B.data.C_flux_open_fF);
+    j.set("min_T1_xy_us", B.min_T1_xy_us); j.set("min_T1_flux_us", B.min_T1_flux_us);
+    j.set("min_ratio_xy", B.min_ratio_xy); j.set("min_ratio_flux", B.min_ratio_flux);
+    j.set("worst_xy_qubit", B.worst_xy_qubit); j.set("worst_flux_qubit", B.worst_flux_qubit);
+    j.set("margin", kLineT1Margin); j.set("ok", B.ok());
+    return j;
+}
 
 // Width / space rules on the fabricated etch layer (layer 1). Metal is the outline minus etch, so the etch-space rule is
 // also the minimum metal (island and ground-plane) width, and the etch-width rule the minimum metal-to-metal gap.
 // Default: the 4 um process minimum that assemble_chip already uses for designed coupling gaps.
 struct DrcRules { double etch_min_width_um{4.0}, etch_min_space_um{4.0}; };
+inline constexpr double kRemoveFragmentUm2 = 2500;   // unreachable ground fragments below this area are etched away
 
 // Connectivity of the fabricated metal (LVS-lite), from detail::metal_map on the final etch layer:
 //   - every island (qubit, coupler, bus, line) is its own conductor: no two islands share a metal component, and only
@@ -940,10 +1192,12 @@ struct ConnectivityReport {
     int components{0}, islands{0}, islands_merged{0}, islands_on_plane{0};
     int shorted_lines{0}, shorted_lines_on_plane{0}, flux_lines{0}, flux_lines_on_plane{0};
     int floating_ground{0}, junctions{0}, junctions_landed{0};
-    int fills_reverted{0};                               // sliver fills undone because they cut ground off the plane
+    int fills_reverted{0};                               // sliver fills undone because they cut ground off the plane (0: fills are no longer guarded)
+    int straps{0}, straps_landed{0}, strap_lines_crossed{0}, strap_couplers_crossed{0};   // ground straps (modelled airbridges), see place_ground_straps
+    int fragments_removed{0};                            // small unreachable ground fragments etched away
     bool clean() const {
         return islands_merged == 0 && islands_on_plane == 0 && shorted_lines_on_plane == shorted_lines && floating_ground == 0 &&
-               junctions_landed == junctions;
+               junctions_landed == junctions && straps_landed == straps;
     }
 };
 using detail::DrcMarker;
@@ -953,6 +1207,7 @@ struct ChipLayout {
     Rect outline;
     std::vector<std::pair<std::string, std::vector<Rect>>> islands;   // named metal islands (qubits, couplers, buses, lines)
     std::vector<Rect> holes, jj, bumps, etch;
+    std::vector<detail::Strap> straps;                 // ground straps (GDS layer 4: span, layer 5: feet)
     std::vector<std::pair<std::string, std::pair<double, double>>> labels;
     struct Resonator { int qubit; double f_GHz, target_um, drawn_um; int rows; };
     std::vector<Resonator> resonators;
@@ -1028,20 +1283,12 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         L.holes.insert(L.holes.end(), rh.begin(), rh.end());
         if (y > cy + 480) L.problems.push_back("resonator R" + std::to_string(q.id) + " exceeds its serpentine box");
         // flux line (inductive, shorted next to the SQUID) and XY line (open end at the (+x,-y) corner), both to bumps
-        std::vector<Rect> fm, fh;
-        // The line ends open next to the SQUID: the corner ground there is enclosed by the arm and T-bar cut-outs (a
-        // floating fragment, see ConnectivityReport), so a short drawn into it would not reach the plane.
-        stair(cx - 156, cy - 156, cx - 61, cy - 61, fm, fh, false);
-        cpw_path({{cx - 156, cy - 156}, {cx - 156, cy - 250}}, 10, 6, fm, fh, false);
-        fm.push_back(rect_c(cx - 156, cy - 262, 36, 36)); fh.push_back(rect_c(cx - 156, cy - 262, 52, 52));
+        std::vector<Rect> fm, fh, xm, xh;
+        qubit_control_lines(cx, cy, fm, fh, xm, xh, true);
         L.bumps.push_back(rect_c(cx - 156, cy - 262, 30, 30));
         L.islands.push_back({"FQ" + std::to_string(q.id), fm});
         L.holes.insert(L.holes.end(), fh.begin(), fh.end());
-        std::vector<Rect> xm, xh;
-        stair(cx + 52, cy - 52, cx + 156, cy - 156, xm, xh, false);
-        cpw_path({{cx + 156, cy - 156}, {cx + 250, cy - 156}}, 10, 6, xm, xh, false);
-        xm.push_back(rect_c(cx + 262, cy - 156, 36, 36)); xh.push_back(rect_c(cx + 262, cy - 156, 52, 52));
-        L.bumps.push_back(rect_c(cx + 262, cy - 156, 30, 30));
+        L.bumps.push_back(rect_c(cx + kXYEnd + 32, cy - kXYLevel, 30, 30));
         L.islands.push_back({"XY" + std::to_string(q.id), xm});
         L.holes.insert(L.holes.end(), xh.begin(), xh.end());
     }
@@ -1111,26 +1358,66 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
     for (const auto& r : all) if (!L.outline.covers(r.first)) { L.problems.push_back("metal outside the chip outline"); break; }
     // etch = cut-outs minus metal islands, after merging cut-outs separated by ground slivers below the minimum width
     std::vector<Rect> metal; for (const auto& r : all) metal.push_back(r.first);
-    const auto fill = detail::guarded_fill(L.outline, L.holes, metal, rules.etch_min_space_um);
-    L.slivers_filled = fill.kept; L.conn.fills_reverted = fill.undone;
-    const detail::MetalMap& map1 = fill.map;
+    // Sliver fills are not guarded here: ground they cut off the plane is strapped back (or removed) below.
+    L.slivers_filled = detail::fill_ground_slivers(L.holes, metal, rules.etch_min_space_um);
     double area = 0;
     L.etch = detail::etch_of(L.holes, metal, &area);
+    const auto I = detail::island_index(L.islands);
+    auto shorted = [](const std::string& n) { return n.rfind("FQ", 0) == 0 || n.rfind("FC", 0) == 0 || n[0] == 'R'; };
+    auto island_comps = [&](const detail::MetalMap& M) {
+        std::vector<int> v;
+        for (const auto& [name, rs] : L.islands) {
+            const Rect* big = &rs.front();
+            for (const auto& r : rs) if (r.area() > big->area()) big = &r;
+            v.push_back(M.at(big->cx(), big->cy()));
+        }
+        return v;
+    };
+    // ground straps; ground fragments no strap can reach and smaller than kRemoveFragmentUm2 are etched away instead
+    detail::MetalMap map1 = detail::metal_map(L.outline, L.etch);
+    for (int round = 0; round < 3; ++round) {
+        const int plane = map1.at(L.outline.x0 + 0.5, L.outline.y0 + 0.5);
+        const auto ic = island_comps(map1);
+        std::vector<char> eligible(std::size_t(map1.n_comp), 1), has_island(std::size_t(map1.n_comp), 0);
+        for (std::size_t i = 0; i < ic.size(); ++i) if (ic[i] >= 0) {
+            has_island[std::size_t(ic[i])] = 1;
+            if (!shorted(L.islands[i].first)) eligible[std::size_t(ic[i])] = 0;
+        }
+        L.straps = detail::place_ground_straps(map1, I, eligible, plane);
+        detail::UnionFindLite uf(map1.n_comp);
+        for (const auto& st : L.straps) uf.unite(map1.at(st.foot_a.cx(), st.foot_a.cy()), map1.at(st.foot_b.cx(), st.foot_b.cy()));
+        std::vector<double> carea(std::size_t(map1.n_comp), 0);
+        for (std::size_t i = 0; i < map1.comp.size(); ++i) carea[std::size_t(map1.comp[i])] += (map1.ix1[i] - map1.ix0[i]) * (map1.iy1[i] - map1.iy0[i]);
+        std::vector<Rect> removed;
+        for (std::size_t i = 0; i < map1.comp.size(); ++i) {
+            const int c = map1.comp[i];
+            if (has_island[std::size_t(c)] || uf.find(c) == uf.find(plane) || carea[std::size_t(c)] >= kRemoveFragmentUm2) continue;
+            removed.push_back({map1.ix0[i], map1.iy0[i], map1.ix1[i], map1.iy1[i]});
+        }
+        if (removed.empty()) break;
+        std::set<int> rc; for (const auto& r : removed) rc.insert(map1.at(r.cx(), r.cy()));
+        L.conn.fragments_removed += int(rc.size());
+        L.holes.insert(L.holes.end(), removed.begin(), removed.end());
+        L.etch = detail::etch_of(L.holes, metal, &area);
+        map1 = detail::metal_map(L.outline, L.etch);
+    }
     // connectivity of the final mask
     {
         auto& C = L.conn;
         C.components = map1.n_comp;
-        const int plane = map1.at(L.outline.x0 + 0.5, L.outline.y0 + 0.5);
-        auto shorted = [](const std::string& n) { return n.rfind("FQ", 0) == 0 || n.rfind("FC", 0) == 0 || n[0] == 'R'; };
-        std::map<int, int> island_of;                  // component -> number of islands in it
-        std::vector<int> isl_comp;
-        for (const auto& [name, rs] : L.islands) {
-            const Rect* big = &rs.front();
-            for (const auto& r : rs) if (r.area() > big->area()) big = &r;
-            const int c = map1.at(big->cx(), big->cy());
-            isl_comp.push_back(c);
-            island_of[c]++;
+        // nets: metal components joined by the ground straps
+        detail::UnionFindLite uf(map1.n_comp);
+        for (const auto& st : L.straps) {
+            const int a = map1.at(st.foot_a.cx(), st.foot_a.cy()), b = map1.at(st.foot_b.cx(), st.foot_b.cy());
+            C.straps++; C.strap_lines_crossed += st.lines_crossed; C.strap_couplers_crossed += st.couplers_crossed;
+            if (a >= 0 && b >= 0 && a != b) { C.straps_landed++; uf.unite(a, b); }
         }
+        const int plane0 = map1.at(L.outline.x0 + 0.5, L.outline.y0 + 0.5);
+        auto net = [&](int c) { return c < 0 ? -1 : uf.find(c); };
+        const int plane = net(plane0);
+        std::map<int, int> island_of;                  // net -> number of islands in it
+        std::vector<int> isl_comp;
+        for (int c : island_comps(map1)) { isl_comp.push_back(net(c)); island_of[net(c)]++; }
         C.islands = int(L.islands.size());
         for (std::size_t i = 0; i < L.islands.size(); ++i) {
             const std::string& n = L.islands[i].first;
@@ -1143,14 +1430,16 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
             // lines ending in the same enclosed pocket count under shorted lines that miss the plane instead
             if (!line && island_of[c] > 1) C.islands_merged++;
         }
-        for (int c = 0; c < map1.n_comp; ++c) if (c != plane && !island_of.count(c)) C.floating_ground++;
+        std::set<int> nets; for (int c = 0; c < map1.n_comp; ++c) nets.insert(net(c));
+        for (int n : nets) if (n != plane && !island_of.count(n)) C.floating_ground++;
+        // a junction (qubit or coupler SQUID: grounded transmons) lands on an island at one end and on the plane at the other
         for (const auto& j : L.jj) {
             C.junctions++;
             const bool horiz = j.w() >= j.h();
             const double d = 0.5;
-            const int a = horiz ? map1.at(j.x0 - d, j.cy()) : map1.at(j.cx(), j.y0 - d);
-            const int b = horiz ? map1.at(j.x1 + d, j.cy()) : map1.at(j.cx(), j.y1 + d);
-            if (a >= 0 && b >= 0 && a != b) C.junctions_landed++;
+            const int a = net(horiz ? map1.at(j.x0 - d, j.cy()) : map1.at(j.cx(), j.y0 - d));
+            const int b = net(horiz ? map1.at(j.x1 + d, j.cy()) : map1.at(j.cx(), j.y1 + d));
+            if (a >= 0 && b >= 0 && a != b && (a == plane || b == plane)) C.junctions_landed++;
         }
     }
     L.etch_area_mm2 = area * 1e-6;   // with overlaps between cut-outs counted twice (upper bound)
@@ -1163,11 +1452,13 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
 
 inline std::string connectivity_summary(const ChipLayout& L) {
     const auto& C = L.conn;
-    char b[600];
+    char b[800];
     std::snprintf(b, sizeof b, "metal connectivity %s: %d components; islands merged %d, on the plane %d; shorted lines reaching the plane %d/%d "
-                  "(qubit flux lines %d/%d); floating ground fragments %d; junctions landing on metal at both ends %d/%d; fills undone %d",
+                  "(qubit flux lines %d/%d); floating ground fragments %d; junctions landing island-to-plane %d/%d; ground straps %d "
+                  "(landed %d; crossing %d lines, %d coupler/bus strips); small fragments removed %d",
                   C.clean() ? "clean" : "NOT clean", C.components, C.islands_merged, C.islands_on_plane, C.shorted_lines_on_plane, C.shorted_lines,
-                  C.flux_lines_on_plane, C.flux_lines, C.floating_ground, C.junctions_landed, C.junctions, C.fills_reverted);
+                  C.flux_lines_on_plane, C.flux_lines, C.floating_ground, C.junctions_landed, C.junctions, C.straps, C.straps_landed,
+                  C.strap_lines_crossed, C.strap_couplers_crossed, C.fragments_removed);
     return b;
 }
 inline Json connectivity_json(const ChipLayout& L) {
@@ -1177,6 +1468,8 @@ inline Json connectivity_json(const ChipLayout& L) {
     j.set("islands_on_plane", C.islands_on_plane); j.set("shorted_lines", C.shorted_lines); j.set("shorted_lines_on_plane", C.shorted_lines_on_plane);
     j.set("flux_lines", C.flux_lines); j.set("flux_lines_on_plane", C.flux_lines_on_plane); j.set("floating_ground", C.floating_ground);
     j.set("junctions", C.junctions); j.set("junctions_landed", C.junctions_landed); j.set("sliver_fills_undone", C.fills_reverted);
+    j.set("ground_straps", C.straps); j.set("ground_straps_landed", C.straps_landed); j.set("strap_line_crossings", C.strap_lines_crossed); j.set("strap_coupler_crossings", C.strap_couplers_crossed);
+    j.set("fragments_removed", C.fragments_removed);
     return j;
 }
 
@@ -1203,6 +1496,7 @@ inline void write_gds(const ChipLayout& L, const std::string& path, const std::s
     for (const auto& r : L.etch) s.polys.push_back(poly(r, 1));
     for (const auto& r : L.jj) s.polys.push_back(poly(r, 2));
     for (const auto& r : L.bumps) s.polys.push_back(poly(r, 3));
+    for (const auto& st : L.straps) { s.polys.push_back(poly(st.span, 4)); s.polys.push_back(poly(st.foot_a, 5)); s.polys.push_back(poly(st.foot_b, 5)); }
     s.polys.push_back(poly(L.outline, 10));
     for (const auto& [t, xy] : L.labels) s.texts.push_back({20, xy.first, xy.second, t});
     gds::write(path, "QPUFORGE", {s});

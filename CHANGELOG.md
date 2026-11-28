@@ -62,7 +62,10 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
     pair system of a stored calibration), `cz_starts` (CZ start times of a compiled program).
 - `pulse.hpp`: `pair_system` (the system `design_pair_system` builds for a given direct coupling; no change of arithmetic).
 - `examples/flux_distortion_study.cpp` and its smoke test (`smoke_flux_distortion_study`).
-- Tests: group `flux_predistortion` (label `pulse`, 32 checks, about 3 s). 541 validation checks in all; the committed
+- `flux_distortion_study`: section 3b, the phase shifts of a measure qubit's gates summed between its Hadamards (the
+  tolerance without in-cycle calibration of the virtual Z gates is about half the per-gate one: 0.016 % for Alpha-1 v1.1,
+  0.010 % for Beta-1); section 6, the leakage-fallback class re-calibrated for 1 - F; skew after re-calibration (5c).
+- Tests: group `flux_predistortion` (label `pulse`, 36 checks, about 3 s). 541 validation checks in all; the committed
   `results/test_output.txt` predates the group and holds 500.
 - q17, FEM reference cross-check scaffold (decided by Finnian Bond 2026-11-28: both Elmer and Palace; deviation
   reported first, tolerance enforced later). `fem.hpp` (not in `qpuforge.hpp`; include it with `layout.hpp`):
@@ -285,6 +288,13 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
   group, 511 in all) and the `cli_materials_alpha1_handwritten` guard.
 
 ### Fixed
+- `flux_distortion_study`: the pulse pattern came from round 6 of a 10-round compile, before the schedule settles,
+  and each line kept its own period; it now comes from a settled round with every line on the slowest line's period
+  (results regenerated; most Alpha-1 v1.1 per-gate numbers fall by about 10 %). An exception in a parallel loop ended
+  the program; it is now reported (exit 2). The classes of section 5 no longer fall back silently to the first class.
+  The DAC bound includes the mover-coupler cross term.
+- `flux_line_output`: 64-bit sample indices; non-finite times and negative ramp or flat-top times are refused.
+  `simulate_cz_drive` refuses a negative step (it was skipped but counted in the duration).
 - CLI: each command accepts only the options it reads. An unknown or misspelt option (`--shot 1000`, `-grid`, or another
   command's option such as `hwgate --hidden-dephasing-us`) used to be ignored without a word; it is now an error that
   names the option and the closest match, prints the command's usage and exits 1 before any file is read. So are an

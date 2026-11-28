@@ -93,7 +93,8 @@ model fitted to measured T1/T2, gate errors and leakage.
 - TLS defects lowering T1 → mitigated by materials work: tantalum or improved surface treatment.
 - Flux-pulse distortion raising the CZ error → mitigated by predistortion and closed-loop calibration. Simulated
   requirement for a tenth of the 1e-3 allowance (`docs/design/flux-line-predistortion.md`): residual tails of the corrected
-  step response below 0.09 % with the virtual Z gates of every CZ calibrated in the cycle, below 0.03 % without.
+  step response below 0.09 % with the virtual Z gates of every CZ calibrated in the cycle, below 0.016 % without (the
+  phase shifts of a measure qubit's gates add up; an estimate from the pair simulations).
 - Frequency collisions after fabrication → mitigated by junction trimming and the flux-tunable qubits.
 - Wiring and packaging (~70 lines) → mitigated by flip-chip with an interposer.
 

@@ -34,8 +34,10 @@ chip.json ──► device physics ─────────► noise model �
 
 Study: [`results/flux_distortion_study.txt`](results/flux_distortion_study.txt) (`examples/flux_distortion_study.cpp`); design
 note: [`docs/design/flux-line-predistortion.md`](docs/design/flux-line-predistortion.md). A residual tail of 0.1 % with a time
-constant of 30–100 ns costs each CZ of the Alpha-1 v1.1 cycle 1.3e-3 when the gates are used as calibrated in isolation, and
-1.2e-4 when their virtual Z gates are calibrated in the cycle (the residual control-error allowance is 1e-3).
+constant of 30–100 ns adds 1.2e-3 per CZ of the Alpha-1 v1.1 cycle (mean over a round) when the gates are used as calibrated
+in isolation, and 1.1–1.2e-4 when their virtual Z gates are calibrated in the cycle (the residual control-error allowance is
+1e-3). Uncalibrated, the phase shifts add up on each measure qubit: for a tenth of the allowance the tails must stay below
+0.016 % (Alpha-1 v1.1) and 0.010 % (Beta-1), against 0.09 % and 0.06 % with the calibration.
 
 ### Unreleased: Phase Gamma decoding
 

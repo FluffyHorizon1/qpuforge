@@ -1,0 +1,36 @@
+AF-17: metal connectivity clean: 205 components; islands merged 0, on the plane 0; shorted lines reaching the plane 58/58 (qubit flux lines 17/17); floating ground fragments 0; junctions landing island-to-plane 41/41; ground straps 122 (landed 122; crossing 47 lines, 41 coupler/bus strips); small fragments removed 0
+Q0   jj rel (-34,-23)-(-24,-19): island side comp 26 (qubit comp 26), ground side comp 25 (not plane, 5027 um^2); FQ comp 25, short-square comp 25; straps with a foot on it: 1; strap depth to plane 1; flux CPW ground L/R 0/0
+      strap span rel (-164,-82)-(-46,-72) [118 um long], pocket foot centre rel (-51,-76), far foot centre rel (-159,-76) on comp 0 (plane) (= flux-line CPW ground)
+Q1   jj rel (-34,-23)-(-24,-19): island side comp 2 (qubit comp 2), ground side comp 1 (not plane, 5132 um^2); FQ comp 1, short-square comp 1; straps with a foot on it: 1; strap depth to plane 1; flux CPW ground L/R 0/0
+      strap span rel (-166,-82)-(-46,-72) [120 um long], pocket foot centre rel (-51,-76), far foot centre rel (-161,-76) on comp 0 (plane) (= flux-line CPW ground)
+Q2   jj rel (-34,-23)-(-24,-19): island side comp 31 (qubit comp 31), ground side comp 30 (not plane, 5132 um^2); FQ comp 30, short-square comp 30; straps with a foot on it: 1; strap depth to plane 1; flux CPW ground L/R 0/0
+      strap span rel (-166,-82)-(-46,-72) [120 um long], pocket foot centre rel (-51,-76), far foot centre rel (-161,-76) on comp 0 (plane) (= flux-line CPW ground)
+Q3   jj rel (-34,-23)-(-24,-19): island side comp 81 (qubit comp 81), ground side comp 80 (not plane, 5132 um^2); FQ comp 80, short-square comp 80; straps with a foot on it: 1; strap depth to plane 1; flux CPW ground L/R 0/0
+      strap span rel (-84,-166)-(-74,-46) [120 um long], pocket foot centre rel (-79,-50), far foot centre rel (-79,-160) on comp 0 (plane) (= flux-line CPW ground)
+Q4   jj rel (-34,-23)-(-24,-19): island side comp 12 (qubit comp 12), ground side comp 11 (not plane, 5027 um^2); FQ comp 11, short-square comp 11; straps with a foot on it: 1; strap depth to plane 1; flux CPW ground L/R 0/0
+      strap span rel (-164,-82)-(-46,-72) [118 um long], pocket foot centre rel (-51,-76), far foot centre rel (-159,-76) on comp 0 (plane) (= flux-line CPW ground)
+Q5   jj rel (-34,-23)-(-24,-19): island side comp 36 (qubit comp 36), ground side comp 35 (not plane, 5027 um^2); FQ comp 35, short-square comp 35; straps with a foot on it: 1; strap depth to plane 1; flux CPW ground L/R 0/0
+      strap span rel (-81,-164)-(-71,-46) [118 um long], pocket foot centre rel (-76,-50), far foot centre rel (-76,-158) on comp 0 (plane) (= flux-line CPW ground)
+Q6   jj rel (-34,-23)-(-24,-19): island side comp 83 (qubit comp 83), ground side comp 82 (not plane, 5027 um^2); FQ comp 82, short-square comp 82; straps with a foot on it: 1; strap depth to plane 4; flux CPW ground L/R 47/47
+      strap span rel (-81,-164)-(-71,-46) [118 um long], pocket foot centre rel (-76,-50), far foot centre rel (-76,-158) on comp 47 (= flux-line CPW ground)
+Q7   jj rel (-34,-23)-(-24,-19): island side comp 41 (qubit comp 41), ground side comp 40 (not plane, 5132 um^2); FQ comp 40, short-square comp 40; straps with a foot on it: 1; strap depth to plane 8; flux CPW ground L/R 4/4
+      strap span rel (-75,-166)-(-65,-46) [120 um long], pocket foot centre rel (-70,-51), far foot centre rel (-70,-161) on comp 4 (= flux-line CPW ground)
+Q8   jj rel (-34,-23)-(-24,-19): island side comp 85 (qubit comp 85), ground side comp 84 (not plane, 5132 um^2); FQ comp 84, short-square comp 84; straps with a foot on it: 1; strap depth to plane 6; flux CPW ground L/R 58/58
+      strap span rel (-166,-84)-(-46,-74) [120 um long], pocket foot centre rel (-51,-79), far foot centre rel (-161,-79) on comp 58 (= flux-line CPW ground)
+Q9   jj rel (-34,-23)-(-24,-19): island side comp 147 (qubit comp 147), ground side comp 146 (not plane, 5132 um^2); FQ comp 146, short-square comp 146; straps with a foot on it: 1; strap depth to plane 1; flux CPW ground L/R 0/0
+      strap span rel (-166,-84)-(-46,-74) [120 um long], pocket foot centre rel (-51,-79), far foot centre rel (-161,-79) on comp 0 (plane) (= flux-line CPW ground)
+Q10  jj rel (-34,-23)-(-24,-19): island side comp 87 (qubit comp 87), ground side comp 86 (not plane, 5027 um^2); FQ comp 86, short-square comp 86; straps with a foot on it: 1; strap depth to plane 7; flux CPW ground L/R 68/68
+      strap span rel (-81,-164)-(-71,-46) [118 um long], pocket foot centre rel (-76,-50), far foot centre rel (-76,-158) on comp 68 (= flux-line CPW ground)
+Q11  jj rel (-34,-23)-(-24,-19): island side comp 160 (qubit comp 160), ground side comp 159 (not plane, 5027 um^2); FQ comp 159, short-square comp 159; straps with a foot on it: 1; strap depth to plane 9; flux CPW ground L/R 102/102
+      strap span rel (-81,-164)-(-71,-46) [118 um long], pocket foot centre rel (-76,-50), far foot centre rel (-76,-158) on comp 102 (= flux-line CPW ground)
+Q12  jj rel (-34,-23)-(-24,-19): island side comp 191 (qubit comp 191), ground side comp 190 (not plane, 5027 um^2); FQ comp 190, short-square comp 190; straps with a foot on it: 1; strap depth to plane 1; flux CPW ground L/R 0/0
+      strap span rel (-81,-164)-(-71,-46) [118 um long], pocket foot centre rel (-76,-50), far foot centre rel (-76,-158) on comp 0 (plane) (= flux-line CPW ground)
+Q13  jj rel (-34,-23)-(-24,-19): island side comp 89 (qubit comp 89), ground side comp 88 (not plane, 5132 um^2); FQ comp 88, short-square comp 88; straps with a foot on it: 1; strap depth to plane 1; flux CPW ground L/R 0/0
+      strap span rel (-166,-82)-(-46,-72) [120 um long], pocket foot centre rel (-51,-76), far foot centre rel (-161,-76) on comp 0 (plane) (= flux-line CPW ground)
+Q14  jj rel (-34,-23)-(-24,-19): island side comp 172 (qubit comp 172), ground side comp 171 (not plane, 5132 um^2); FQ comp 171, short-square comp 171; straps with a foot on it: 1; strap depth to plane 10; flux CPW ground L/R 115/115
+      strap span rel (-70,-166)-(-60,-46) [120 um long], pocket foot centre rel (-65,-51), far foot centre rel (-65,-161) on comp 115 (= flux-line CPW ground)
+Q15  jj rel (-34,-23)-(-24,-19): island side comp 199 (qubit comp 199), ground side comp 198 (not plane, 5132 um^2); FQ comp 198, short-square comp 198; straps with a foot on it: 1; strap depth to plane 12; flux CPW ground L/R 151/151
+      strap span rel (-166,-84)-(-46,-74) [120 um long], pocket foot centre rel (-51,-79), far foot centre rel (-161,-79) on comp 151 (= flux-line CPW ground)
+Q16  jj rel (-34,-23)-(-24,-19): island side comp 180 (qubit comp 180), ground side comp 179 (not plane, 5027 um^2); FQ comp 179, short-square comp 179; straps with a foot on it: 1; strap depth to plane 4; flux CPW ground L/R 127/127
+      strap span rel (-81,-164)-(-71,-46) [118 um long], pocket foot centre rel (-76,-50), far foot centre rel (-76,-158) on comp 127 (= flux-line CPW ground)
+qubits whose SQUID ground side is the flux-line pocket (not the plane): 17 of 17; straps-per-pocket histogram: 1:17

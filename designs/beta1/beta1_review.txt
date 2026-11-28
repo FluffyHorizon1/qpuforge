@@ -40,11 +40,12 @@ CZ calibration: 16 unique frequency combinations for 80 pairs (0 simulated, 16 c
    6 feedlines, 8.2 resonators per line, 6.90-7.38 GHz; Alpha-1 (17 qubits) needs 64 lines; per readout output chain: TWPA + HEMT
 
 7. Physical layout (49-qubit chip, cells synthesised for the Beta-1 readout coupling)
-   chip 9.4 x 9.4 mm, 42111 etch polygons, 129 junction regions, 227 bump pads -> designs/beta1/BF49.gds
+   chip 9.4 x 9.4 mm, 33470 etch polygons, 129 junction regions, 227 bump pads -> designs/beta1/BF49.gds
    DRC: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 0 width + 0 space violations
-   metal connectivity NOT clean: 745 components; islands merged 0, on the plane 0; shorted lines reaching the plane 33/178 (qubit flux lines 0/49); floating ground fragments 405; junctions landing on metal at both ends 80/129; fills undone 0 (reported, not gated)
-   extracted vs target: E_C within 0.1%, couplings within 5.5%, qubit-readout capacitance -0.0% (13.29 fF, target 13.29)
-   post-layout: g_qc 168.9 MHz, readout g 228.9 MHz (design 229.3), parked exchange re-nulled at 8.417 GHz (residual gap 0.000 MHz, ZZ -4.36 kHz)
+   metal connectivity clean: 632 components; islands merged 0, on the plane 0; shorted lines reaching the plane 178/178 (qubit flux lines 49/49); floating ground fragments 0; junctions landing island-to-plane 129/129; ground straps 373 (landed 373; crossing 129 lines, 146 coupler/bus strips); small fragments removed 0
+   control lines: XY 0.030/0.030 fF, flux 0.032/0.032 fF effective (2.37/2.32 fF if open; measure/data); T1 limits >= 1.56 ms (XY), 1.32 ms (flux): 11.4x (Q10) and 9.7x (Q10) the design T1 (budget 10x: NOT met) (reported, not gated)
+   extracted vs target: E_C within 0.1%, couplings within 5.4%, qubit-readout capacitance +0.3% (13.34 fF, target 13.29)
+   post-layout: g_qc 168.6 MHz, readout g 229.8 MHz (design 229.3), parked exchange re-nulled at 8.407 GHz (residual gap 0.000 MHz, ZZ -4.35 kHz)
 
 8. Beta exit criteria (simulation gate before tape-out)
    [PASS] error suppression Lambda(3->5) >= 2 in both bases
@@ -54,7 +55,8 @@ CZ calibration: 16 unique frequency combinations for 80 pairs (0 simulated, 16 c
    [PASS] trimmed fabrication yield >= 80% collision-free
    [PASS] chosen leakage scheme (LRR) at least as good as LRR + DQLR over 50 rounds
    [PASS] detection rate flat over 100 rounds with the leakage-removing reset (drift < 5%)
-   [PASS] layout passes placement and island-spacing checks (mask DRC and connectivity reported, not gated)
+   [PASS] layout passes placement, island-spacing and mask width/space checks
+   [PASS] metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane
    [PASS] extracted E_C within 3%, couplings and readout capacitance within 6%; parked exchange re-nullable
 
-review complete in 1141 s -> designs/beta1/beta1_review.json
+review complete in 2277 s -> designs/beta1/beta1_review.json

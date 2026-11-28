@@ -129,6 +129,7 @@ struct FrameProgram {
         std::vector<int> ctrl1;
         std::vector<Ctrl2> ctrl2;
         std::vector<int> dqlr;            // data qubits whose leakage-removal pulse follows this slice
+        std::vector<int> dqlr_to;         // the measure qubit each of those pulses couples to (same order)
         std::vector<ZZTwirl> zz;
         std::vector<Pauli1> deco;
         std::vector<std::uint8_t> known;  // per qubit during this slice: 0 |0>, 1 |1>, 2 unknown (impact injection)
@@ -141,6 +142,7 @@ struct FrameProgram {
     double duration_ns{0};
     // leakage model
     bool leakage{false}, reset_removes_leakage{false};
+    bool dqlr_transfer{false};            // DQLR moves the leakage onto the measure qubit instead of dumping it
     double leak_1q{0}, transport{0}, dqlr_eff{0}, dqlr_err{0};
     std::vector<double> seep_rate;        // per sim qubit, 1/ns (|2> -> |1> decay, ~2/T1 for a transmon)
 };
@@ -167,6 +169,7 @@ inline FrameProgram build_frame_program(const Compiled& prog, const NoiseModel& 
     if (F.leakage) {
         F.leak_1q = nm.leak_1q; F.transport = nm.leak_transport; F.reset_removes_leakage = nm.reset_removes_leakage;
         F.dqlr_eff = nm.dqlr ? nm.dqlr_eff : 0.0; F.dqlr_err = nm.dqlr ? nm.dqlr_err : 0.0;
+        F.dqlr_transfer = nm.dqlr && nm.dqlr_transfer;
         F.seep_rate.assign(std::size_t(F.n), 0.0);
         for (int k = 0; k < F.n; ++k) {
             const double T1 = nm.T1_ns[std::size_t(prog.active[std::size_t(k)])];
@@ -242,7 +245,7 @@ inline FrameProgram build_frame_program(const Compiled& prog, const NoiseModel& 
             case Op::RESET: {
                 o.p = (noisy && nm.reset) ? nm.reset_err : 0.0; kn[std::size_t(o.a)] = 0;
                 auto it = dqlr_partners.find(g.q[0]);
-                if (F.leakage && nm.dqlr && it != dqlr_partners.end()) for (int dq : it->second) if (sim[dq] >= 0) fm.dqlr.push_back(sim[dq]);
+                if (F.leakage && nm.dqlr && it != dqlr_partners.end()) for (int dq : it->second) if (sim[dq] >= 0) { fm.dqlr.push_back(sim[dq]); fm.dqlr_to.push_back(o.a); }
                 break;
             }
             default: throw std::runtime_error("frame program: unexpected op");
@@ -568,8 +571,10 @@ inline std::vector<FaultSignature> enumerate_faults_direct(const FrameProgram& F
 // propagated only to the first cut at or after it and finished with tails. Each propagation spans one segment (about
 // one QEC round), so the enumeration costs O(rounds x faults per round) instead of O(rounds^2 x faults per round).
 // steps (optional): total time slices processed (tails and faults), a deterministic work count.
-inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const MemoryExperiment& E, long* steps = nullptr) {
-    const auto list = frame_detail::list_faults(F);
+// fault_signatures: the same computation for any list of mechanisms (enumerate_faults passes list_faults(F); the
+// derived herald weights add single Paulis at the places where a leaked qubit acts).
+inline std::vector<FaultSignature> fault_signatures(const FrameProgram& F, const MemoryExperiment& E,
+                                                    const std::vector<frame_detail::FaultDesc>& list, long* steps = nullptr) {
     const frame_detail::SparseIndex I(F, E);
     std::vector<int> cuts;                                       // moments that contain a measurement
     for (std::size_t m = 0; m < I.nm; ++m)
@@ -645,6 +650,9 @@ inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const
     }
     if (steps) *steps = total;
     return out;
+}
+inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const MemoryExperiment& E, long* steps = nullptr) {
+    return fault_signatures(F, E, frame_detail::list_faults(F), steps);
 }
 
 struct DEMEdge { int a, b; bool obs; double p; };   // b = -1: boundary
@@ -1010,6 +1018,30 @@ struct HeraldSpec {
     double footprint_factor{0.4};
     double touch_factor{1.0};
     bool use_in_decoder{true};
+    // Weights derived from the leakage model instead of the fixed factors (docs/design/derived-herald-weights.md): each
+    // heralded bit adds, to every edge a leaked qubit can have put a fault on, the posterior probability of that fault
+    // (MemorySetup::herald_model, built by prepare_herald_model). The edge's weight becomes the log-likelihood ratio of
+    // its combined probability; an edge that is then more likely than not is applied and re-weighted with the
+    // complement. `footprint` and the three factors are not used.
+    bool derived{false};
+};
+
+// The leakage model's answer to "this measure-qubit readout was leaked: which faults did that leakage cause?", for
+// HeraldSpec::derived. Per classical bit of a measure-qubit measurement:
+//   prior[c]  probability that the qubit is leaked at that measurement
+//   cond[c]   (decoder-graph edge, probability of a fault on it given the qubit is leaked there)
+// built from a first-order model of one leakage excitation moving through the circuit (frame_detail::leak_chain).
+struct HeraldModel {
+    std::vector<double> prior;
+    std::vector<std::vector<std::pair<int, double>>> cond;
+    int max_rounds{0};
+    double cutoff{0}, min_prob{0};
+    double pruned_mass{0};           // conditional fault probability on edges left out as below min_prob, summed
+    double worst_unexplained{0};     // largest posterior probability that the leakage began before the look-back window
+    double dropped_mass{0};          // conditional fault probability with no graph edge (hyperedges, undetected), summed
+    double kept_mass{0};             // ... and with one
+    long requests{0};                // single-Pauli signatures computed
+    bool empty() const { return cond.empty(); }
 };
 
 struct FrameRunOptions {
@@ -1037,6 +1069,7 @@ struct MemorySetup {
     // edges (union_find().edge index) of the single faults in that qubit's round, flagged 1 for the bit's own
     // measurement-error edge. Built with the decoder.
     std::vector<std::vector<std::pair<int, char>>> herald_edges;
+    HeraldModel herald_model;                  // for HeraldSpec::derived; empty until prepare_herald_model(M)
 };
 
 // Footprint of each measure-qubit measurement in the decoder graph (see HeraldSpec): every single fault owned by the
@@ -1076,6 +1109,248 @@ inline std::vector<std::vector<std::pair<int, char>>> herald_footprints(const Fr
         v.swap(u);
     }
     return out;
+}
+
+
+namespace frame_detail {
+// One leakage excitation followed through the circuit, to first order in the leakage probabilities (never two leaked
+// qubits at once), with the transitions of sample_shot:
+//   injection   a CZ leaks its moving qubit with the pair's probability (the partner is randomised); a single-qubit
+//               gate leaks with leak_1q
+//   CZ          a leaked qubit puts Z on its partner with probability 1/2 and, with probability `transport`, hands the
+//               leakage over and returns randomised
+//   MEASURE     a leaked qubit reads |1>: the bit is flipped if the noiseless outcome is 0, unchanged if it is 1, and
+//               random if it is not deterministic
+//   RESET       ends the leakage if the reset removes leakage
+//   DQLR        ends a data qubit's leakage with probability dqlr_eff (the qubit returns randomised); with
+//               dqlr_transfer the leakage continues on the measure qubit
+//   seepage     ends it at the qubit's rate, randomised
+// For every measure-qubit measurement c the result holds the probability that the qubit is leaked there (prior) and,
+// given that it is, the probability of each consequence: a Pauli X or Z on a qubit after a moment, or a flipped
+// readout bit. Consequences before the measurement come from the backward (smoothing) pass over at most `max_rounds`
+// rounds; those after it from following the excitation forward for as long.
+struct LeakChain {
+    std::vector<FaultDesc> req;                                  // the distinct consequences, as fault mechanisms
+    std::vector<double> prior;                                   // per classical bit
+    std::vector<std::vector<std::pair<int, double>>> cons;       // per classical bit: (index into req, probability)
+    double worst_unexplained{0};
+};
+inline LeakChain leak_chain(const FrameProgram& F, const std::vector<char>& is_data, int max_rounds, double cutoff) {
+    LeakChain out;
+    const std::size_t nq = std::size_t(F.n), nm = F.moments.size(), ncl = std::size_t(std::max(F.nclbits, 1));
+    out.prior.assign(ncl, 0.0); out.cons.assign(ncl, {});
+    if (!F.leakage) return out;
+    const double t = F.transport;
+    // forward pass: the probability that each qubit is leaked just before each of its operations
+    std::vector<std::size_t> op_off(nm + 1, 0), dq_off(nm + 1, 0);
+    for (std::size_t m = 0; m < nm; ++m) { op_off[m + 1] = op_off[m] + F.moments[m].ops.size(); dq_off[m + 1] = dq_off[m] + F.moments[m].dqlr.size(); }
+    std::vector<double> a_op(2 * op_off[nm], 0.0), a_dq(dq_off[nm], 0.0), keep(nm * nq, 1.0);
+    std::vector<int> cuts;                                       // moments that contain a measure-qubit measurement
+    std::vector<std::vector<int>> meas_at(nq);                   // per qubit: the moments of its measurements
+    {
+        std::vector<double> al(nq, 0.0);
+        for (std::size_t m = 0; m < nm; ++m) {
+            const auto& fm = F.moments[m];
+            bool cut = false;
+            for (std::size_t k = 0; k < fm.ops.size(); ++k) {
+                const auto& o = fm.ops[k];
+                double* rec = &a_op[2 * (op_off[m] + k)];
+                rec[0] = al[std::size_t(o.a)];
+                if (o.op == Op::CZ) {
+                    const double aa = al[std::size_t(o.a)], ab = al[std::size_t(o.b)];
+                    rec[1] = ab;
+                    al[std::size_t(o.a)] = (1 - t) * aa + t * ab; al[std::size_t(o.b)] = (1 - t) * ab + t * aa;
+                    if (o.pleak > 0) al[std::size_t(o.mover)] += o.pleak;
+                } else if (o.op == Op::MEASURE) {
+                    meas_at[std::size_t(o.a)].push_back(int(m));
+                    if (!is_data[std::size_t(o.a)]) { cut = true; out.prior[std::size_t(o.cbit)] = std::min(1.0, al[std::size_t(o.a)]); }
+                } else if (o.op == Op::RESET) { if (F.reset_removes_leakage) al[std::size_t(o.a)] = 0; }
+                else if (o.op == Op::SX || o.op == Op::X) al[std::size_t(o.a)] += F.leak_1q;
+            }
+            if (cut) cuts.push_back(int(m));
+            for (std::size_t i = 0; i < fm.dqlr.size(); ++i) {
+                const std::size_t d = std::size_t(fm.dqlr[i]);
+                a_dq[dq_off[m] + i] = al[d];
+                if (F.dqlr_transfer) al[std::size_t(fm.dqlr_to[i])] += F.dqlr_eff * al[d];
+                al[d] *= 1 - F.dqlr_eff;
+            }
+            for (std::size_t q = 0; q < nq; ++q) {
+                const double kq = std::exp(-fm.duration_ns * F.seep_rate[q]);
+                keep[m * nq + q] = kq; al[q] *= kq;
+            }
+        }
+    }
+    std::map<std::tuple<int, int, int>, int> req_id;             // (moment, qubit, Pauli) or (-1, cbit, 0)
+    auto pauli_req = [&](int m, int q, int P) {
+        auto [it, fresh] = req_id.try_emplace(std::make_tuple(m, q, P), int(out.req.size()));
+        if (fresh) { FaultDesc d{m, 0, -1, 1, {P, 0}, {q, 0}, 1.0, "leakage"}; d.owner[0] = q; out.req.push_back(std::move(d)); }
+        return it->second;
+    };
+    auto flip_req = [&](int m, int cbit, int q) {
+        auto [it, fresh] = req_id.try_emplace(std::make_tuple(-1, cbit, 0), int(out.req.size()));
+        if (fresh) { FaultDesc d{m, 1, cbit, 0, {0, 0}, {0, 0}, 1.0, "leakage"}; d.owner[0] = q; out.req.push_back(std::move(d)); }
+        return it->second;
+    };
+    auto flip_prob = [](int ref) { return ref == 0 ? 1.0 : ref == 1 ? 0.0 : 0.5; };
+    const double tiny = 1e-9;
+    std::vector<double> be(nq, 0.0), ga(nq, 0.0), seep(nq, 0.0);
+    std::vector<int> act;
+    std::vector<char> in_act(nq, 0);
+    for (std::size_t ci = 0; ci < cuts.size(); ++ci) {
+        const int mT = cuts[ci];
+        const auto& fT = F.moments[std::size_t(mT)];
+        for (std::size_t kT = 0; kT < fT.ops.size(); ++kT) {
+            const auto& oT = fT.ops[kT];
+            if (oT.op != Op::MEASURE || is_data[std::size_t(oT.a)]) continue;
+            // the window: max_rounds of this qubit's own measurements back and forward
+            const auto& ma = meas_at[std::size_t(oT.a)];
+            const std::size_t at = std::size_t(std::lower_bound(ma.begin(), ma.end(), mT) - ma.begin());
+            const int m_lo = at >= std::size_t(max_rounds) ? ma[at - std::size_t(max_rounds)] : 0;
+            const int m_hi = at + std::size_t(max_rounds) < ma.size() ? ma[at + std::size_t(max_rounds)] : int(nm) - 1;
+            const double Z = out.prior[std::size_t(oT.cbit)];
+            if (Z <= 0) continue;
+            auto& cons = out.cons[std::size_t(oT.cbit)];
+            auto add = [&](int id, double p) { if (p > tiny) cons.push_back({id, p}); };
+            auto both = [&](int m, int q, double p) { if (p > tiny) { cons.push_back({pauli_req(m, q, 1), p / 2}); cons.push_back({pauli_req(m, q, 3), p / 2}); } };
+            auto touch = [&](int q) { if (!in_act[std::size_t(q)]) { in_act[std::size_t(q)] = 1; act.push_back(q); } };
+            // ---- backward: be[q] = probability that an excitation on q reaches the heralded measurement
+            be[std::size_t(oT.a)] = 1; touch(oT.a);
+            double found = 0;                                    // posterior of the injections seen so far
+            for (int m = mT; m >= m_lo && found < 1 - cutoff; --m) {
+                const auto& fm = F.moments[std::size_t(m)];
+                if (m != mT) {
+                    for (int q : act) be[std::size_t(q)] *= keep[std::size_t(m) * nq + std::size_t(q)];
+                    for (std::size_t i = fm.dqlr.size(); i-- > 0;) {
+                        const int d = fm.dqlr[i], to = fm.dqlr_to[i];
+                        const double bto = F.dqlr_transfer ? be[std::size_t(to)] : 0.0;
+                        if (be[std::size_t(d)] == 0 && bto == 0) continue;
+                        both(m, d, a_dq[dq_off[std::size_t(m)] + i] * F.dqlr_eff * bto / Z);
+                        be[std::size_t(d)] = (1 - F.dqlr_eff) * be[std::size_t(d)] + F.dqlr_eff * bto; touch(d);
+                    }
+                }
+                for (std::size_t k = (m == mT ? kT : fm.ops.size()); k-- > 0;) {
+                    const auto& o = fm.ops[k];
+                    const double* rec = &a_op[2 * (op_off[std::size_t(m)] + k)];
+                    if (o.op == Op::CZ) {
+                        const double ba = be[std::size_t(o.a)], bb = be[std::size_t(o.b)];
+                        if (ba == 0 && bb == 0) continue;
+                        if (o.pleak > 0) {
+                            const double post = o.pleak * be[std::size_t(o.mover)] / Z;
+                            found += post;
+                            both(m, o.mover == o.a ? o.b : o.a, post);
+                        }
+                        const double na = (1 - t) * ba + t * bb, nb = (1 - t) * bb + t * ba;
+                        add(pauli_req(m, o.b, 3), 0.5 * rec[0] * na / Z);       // a was leaked: Z on b
+                        add(pauli_req(m, o.a, 3), 0.5 * rec[1] * nb / Z);
+                        both(m, o.a, rec[0] * t * bb / Z);                      // a handed the leakage to b
+                        both(m, o.b, rec[1] * t * ba / Z);
+                        be[std::size_t(o.a)] = na; be[std::size_t(o.b)] = nb; touch(o.a); touch(o.b);
+                    } else if (be[std::size_t(o.a)] == 0) continue;
+                    else if (o.op == Op::MEASURE) add(flip_req(m, o.cbit, o.a), flip_prob(o.ref) * rec[0] * be[std::size_t(o.a)] / Z);
+                    else if (o.op == Op::RESET) { if (F.reset_removes_leakage) be[std::size_t(o.a)] = 0; }
+                    else if (o.op == Op::SX || o.op == Op::X) found += F.leak_1q * be[std::size_t(o.a)] / Z;
+                }
+            }
+            out.worst_unexplained = std::max(out.worst_unexplained, 1 - found);
+            for (int q : act) { be[std::size_t(q)] = 0; in_act[std::size_t(q)] = 0; }
+            act.clear();
+            // ---- forward: ga[q] = probability that the excitation is on q, given it was on the heralded qubit
+            add(flip_req(mT, oT.cbit, oT.a), flip_prob(oT.ref));
+            ga[std::size_t(oT.a)] = 1; touch(oT.a);
+            auto flush = [&](int m, int q) {                     // seepage since the qubit's last operation
+                if (seep[std::size_t(q)] > tiny && m > 0) both(m - 1, q, seep[std::size_t(q)]);
+                seep[std::size_t(q)] = 0;
+            };
+            double alive = 1;
+            int m_end = mT;
+            for (int m = mT; m <= m_hi && alive > cutoff; ++m) {
+                const auto& fm = F.moments[std::size_t(m)];
+                m_end = m;
+                for (std::size_t k = (m == mT ? kT + 1 : 0); k < fm.ops.size(); ++k) {
+                    const auto& o = fm.ops[k];
+                    if (o.op == Op::CZ) {
+                        const double xa = ga[std::size_t(o.a)], xb = ga[std::size_t(o.b)];
+                        if (xa == 0 && xb == 0) continue;
+                        flush(m, o.a); flush(m, o.b);
+                        add(pauli_req(m, o.b, 3), 0.5 * xa); add(pauli_req(m, o.a, 3), 0.5 * xb);
+                        both(m, o.a, t * xa); both(m, o.b, t * xb);
+                        ga[std::size_t(o.a)] = (1 - t) * xa + t * xb; ga[std::size_t(o.b)] = (1 - t) * xb + t * xa; touch(o.a); touch(o.b);
+                    } else if (ga[std::size_t(o.a)] == 0) continue;
+                    else if (o.op == Op::MEASURE) { flush(m, o.a); add(flip_req(m, o.cbit, o.a), flip_prob(o.ref) * ga[std::size_t(o.a)]); }
+                    else if (o.op == Op::RESET) { flush(m, o.a); if (F.reset_removes_leakage) ga[std::size_t(o.a)] = 0; }
+                    else flush(m, o.a);
+                }
+                for (std::size_t i = 0; i < fm.dqlr.size(); ++i) {
+                    const int d = fm.dqlr[i];
+                    const double xd = ga[std::size_t(d)];
+                    if (xd == 0) continue;
+                    flush(m + 1, d);
+                    both(m, d, F.dqlr_eff * xd);
+                    if (F.dqlr_transfer) { ga[std::size_t(fm.dqlr_to[i])] += F.dqlr_eff * xd; touch(fm.dqlr_to[i]); }
+                    ga[std::size_t(d)] = (1 - F.dqlr_eff) * xd;
+                }
+                alive = 0;
+                for (int q : act) {
+                    const double kq = keep[std::size_t(m) * nq + std::size_t(q)];
+                    seep[std::size_t(q)] += ga[std::size_t(q)] * (1 - kq);
+                    ga[std::size_t(q)] *= kq;
+                    alive += ga[std::size_t(q)];
+                }
+            }
+            for (int q : act) { flush(m_end + 1, q); ga[std::size_t(q)] = 0; in_act[std::size_t(q)] = 0; }
+            act.clear();
+        }
+    }
+    return out;
+}
+} // namespace frame_detail
+
+// Build MemorySetup::herald_model (HeraldSpec::derived): follow the leakage through the circuit (leak_chain), compute
+// the detector signature of every consequence with the fault enumeration, and collect, per heralded bit, the
+// probability of a fault on each decoder-graph edge given that the bit's qubit was leaked. Consequences that share an
+// edge are combined as independent faults. A consequence whose signature is not a graph edge (more than two
+// detectors, or a logical flip the edge does not carry) is dropped and its probability reported in dropped_mass.
+// max_rounds: how many rounds back and forward an excitation is followed; cutoff: the search also stops once the
+// unexplained (backward) or surviving (forward) probability falls below it. min_prob: an edge whose combined
+// conditional probability is below it is left out (pruned_mass); such edges would barely move a weight, and every
+// re-weighted edge costs the exact decoder two terminals.
+inline HeraldModel build_herald_model(const FrameProgram& F, const MemoryExperiment& E, const std::vector<char>& is_data, const MatchingDecoder& dec,
+                                      int max_rounds = 8, double cutoff = 1e-3, double min_prob = 5e-3) {
+    HeraldModel H; H.max_rounds = max_rounds; H.cutoff = cutoff; H.min_prob = min_prob;
+    const auto LC = frame_detail::leak_chain(F, is_data, max_rounds, cutoff);
+    const auto sig = fault_signatures(F, E, LC.req);
+    const auto& uf = dec.union_find();
+    std::vector<int> edge_of(sig.size(), -1);                    // -1: not a graph edge; -2: flips nothing the decoder sees
+    for (std::size_t i = 0; i < sig.size(); ++i) {
+        const auto& f = sig[i];
+        if (f.dets.empty()) { if (!f.obs) edge_of[i] = -2; continue; }
+        if (f.dets.size() > 2) continue;
+        const int e = uf.edge_index(f.dets[0], f.dets.size() > 1 ? f.dets[1] : -1);
+        if (e >= 0 && (uf.edge[std::size_t(e)].obs != 0) == f.obs) edge_of[i] = e;
+    }
+    H.prior = LC.prior; H.worst_unexplained = LC.worst_unexplained; H.requests = long(sig.size());
+    H.cond.assign(LC.cons.size(), {});
+    std::vector<std::pair<int, double>> v;
+    for (std::size_t c = 0; c < LC.cons.size(); ++c) {
+        v.clear();
+        for (const auto& [id, p] : LC.cons[c]) {
+            const int e = edge_of[std::size_t(id)];
+            if (e == -2) continue;
+            if (e < 0) { H.dropped_mass += p; continue; }
+            H.kept_mass += p;
+            v.push_back({e, p});
+        }
+        std::sort(v.begin(), v.end());
+        auto& out = H.cond[c];
+        for (const auto& [e, p] : v) {
+            if (!out.empty() && out.back().first == e) out.back().second = out.back().second * (1 - p) + p * (1 - out.back().second);
+            else out.push_back({e, p});
+        }
+        std::size_t w = 0;
+        for (std::size_t i = 0; i < out.size(); ++i) { if (out[i].second >= min_prob) out[w++] = out[i]; else { H.pruned_mass += out[i].second; H.kept_mass -= out[i].second; } }
+        out.resize(w);
+    }
+    return H;
 }
 
 // build_decoder = false skips the fault enumeration, the detector error model and the decoder (the expensive part):
@@ -1120,6 +1395,12 @@ inline MemorySetup prepare_memory(const ChipDesign& D, const ChipReport& R, cons
         M.herald_edges = herald_footprints(M.frame, M.is_data, faults, *M.decoder);
     }
     return M;
+}
+
+// Fill M.herald_model for HeraldSpec::derived (not done by prepare_memory: it costs a second pass of signatures).
+inline void prepare_herald_model(MemorySetup& M, int max_rounds = 8, double cutoff = 1e-3, double min_prob = 5e-3) {
+    if (!M.decoder) throw std::runtime_error("prepare_herald_model: the setup has no decoder");
+    M.herald_model = build_herald_model(M.frame, M.exp, M.is_data, *M.decoder, max_rounds, cutoff, min_prob);
 }
 
 inline MemoryResult summarize(const MemorySetup& M, long shots, long errors, double fired_sum) {
@@ -1268,8 +1549,15 @@ inline void sample_shot(const FrameProgram& F, const std::vector<char>& is_data,
             }
         }
         if (F.leakage) {
-            for (int q : fm.dqlr) {
-                if (L[std::size_t(q)] && rng.uniform() < F.dqlr_eff) { L[std::size_t(q)] = 0; --nleaked; randomize(q); }
+            for (std::size_t i = 0; i < fm.dqlr.size(); ++i) {
+                const int q = fm.dqlr[i];
+                // transfer (FrameProgram::dqlr_transfer): the pulse moves the leakage onto the measure qubit, which
+                // stays leaked until its next leakage-removing reset; it does nothing if that qubit is leaked already
+                const int to = F.dqlr_transfer ? fm.dqlr_to[i] : -1;
+                if (L[std::size_t(q)] && !(to >= 0 && L[std::size_t(to)]) && rng.uniform() < F.dqlr_eff) {
+                    L[std::size_t(q)] = 0; randomize(q);
+                    if (to >= 0) L[std::size_t(to)] = 1; else --nleaked;
+                }
                 if (F.dqlr_err > 0 && rng.uniform() < F.dqlr_err) frame_detail::apply_pauli(1 + int(rng.uniform() * 3), q, x.data(), z.data());
             }
             if (nleaked > 0) {
@@ -1325,6 +1613,20 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
     const HeraldSpec& HS = opt.herald;
     if (HS.on && HS.use_in_decoder && HS.footprint && (M.herald_edges.empty() || &decoder != M.decoder.get()))
         throw std::runtime_error("run_memory_frame: herald footprints need the setup's own decoder");
+    if (HS.on && HS.use_in_decoder && HS.derived && (M.herald_model.empty() || &decoder != M.decoder.get()))
+        throw std::runtime_error("run_memory_frame: derived herald weights need prepare_herald_model(M) and the setup's own decoder");
+    if (HS.on && HS.use_in_decoder && opt.stream && opt.stream->global().edge.size() != decoder.union_find().edge.size())
+        throw std::runtime_error("run_memory_frame: heralds with a streaming decoder need one built from the setup's detector error model");
+    // derived weights: the probability that a heralded bit's qubit was leaked, from the model's prior and the herald's
+    // fidelity and false rate
+    std::vector<double> h_post;
+    if (HS.on && HS.use_in_decoder && HS.derived) {
+        h_post.assign(M.herald_model.prior.size(), 0.0);
+        for (std::size_t c = 0; c < h_post.size(); ++c) {
+            const double zl = M.herald_model.prior[c], num = zl * HS.fidelity, den = num + (1 - zl) * HS.false_rate;
+            h_post[c] = den > 0 ? num / den : 0.0;
+        }
+    }
     std::vector<std::vector<int>> dets_of;                       // classical bit -> detectors (heralds)
     if (HS.on) {
         dets_of.assign(std::size_t(std::max(F.nclbits, 1)), {});
@@ -1338,6 +1640,7 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
         Xoshiro256 rng(0);
         std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
         std::vector<int> fired, heralded; std::vector<std::pair<int, int>> heralded_dets; std::vector<std::pair<int, double>> scaled; DecodeScratch ws;
+        std::vector<int> fired_h; std::vector<std::pair<int, double>> hacc;
         std::vector<long> my_round(n_layers, 0);
         Xoshiro256 irng(0);
         std::vector<double> g(inject ? std::size_t(F.n) : 0);
@@ -1382,9 +1685,44 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                 if (fired.size() > 22) ++T_.over22;
                 const auto t0 = std::chrono::steady_clock::now();
                 int predicted;
-                if (HS.on && HS.use_in_decoder && !heralded.empty()) {
+                const bool use_h = HS.on && HS.use_in_decoder && !heralded.empty();
+                const std::vector<int>* def = &fired;
+                int applied = 0;                                 // logical parity of the edges applied by derived weights
+                if (use_h) {
                     scaled.clear();
-                    if (HS.footprint) {
+                    if (HS.derived) {
+                        // every edge a heralded bit points at: base probability combined with the posterior fault
+                        // probabilities; an edge that is now more likely than not is applied (its ends toggle, its
+                        // logical bit enters the prediction) and keeps the complement as its probability
+                        const auto& uf = decoder.union_find();
+                        hacc.clear();
+                        for (int c : heralded) {
+                            const double pi = h_post[std::size_t(c)];
+                            if (pi > 0) for (const auto& [e, q] : M.herald_model.cond[std::size_t(c)]) hacc.push_back({e, pi * q});
+                        }
+                        std::sort(hacc.begin(), hacc.end());
+                        bool copied = false;
+                        for (std::size_t i = 0; i < hacc.size();) {
+                            const int e = hacc[i].first;
+                            const auto& ed = uf.edge[std::size_t(e)];
+                            const double p0 = 1.0 / (1.0 + std::exp(ed.w));
+                            double p = p0;
+                            for (; i < hacc.size() && hacc[i].first == e; ++i) p = p * (1 - hacc[i].second) + hacc[i].second * (1 - p);
+                            if (p > 0.5) {
+                                if (!copied) { fired_h = fired; copied = true; def = &fired_h; }
+                                for (int v : {ed.u, ed.v}) {
+                                    if (v >= decoder.n_detectors()) continue;
+                                    auto it = std::find(fired_h.begin(), fired_h.end(), v);
+                                    if (it == fired_h.end()) fired_h.push_back(v); else fired_h.erase(it);
+                                }
+                                applied ^= ed.obs;
+                                p = 1 - p;
+                            }
+                            p = std::max(p, p0);                 // weights are only ever lowered (decode_scaled needs that)
+                            const double f = std::log((1 - p) / p) / ed.w;
+                            if (f < 1.0) scaled.push_back({e, std::max(0.0, f)});
+                        }
+                    } else if (HS.footprint) {
                         for (int c : heralded)
                             for (const auto& [e, ro] : M.herald_edges[std::size_t(c)]) scaled.push_back({e, ro ? HS.erase_factor : HS.footprint_factor});
                     } else {
@@ -1395,12 +1733,27 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                         }
                         decoder.herald_touch_edges(heralded_dets, HS.erase_factor, HS.touch_factor, scaled);
                     }
-                    predicted = decoder.decode_scaled(fired, scaled, ws, method);
-                } else if (opt.stream) {
-                    predicted = opt.stream->decode(fired, ws.stream);
+                }
+                if (opt.stream) {
+                    StreamOptions so;
+                    if (use_h) {
+                        // each edge once, with its smallest factor (as decode_scaled does)
+                        std::sort(scaled.begin(), scaled.end());
+                        std::size_t w = 0;
+                        for (std::size_t i = 0; i < scaled.size(); ++i) {
+                            if (scaled[i].second >= 1.0) continue;
+                            if (w > 0 && scaled[w - 1].first == scaled[i].first) continue;   // sorted: the first is the smallest
+                            scaled[w++] = scaled[i];
+                        }
+                        scaled.resize(w);
+                        so.scaled = &scaled;
+                    }
+                    predicted = opt.stream->decode(*def, ws.stream, so);
                     T_.win_max = std::max(T_.win_max, ws.stream.window_s_max);
                     T_.win_sum += ws.stream.window_s_sum; T_.windows += ws.stream.windows;
-                } else predicted = decoder.decode(fired, ws, method);
+                } else if (use_h) predicted = decoder.decode_scaled(*def, scaled, ws, method);
+                else predicted = decoder.decode(fired, ws, method);
+                predicted ^= applied;
                 T_.decode_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
                 bool vetoed = false;
                 if (VS.on) {
@@ -1471,6 +1824,127 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
     r.stream_window_us_max = 1e6 * win_max;
     r.stream_window_us_mean = windows ? 1e6 * win_sum / double(windows) : 0.0;
     return r;
+}
+
+// Operation profile of the streaming union-find decoder on the syndromes of run_memory_frame(M, shots, seed) (no
+// heralds, no impacts: the same shots, the same draws). Every window of every shot is decoded with the operation
+// counters on. The result holds, per counter, the histogram of its value per window; per cost model, the histograms of
+// the cycles per window, of the cycles per committed round (in thousandths) and of the latency of each window: the
+// time from the arrival of its last round to the end of its decode, in cycles, when the windows of a shot are decoded
+// one after another and each starts when its syndrome is complete and the previous decode has finished. Everything is
+// an integer count, so the result does not depend on the thread count. See docs/design/streaming-union-find-fpga.md.
+// Backlog over a long run: the shots of one block (kFrameBlock = 1024) are also laid end to end as one continuous
+// stream of rounds, the decoder's queue carried from shot to shot. stream_latency_hist holds the latency of every
+// window of that stream, and stream_late_hist of the windows in the last quarter of each full block: if the two
+// differ, the queue is still growing after three quarters of the block. A block is a load model, not one long memory:
+// each shot still ends with its data readout and a window that commits everything.
+struct StreamProfile {
+    using Hist = std::map<long, long>;                         // value -> number of windows
+    int window{0}, commit{0}, n_windows{0};
+    long shots{0}, logical_errors{0};
+    long windows{0}, windows_empty{0}, windows_cleared{0}, windows_uf{0};   // all; no defects; pre-decoder alone; union-find ran
+    std::vector<Hist> count_hist;                              // per UFOpCounts field
+    std::vector<Hist> cycles_hist, round_hist, latency_hist;   // per cost model
+    std::vector<Hist> stream_latency_hist, stream_late_hist;   // per cost model: continuous stream (see above)
+    static double mean(const Hist& h) {
+        double s = 0; long n = 0;
+        for (const auto& [v, k] : h) { s += double(v) * double(k); n += k; }
+        return n ? s / double(n) : 0.0;
+    }
+    static long max(const Hist& h) { return h.empty() ? 0 : h.rbegin()->first; }
+    // smallest value v with at least a fraction q of the windows at or below it
+    static long quantile(const Hist& h, double q) {
+        long n = 0; for (const auto& kv : h) n += kv.second;
+        const double need = q * double(n);
+        long acc = 0;
+        for (const auto& [v, k] : h) { acc += k; if (double(acc) >= need) return v; }
+        return max(h);
+    }
+    // fraction of the windows above v
+    static double above(const Hist& h, long v) {
+        long n = 0, over = 0;
+        for (const auto& [x, k] : h) { n += k; if (x > v) over += k; }
+        return n ? double(over) / double(n) : 0.0;
+    }
+};
+inline StreamProfile run_stream_profile(const MemorySetup& M, const StreamingUnionFind& S, long shots, std::uint64_t seed, bool predecode,
+                                        const std::vector<UFCostModel>& models) {
+    const auto& F = M.frame;
+    StreamProfile P;
+    P.window = S.window(); P.commit = S.commit(); P.n_windows = S.n_windows(); P.shots = shots;
+    P.count_hist.assign(UFOpCounts::kFields, {});
+    P.cycles_hist.assign(models.size(), {}); P.round_hist.assign(models.size(), {}); P.latency_hist.assign(models.size(), {});
+    P.stream_latency_hist.assign(models.size(), {}); P.stream_late_hist.assign(models.size(), {});
+    const double round_ns = M.prog.duration_ns / double(M.exp.rounds);
+    // arrival of each window's last round, in rounds from the start of the shot (the final data readout counts as one)
+    std::vector<int> arrive(std::size_t(S.n_windows()));
+    for (int i = 0; i < S.n_windows(); ++i) arrive[std::size_t(i)] = std::min(i * S.commit() + S.window(), M.exp.rounds + 1);
+    const long nblocks = shots > 0 ? (shots + kFrameBlock - 1) / kFrameBlock : 0;
+#pragma omp parallel
+    {
+        Xoshiro256 rng(0);
+        std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
+        std::vector<int> fired; StreamScratch ws;
+        StreamProfile T;
+        T.count_hist.assign(UFOpCounts::kFields, {});
+        T.cycles_hist.assign(models.size(), {}); T.round_hist.assign(models.size(), {}); T.latency_hist.assign(models.size(), {});
+        T.stream_latency_hist.assign(models.size(), {}); T.stream_late_hist.assign(models.size(), {});
+        std::vector<double> busy(models.size()), sbusy(models.size());
+        StreamOptions so; so.predecode = predecode; so.count = true;
+        long leak_ev = 0; double leak_d = 0, leak_m = 0;
+#pragma omp for schedule(dynamic, 1)
+        for (long b = 0; b < nblocks; ++b) {
+            const long s_end = std::min(shots, (b + 1) * kFrameBlock);
+            std::fill(sbusy.begin(), sbusy.end(), 0.0);            // the continuous stream starts with an idle decoder
+            const bool full_block = s_end - b * kFrameBlock == kFrameBlock;
+            for (long s = b * kFrameBlock; s < s_end; ++s) {
+                rng = Xoshiro256(frame_shot_seed(seed, std::uint64_t(s)));
+                std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0);
+                std::fill(L.begin(), L.end(), 0);
+                frame_detail::sample_shot(F, M.is_data, rng, x, z, flips, L, leak_ev, leak_d, leak_m);
+                const long in_block = s - b * kFrameBlock;
+                fired.clear();
+                for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) {
+                    std::uint8_t v = 0; for (int c : M.exp.detectors[d]) v ^= flips[std::size_t(c)];
+                    if (v) fired.push_back(int(d));
+                }
+                std::uint8_t obs = 0; for (int c : M.exp.observable) obs ^= flips[std::size_t(c)];
+                if (S.decode(fired, ws, so) != obs) ++T.logical_errors;
+                std::fill(busy.begin(), busy.end(), 0.0);
+                for (int i = 0; i < S.n_windows(); ++i) {
+                    const UFOpCounts& c = ws.counts[std::size_t(i)];
+                    const int st = ws.cleared[std::size_t(i)];
+                    ++T.windows; if (st == 0) ++T.windows_empty; else if (st == 1) ++T.windows_cleared; else ++T.windows_uf;
+                    for (int k = 0; k < UFOpCounts::kFields; ++k) T.count_hist[std::size_t(k)][c.get(k)] += 1;
+                    for (std::size_t mi = 0; mi < models.size(); ++mi) {
+                        const long cyc = models[mi].cycles(c, st);
+                        T.cycles_hist[mi][cyc] += 1;
+                        T.round_hist[mi][(1000 * cyc) / S.committed_rounds(i)] += 1;
+                        const double per_round = round_ns * models[mi].clock_mhz * 1e-3;   // cycles in one QEC round
+                        const double t_arr = arrive[std::size_t(i)] * per_round;
+                        busy[mi] = std::max(busy[mi], t_arr) + double(cyc);
+                        T.latency_hist[mi][std::lround(busy[mi] - t_arr)] += 1;
+                        const double s_arr = (double(in_block) * double(M.exp.rounds + 1) + arrive[std::size_t(i)]) * per_round;
+                        sbusy[mi] = std::max(sbusy[mi], s_arr) + double(cyc);
+                        const long lat = std::lround(sbusy[mi] - s_arr);
+                        T.stream_latency_hist[mi][lat] += 1;
+                        if (full_block && 4 * in_block >= 3 * kFrameBlock) T.stream_late_hist[mi][lat] += 1;
+                    }
+                }
+            }
+        }
+#pragma omp critical(qpuforge_stream_profile)
+        {
+            P.logical_errors += T.logical_errors; P.windows += T.windows; P.windows_empty += T.windows_empty;
+            P.windows_cleared += T.windows_cleared; P.windows_uf += T.windows_uf;
+            auto merge = [](std::vector<StreamProfile::Hist>& into, const std::vector<StreamProfile::Hist>& from) {
+                for (std::size_t i = 0; i < into.size(); ++i) for (const auto& [v, k] : from[i]) into[i][v] += k;
+            };
+            merge(P.count_hist, T.count_hist); merge(P.cycles_hist, T.cycles_hist); merge(P.round_hist, T.round_hist); merge(P.latency_hist, T.latency_hist);
+            merge(P.stream_latency_hist, T.stream_latency_hist); merge(P.stream_late_hist, T.stream_late_hist);
+        }
+    }
+    return P;
 }
 
 // Exact-noise cross-check: statevector trajectories with mid-circuit measurement (one per shot).

@@ -1,0 +1,15 @@
+[layout_presets] AF-17, BF-49, GF-97 from the committed cell files: placement clean, mask DRC, connectivity report, extraction on target, re-nullable
+  AF-17: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 0 width + 0 space violations; 82 sliver fills; E_C within 0.12%, couplings within 5.02%, readout C within 0.47%, re-nulled gap 4.7e-10 MHz
+    metal connectivity clean: 205 components; islands merged 0, on the plane 0; shorted lines reaching the plane 58/58 (qubit flux lines 17/17); floating ground fragments 0; junctions landing island-to-plane 41/41; ground straps 122 (landed 122; crossing 47 lines, 41 coupler/bus strips); small fragments removed 0
+  BF-49: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 0 width + 0 space violations; 80 sliver fills; E_C within 0.08%, couplings within 5.41%, readout C within 0.33%, re-nulled gap 1.7e-09 MHz
+    metal connectivity clean: 632 components; islands merged 0, on the plane 0; shorted lines reaching the plane 178/178 (qubit flux lines 49/49); floating ground fragments 0; junctions landing island-to-plane 129/129; ground straps 373 (landed 373; crossing 129 lines, 146 coupler/bus strips); small fragments removed 0
+  GF-97: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 0 width + 0 space violations; 168 sliver fills; E_C within 0.07%, couplings within 5.41%, readout C within 0.37%, re-nulled gap 4.2e-09 MHz
+    metal connectivity clean: 1305 components; islands merged 0, on the plane 0; shorted lines reaching the plane 362/362 (qubit flux lines 97/97); floating ground fragments 0; junctions landing island-to-plane 265/265; ground straps 774 (landed 774; crossing 265 lines, 315 coupler/bus strips); small fragments removed 0
+  (layout_presets: 588.7 s)
+
+21 checks passed, 0 failed
+
+real	9m48.710s
+user	15m1.049s
+sys	0m1.745s
+exit=0

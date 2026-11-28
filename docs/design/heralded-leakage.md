@@ -14,7 +14,8 @@ per measure-qubit measurement comes from the shot's own stream, so runs with her
 `use_in_decoder = false` makes the same draws and ignores them. That gives the same syndromes decoded with and
 without heralds.
 
-Data qubits are not heralded. Their final readout is the logical measurement.
+Data qubits are not heralded. Their final readout is the logical measurement. `data-leakage-herald.md` adds a herald
+of data-qubit leakage through DQLR.
 
 ## Decoder: which edges a herald points at
 
@@ -43,6 +44,9 @@ detector rule, erasing every touching edge gave 0.00869 and erasing only the mea
 footprint rule at factor 0.4, it is 0.00400. Factors from 0.3 to 0.5 are within noise of each other; 0.15 and 0 are
 worse (0.00437 and 0.00530).
 
+A third option, `HeraldSpec::derived`, replaces the fixed factors by weights computed from the leakage model: see
+`derived-herald-weights.md`.
+
 ## Matching on a re-weighted graph
 
 The exact decoder works on precomputed all-pairs shortest paths, and heralds change weights per shot.
@@ -51,7 +55,9 @@ the modified edges. Its edges are the static shortest distances between all term
 their new weights. Floyd–Warshall on this graph gives the exact modified shortest paths between defects, with their
 logical parities: any shortest path splits at its modified edges into segments of unmodified edges, and each segment
 is at least the static distance between its ends. The usual DP/blossom matching then runs on those distances. The
-union-find decoder takes the modified lengths directly.
+union-find decoder takes the modified lengths directly. So does the streaming union-find decoder
+(`StreamOptions::scaled`): until `scs-bot/decoding-next`, a shot with a herald was decoded by the batch decoder even
+when a streaming decoder had been asked for.
 
 The matching code was refactored onto distance and parity oracles to allow this. The original path reads the static
 matrix through the same oracle, so results without heralds are unchanged: the `matching` and `memory_bases` tests,

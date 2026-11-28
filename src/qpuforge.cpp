@@ -51,7 +51,8 @@ static const UsageBlock kUsageCommands[] = {
      "                [--off SRC,..] [--decoder exact|uf|uf-stream|legacy|greedy [--window R] [--commit R]]\n"
      "                [--leakage-removal lrr|dqlr|lrr+dqlr|none]\n"
      "                [--cache file] [--herald [--herald-fidelity F] [--herald-false P] [--herald-factor X]\n"
-     "                [--herald-rule footprint|detector]] [--bursts [--burst-rate Hz] [--burst-tau-ms T] [--burst-t1-us T]\n"
+     "                [--herald-rule footprint|detector] [--herald-weights fixed|derived] [--dqlr-herald]]\n"
+     "                [--bursts [--burst-rate Hz] [--burst-tau-ms T] [--burst-t1-us T]\n"
      "                [--burst-tphi-us T] [--veto [--veto-window R] [--veto-radius L] [--veto-false P] [--impact-p P]\n"
      "                [--burst-radius L]]]\n"
      "                surface-code memory experiment: logical error per round (needs a surface layout);\n"
@@ -59,7 +60,10 @@ static const UsageBlock kUsageCommands[] = {
      "                injected per shot and detected by a sliding-window veto (residual floor, discard fraction);\n"
      "                --decoder legacy reproduces the pre-v0.4 decoder (greedy above 22 defects) on the same syndromes;\n"
      "                --decoder uf-stream: union-find over a sliding window of --window rounds (6), committing --commit (3);\n"
-     "                --herald: 3-state readout heralds leaked measure qubits; decoded with and without them\n"},
+     "                --herald: 3-state readout heralds leaked measure qubits; decoded with and without them, both by\n"
+     "                the chosen decoder; --herald-weights derived takes the edge weights from the leakage model\n"
+     "                instead of the fixed factors; --dqlr-herald (with --leakage-removal lrr+dqlr): the removal pulse\n"
+     "                leaves a data qubit's leakage on its measure qubit, whose next readout heralds it\n"},
     {"synth-chip",
      "  qpuforge synth-chip <chip.json> <data.json> [--seed S] [--shots N] [--rounds 5,15,25] [--z-only]\n"
      "                [--hidden-dephasing-us T] [--cache file]   virtual chip -> characterisation file (to test the chain)\n"},
@@ -72,7 +76,7 @@ static const UsageBlock kUsageCommands[] = {
      "                pulse-level CZ calibration of every pair (physical tunable coupler)\n"},
     {"gds",
      "  qpuforge gds <chip.json> <out.gds> [--cells cells.json] [--synthesize [--from cells0.json]] [--cell NAME]\n"
-     "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, GDSII\n"},
+     "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, metal connectivity, GDSII\n"},
     {"surgery",
      "  qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input 00|01|++|+-|..] [--readout Z|X] [--chip beta1|alpha1_v11]\n"
      "                [--shots N] [--seed S] [--merge-rounds R] [--pre R] [--post R] [--samples N] [--cache file]\n"
@@ -95,13 +99,12 @@ static const UsageBlock kUsageNotes[] = {
     {"run budget fab qec cz synth-chip hwgate",
      "  --materials <sidecar.json> [--loss-tangent] is also accepted by run, budget, fab, qec, cz, synth-chip and hwgate (as for\n"
      "                analyze; not layout or gds, which refuse it); the sidecar is applied in memory, the chip JSON file is not changed\n"},
-    {"layout gds", "  --materials and --loss-tangent are refused here: the layout follows the chip JSON, so write a copy with the sidecar\n"
-                   "                applied first (qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json>)\n"},
+    {"layout gds", "  --materials and --loss-tangent are refused here: the layout follows the chip JSON, so apply the sidecar values to a copy first\n"},
     {"run budget", "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"},
     {"run qec", "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage (all: every source)\n"},
     {"qec cz synth-chip hwgate surgery", "  qec/cz/synth-chip/hwgate/surgery on a chip with a physical coupler calibrate CZs first (--cache file reuses them)\n"},
     {"*", "  each command takes only the options shown for it; an unknown option, a missing value or a bad number is an error\n"},
-    {"*", "  exit status: 0 done; 1 usage error; 2 error while running (also: gds layout not DRC-clean); 3 hwgate: gate not passed,\n"
+    {"*", "  exit status: 0 done; 1 usage error; 2 error while running (also: gds layout not DRC- and connectivity-clean); 3 hwgate: gate not passed,\n"
            "               surgery: a noiseless check failed\n"},
 };
 
@@ -585,21 +588,7 @@ static ChipDesign load_design_cli(const Args& a, const std::string& path) {
 static void refuse_materials(const Args& a, const char* cmd) {
     if (a.has("--materials") || a.flag("--loss-tangent"))
         throw UsageError(std::string("--materials is not supported by `") + cmd +
-                         "`: the layout follows the chip JSON (write a copy with `qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json>` first)");
-}
-
-// materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]: the sidecar applied and saved (D2)
-static int cmd_materials(const Args& a) {
-    if (a.pos(0) != "apply") throw UsageError("unknown materials action '" + a.pos(0) + "' (the only action is apply)");
-    if (!a.has("--out") || a.text("--out").empty()) throw UsageError("materials apply needs --out <new-chip.json> (the chip file it writes)");
-    MaterialsApplyOptions o;
-    o.use_loss_tangent = a.flag("--loss-tangent");
-    const std::string out = a.text("--out");
-    const auto r = materials_apply_file(a.pos(1), a.pos(2), out, o);
-    print_materials(a.pos(2), r.sidecar, r.report);
-    std::printf("wrote %s: %d applied, %d skipped; materials_source records the sidecar (sha256 %s)\n", out.c_str(),
-                r.report.applied(), r.report.skipped(), r.chip["materials_source"]["sidecar_sha256"].str().c_str());
-    return 0;
+                         "`: the layout follows the chip JSON (apply the sidecar values to a copy of the chip JSON first)");
 }
 
 static int cmd_analyze(const Args& a) {
@@ -724,6 +713,11 @@ static int cmd_cz(const Args& a) {
     double mt = 0, me = 0, ml = 0; for (const auto& c : cal) { mt += c.t_cz_ns; me += c.err_total; ml += c.leakage + c.leak_spectators; }
     const double n = std::max<std::size_t>(cal.size(), 1);
     std::printf("  mean: t_cz %.1f ns, CZ error %.2e (incl. decoherence), leakage %.1e per CZ\n", mt / n, me / n, ml / n);
+    if (D.flux_line.enabled) {   // q18, opt-in (tunable_coupler.flux_line): included in ctrl and total above
+        double md = 0, wd = 0, me2 = 0; for (const auto& c : cal) { md += c.err_distortion; wd = std::max(wd, c.err_distortion); me2 += c.flux_eps_eff; }
+        std::printf("  flux-line distortion (opt-in, on top of residual %.1e): eps_eff %.1e mean, error %.2e mean / %.2e worst pair\n",
+                    D.coupler.residual_ctrl_err, me2 / n, md / n, wd);
+    }
     if (const auto out = a.text("--out"); !out.empty()) { write_json_file(out, cz_calibration_json(cal)); std::printf("  wrote %s\n", out.c_str()); }
     return 0;
 }
@@ -770,7 +764,7 @@ static int cmd_gds(const Args& a) {
     write_gds(L, a.pos(1), a.text("--cell", "TOP"));
     std::printf("\n%s — layout: %.1f x %.1f mm, %zu etch polygons, %zu junction regions, %zu bump pads -> %s\n", D.name.c_str(),
                 L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), L.jj.size(), L.bumps.size(), a.pos(1).c_str());
-    std::printf("  DRC: %s\n", drc_summary(L).c_str());
+    std::printf("  DRC: %s\n  %s\n", drc_summary(L).c_str(), connectivity_summary(L).c_str());
     for (const auto& s : L.problems) std::printf("    %s\n", s.c_str());
     for (std::size_t i = 0; i < L.drc.size() && i < 10; ++i)
         std::printf("    %s %.3f um at (%.3f, %.3f) um\n", L.drc[i].rule.c_str(), L.drc[i].value, L.drc[i].box.cx(), L.drc[i].box.cy());
@@ -787,7 +781,7 @@ static int cmd_gds(const Args& a) {
     std::printf("  re-null by parking the couplers at %.3f GHz (%.0f MHz below the sweet spot, df/dPhi %.2f GHz/Phi0): residual gap %.3f MHz, ZZ %+.2f kHz\n",
                 P.park_fc_GHz, (D.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
     for (const auto& r : L.resonators) if (std::abs(r.drawn_um - r.target_um) > 1) std::printf("    resonator R%d length %.0f um vs target %.0f um\n", r.qubit, r.drawn_um, r.target_um);
-    return L.drc_clean() ? 0 : 2;
+    return L.drc_clean() && L.conn.clean() ? 0 : 2;
 }
 
 static int cmd_qec(const Args& a) {
@@ -798,8 +792,13 @@ static int cmd_qec(const Args& a) {
         for (const char* o : {"--veto-window", "--veto-radius", "--veto-false", "--impact-p", "--burst-radius"})
             if (a.has(o)) throw UsageError(std::string(o) + " needs --veto");
     if (!a.flag("--herald"))
-        for (const char* o : {"--herald-fidelity", "--herald-false", "--herald-factor", "--herald-rule"})
+        for (const char* o : {"--herald-fidelity", "--herald-false", "--herald-factor", "--herald-rule", "--herald-weights", "--dqlr-herald"})
             if (a.has(o)) throw UsageError(std::string(o) + " needs --herald");
+    if (a.text("--herald-weights", "fixed") == "derived")
+        for (const char* o : {"--herald-factor", "--herald-rule"})
+            if (a.has(o)) throw UsageError(std::string(o) + " applies to --herald-weights fixed only");
+    if (a.flag("--dqlr-herald") && a.text("--leakage-removal") != "lrr+dqlr")
+        throw UsageError("--dqlr-herald needs --leakage-removal lrr+dqlr");
     if (a.text("--decoder", "exact") != "uf-stream")
         for (const char* o : {"--window", "--commit"})
             if (a.has(o)) throw UsageError(std::string(o) + " needs --decoder uf-stream");
@@ -811,6 +810,7 @@ static int cmd_qec(const Args& a) {
         D.leakage.reset_removes_leakage = v == "lrr" || v == "lrr+dqlr";
         D.leakage.dqlr = v == "dqlr" || v == "lrr+dqlr";
     }
+    if (a.flag("--dqlr-herald")) D.leakage.dqlr_transfer = true;
     auto R = analyze(D);
     if (D.coupler.physical) calibrate_chip_cz(D, R, true, a.text("--cache"));
     auto nm = noise_model(D, R);
@@ -845,9 +845,16 @@ static int cmd_qec(const Args& a) {
         const std::string rule = a.text("--herald-rule", "footprint");   // footprint or detector (checked)
         fro.herald.footprint = rule == "footprint";
         if (!fro.herald.footprint) fro.herald.touch_factor = fro.herald.footprint_factor;
-        std::printf("heralded leakage: 3-state readout of the measure qubits, fidelity %.3f, false-herald rate %.1e; %s rule, factor %.2f%s\n",
-                    fro.herald.fidelity, fro.herald.false_rate, rule.c_str(), fro.herald.footprint_factor,
-                    nm.leakage ? (nm.reset_removes_leakage ? "" : " (the reset does not remove leakage)") : " (leakage is not simulated: only false heralds)");
+        fro.herald.derived = a.text("--herald-weights", "fixed") == "derived";
+        const char* note = nm.leakage ? (nm.reset_removes_leakage ? "" : " (the reset does not remove leakage)") : " (leakage is not simulated: only false heralds)";
+        if (fro.herald.derived)
+            std::printf("heralded leakage: 3-state readout of the measure qubits, fidelity %.3f, false-herald rate %.1e; weights derived from the leakage model%s\n",
+                        fro.herald.fidelity, fro.herald.false_rate, note);
+        else
+            std::printf("heralded leakage: 3-state readout of the measure qubits, fidelity %.3f, false-herald rate %.1e; %s rule, factor %.2f%s\n",
+                        fro.herald.fidelity, fro.herald.false_rate, rule.c_str(), fro.herald.footprint_factor, note);
+        if (D.leakage.dqlr_transfer)
+            std::printf("  DQLR with heralding: a data qubit's leakage is moved onto its measure qubit and heralded by that qubit's next readout\n");
     }
     double best_T1 = 0, best_T2 = 0;
     for (const auto& q : R.q) { best_T1 = std::max(best_T1, q.T1_us); best_T2 = std::max(best_T2, q.T2_us); }
@@ -856,7 +863,8 @@ static int cmd_qec(const Args& a) {
         std::printf("  rounds   round_ns   detection   P_L                eps/round   defects/shot (max)   decode us/shot\n");
         std::vector<MemoryResult> all;
         for (int r : rounds) {
-            const auto M = prepare_memory(D, R, nm, r, basis);
+            auto M = prepare_memory(D, R, nm, r, basis);
+            if (fro.herald.on && fro.herald.derived) prepare_herald_model(M);
             FrameRunOptions fr = fro;
             std::unique_ptr<StreamingUnionFind> stream;
             if (a.text("--decoder", "exact") == "uf-stream") {
@@ -871,10 +879,12 @@ static int cmd_qec(const Args& a) {
             if (M.frame.leakage) std::printf("   leaked: data %.1e meas %.1e", res.leak_frac_data, res.leak_frac_meas);
             std::printf("\n");
             if (herald) {
-                FrameRunOptions blind = fro; blind.herald.use_in_decoder = false;
+                // the comparison run: the same options (so the same decoder, streaming included), heralds ignored
+                FrameRunOptions blind = fr; blind.herald.use_in_decoder = false;
                 const auto nb = run_memory_frame(M, shots, seed + unsigned(r) + (basis == 'X' ? 7919u : 0u), blind);
-                std::printf("          heralds %.2f per shot (%.0f%% leaked); same syndromes decoded without heralds: P_L %.5f, eps %.5f (with: %.5f)\n",
-                            res.heralds_per_shot, 100 * res.herald_true_frac, nb.p_logical, nb.eps_per_round, res.eps_per_round);
+                std::printf("          heralds %.2f per shot (%.0f%% leaked); same syndromes decoded without heralds%s: P_L %.5f, eps %.5f (with: %.5f)\n",
+                            res.heralds_per_shot, 100 * res.herald_true_frac, fr.stream ? " (streaming union-find)" : "", nb.p_logical, nb.eps_per_round,
+                            res.eps_per_round);
             }
             if (res.ignored_exchange_pairs) std::printf("    ! %d near-degenerate exchange pair(s) not modelled by the Pauli-frame simulator\n", res.ignored_exchange_pairs);
             if (sv_shots > 0 && r == rounds.front()) {
@@ -1078,6 +1088,7 @@ static const std::vector<Command>& commands() {
           choice("--leakage-removal", "lrr|dqlr|lrr+dqlr|none"),
           text("--cache"), flag("--herald"), real("--herald-fidelity", 0, 1), real("--herald-false", 0, 1),
           real("--herald-factor", 0, 1), choice("--herald-rule", "footprint|detector"),
+          choice("--herald-weights", "fixed|derived"), flag("--dqlr-herald"),
           flag("--bursts"), real("--burst-rate", 0), real("--burst-tau-ms", 0), real("--burst-t1-us"), real("--burst-tphi-us"),
           flag("--veto"), integer("--veto-window", 1), real("--veto-radius", 0), real("--veto-false", 0, 1),
           real("--impact-p", 0, 1), real("--burst-radius", 0)})},
@@ -1091,7 +1102,6 @@ static const std::vector<Command>& commands() {
         {"cz", cmd_cz, {"<chip.json>"}, with_materials({text("--out"), text("--cache"), real("--g-qc"), real("--f-on"), real("--rise")})},
         {"gds", cmd_gds, {"<chip.json>", "<out.gds>"},
          {text("--cells"), flag("--synthesize"), text("--from"), text("--cell"), text("--materials"), flag("--loss-tangent")}},   // refused
-        {"materials", cmd_materials, {"apply", "<chip.json>", "<sidecar.json>"}, {text("--out"), flag("--loss-tangent")}},
         {"surgery", cmd_surgery, {},
          {choice("--op", "zz|xx|cnot"), int_list("--d", 3), text("--input"), choice("--readout", "Z|X"),
           choice("--chip", "beta1|alpha1_v11"), integer("--shots", 0, 1000000000L),

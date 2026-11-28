@@ -81,26 +81,44 @@ def conn_text(lay):
     c = lay.get('connectivity')
     if not c:
         return 'not checked'
-    return (f"{c['floating_ground']:,} floating ground fragments; {c['shorted_lines_on_plane']} of {c['shorted_lines']} shorted lines "
+    head = '**clean**' if c.get('clean') else '**not clean**'
+    straps = ''
+    if 'ground_straps' in c:
+        straps = (f"; {c['ground_straps']:,} ground straps (modelled airbridges; {c['strap_line_crossings']:,} over lines, "
+                  f"{c['strap_coupler_crossings']:,} over coupler or bus strips), {c['fragments_removed']:,} small ground fragments removed")
+    return (f"{head}: {c['floating_ground']:,} floating ground fragments; {c['shorted_lines_on_plane']} of {c['shorted_lines']} shorted lines "
             f"reach the ground plane (qubit flux lines {c['flux_lines_on_plane']} of {c['flux_lines']}); "
-            f"{c['junctions_landed']} of {c['junctions']} junctions land on metal at both ends; "
-            f"{c['islands_merged']} conductors share metal with another island")
+            f"{c['junctions_landed']} of {c['junctions']} junctions join an island to the plane; "
+            f"{c['islands_merged']} conductors share metal with another island{straps}")
+
+
+def lines_text(lay):
+    b = lay.get('control_lines')
+    if not b:
+        return 'not checked'
+    return (f"XY line {b['C_xy_measure_fF']:.3f} / {b['C_xy_data_fF']:.3f} fF (measure / data qubit), flux line "
+            f"{b['C_flux_measure_fF']:.3f} / {b['C_flux_data_fF']:.3f} fF effective ({b['C_flux_open_measure_fF']:.2f} / "
+            f"{b['C_flux_open_data_fF']:.2f} fF if it were open); T1 limits at least {b['min_T1_xy_us'] / 1e3:.2f} ms (XY) and "
+            f"{b['min_T1_flux_us'] / 1e3:.2f} ms (flux), {b['min_ratio_xy']:.1f}× and {b['min_ratio_flux']:.1f}× the design T1 "
+            f"of the worst qubit (budget {b['margin']:.0f}×: {'met' if b['ok'] else '**not met**'})")
 
 
 def mask_note(lay, sec):
     d = lay.get('drc', {})
     c = lay.get('connectivity', {})
+    b = lay.get('control_lines', {})
     drc = ('passes the placement and island-spacing checks and the mask-level width/space check '
            f"({d['etch_min_width_um']:.0f} µm on the merged etch layer, projection metric) with no violations"
            if mask_clean(lay) else
            f"reports {d.get('etch_width_violations', 0):,} width and {d.get('etch_space_violations', 0):,} space violations on the merged etch layer")
-    if c.get('clean'):
-        return f"**Mask.** The layout {drc}, and the metal connectivity check is clean (§{sec})."
-    return (f"**The mask is not fabrication-ready.** The layout {drc} (§{sec}), but the metal connectivity check (`layout.hpp`, "
-            f"`ConnectivityReport`; reported, not gated) is not clean: {conn_text(lay)}. The extraction treats every enclosed "
-            f"ground fragment as grounded, so the extracted circuit is that of an ideal ground. Open before tape-out: the "
-            f"enclosed ground between the qubit arms and around the buses (ground straps or airbridges), the qubit flux-line "
-            f"short (drawn open), junction landing, the coupling of the XY and flux lines to the qubits, the foundry's DRC deck.")
+    if c.get('clean') and mask_clean(lay):
+        lines = ('the control-line couplings are within the T1 budget' if b.get('ok') else
+                 f"the control-line T1 budget (reported, not gated) is **not met**: {lines_text(lay)}")
+        return (f"**Mask.** The layout {drc}; the metal connectivity check is clean with its ground straps; {lines} (§{sec}). "
+                f"Not verified: the airbridges (their capacitance to the coupler and bus strips they cross is not in the extraction "
+                f"cells), EM (full-wave) extraction, inductance (the flux lines' coupling to the SQUIDs), a foundry DRC deck.")
+    return (f"**The mask is not fabrication-ready.** The layout {drc} (§{sec}); metal connectivity: {conn_text(lay)}; "
+            f"control lines: {lines_text(lay)}.")
 
 
 def leak_note(d):
@@ -117,7 +135,10 @@ def layout_vals(lay):
         'CHIP_W': f'{lay.get("width_mm", 0):.1f}', 'CHIP_H': f'{lay.get("height_mm", 0):.1f}', 'ETCH': f'{lay.get("etch_polygons", 0):,}',
         'JJ': lay.get('junction_regions', 0), 'BUMPS': lay.get('bumps', 0),
         'DRC': drc_text(lay), 'CONN': conn_text(lay),
-        'MASK_STATUS': ('passes the mask width/space DRC but is not fabrication-ready: metal connectivity open' if mask_clean(lay) else 'not fabrication-ready'),
+        'LINES': lines_text(lay),
+        'MASK_STATUS': (('is DRC- and connectivity-clean in the model (2D LVS-lite connectivity with modelled airbridges; airbridges, EM and inductance not verified); control-line T1 budget '
+                         + ('met' if lay.get('control_lines', {}).get('ok') else '**not met** (flux line)') + '; foundry DRC not yet run')
+                        if mask_clean(lay) and lay.get('connectivity', {}).get('clean') else 'not fabrication-ready'),
         'DRC_W': f"{d.get('etch_width_violations', 0):,}", 'DRC_S': f"{d.get('etch_space_violations', 0):,}",
         'EC_ERR': f'{100 * lay.get("max_EC_err", 0):.1f} %', 'G_ERR': f'{100 * lay.get("max_coupling_err", 0):.1f} %',
         'RO_C_ERR': f'{100 * lay.get("readout_C_err", 0):+.1f} %', 'RO_C': f'{lay.get("readout_C_fF", 0):.2f}',
@@ -136,7 +157,8 @@ def beta(scratch=None):
              'yield': 'trimmed fabrication yield ≥ 80 % collision-free',
              'leakage': 'chosen leakage scheme at least as good as the alternative over 50 rounds',
              'stability': 'detection rate flat over 100 rounds with the leakage-removing reset (drift < 5 %)',
-             'drc': 'layout passes placement and island-spacing checks (mask DRC and metal connectivity reported, not gated; see §6)',
+             'drc': 'layout passes placement, island-spacing and mask width/space checks (§6)',
+             'connectivity': 'metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane (§6)',
              'layout': 'extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable'}
     gates, npass = gate_table(ec, names)
     bud, sens = r['budget_d3'], r['sensitivity_d3']
@@ -206,7 +228,8 @@ def gamma(scratch=None):
              'impacts': 'logical-error floor from impacts below 10 % of the distance-7 error (both scenarios)',
              'stability': 'detection rate flat over 40 rounds with the leakage-removing reset (drift < 5 %)',
              'yield': 'trimmed fabrication yield ≥ 80 % collision-free',
-             'drc': 'layout passes placement and island-spacing checks (mask DRC and metal connectivity reported, not gated; see §7)',
+             'drc': 'layout passes placement, island-spacing and mask width/space checks (§7)',
+             'connectivity': 'metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane (§7)',
              'layout': 'extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable'}
     gates, npass = gate_table(ec, names)
     e = lambda dd, b: pc(s[f'd{dd}'][f'eps_{b}'], 5 if dd == 7 else 4)

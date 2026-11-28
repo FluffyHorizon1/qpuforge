@@ -46,6 +46,14 @@ foreach(o --herald-fidelity --herald-false --herald-factor)
   expect_status(1 qec "${MISSING}" ${o} 0.5)        # needs --herald
 endforeach()
 expect_status(1 qec "${MISSING}" --herald-rule detector)
+expect_status(1 qec "${MISSING}" --herald-weights derived)             # needs --herald
+expect_status(1 qec "${MISSING}" --dqlr-herald)                        # needs --herald
+expect_status(1 qec "${MISSING}" --herald --dqlr-herald)               # needs --leakage-removal lrr+dqlr
+expect_status(1 qec "${MISSING}" --herald --dqlr-herald --leakage-removal dqlr)
+expect_status(1 qec "${MISSING}" --herald --herald-weights model)      # unknown choice
+expect_status(1 qec "${MISSING}" --herald --herald-weights derived --herald-factor 0.3)   # the factor belongs to the fixed rule
+expect_status(1 qec "${MISSING}" --herald --herald-weights derived --herald-rule detector)
+expect_status(2 qec "${MISSING}" --herald --herald-weights derived --leakage-removal lrr+dqlr --dqlr-herald)   # accepted: stops at the missing chip
 # qec: value ranges (probabilities and the herald factor in [0, 1], the veto window >= 1, radii and rates >= 0)
 foreach(o --herald-fidelity --herald-false --herald-factor)
   expect_status(1 qec "${MISSING}" --herald ${o} 1.5)

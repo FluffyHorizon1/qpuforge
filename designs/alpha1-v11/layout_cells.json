@@ -1,23 +1,23 @@
 {
   "pitch_um": 900,
   "measure_qubit": {
-    "arm_length_um": 127.409626608,
+    "arm_length_um": 123.364480548,
     "arm_width_um": 16,
     "gap_um": 30,
     "tbar_thickness_um": 12,
     "tbar_length_um": 120,
-    "readout_pad_um": 38.4244877084,
+    "readout_pad_um": 38.2190396785,
     "claw_gap_um": 5,
     "claw_width_um": 10,
     "squid_stub_um": 16
   },
   "data_qubit": {
-    "arm_length_um": 129.830661108,
+    "arm_length_um": 125.740289779,
     "arm_width_um": 16,
     "gap_um": 30,
     "tbar_thickness_um": 12,
     "tbar_length_um": 120,
-    "readout_pad_um": 38.4244877084,
+    "readout_pad_um": 38.2190396785,
     "claw_gap_um": 5,
     "claw_width_um": 10,
     "squid_stub_um": 16
@@ -26,31 +26,31 @@
     "tbar_gap_um": 5,
     "tbar_thickness_um": 12,
     "offset_um": 32.5,
-    "coupler_tbar_um": 42.0367325094,
+    "coupler_tbar_um": 42.7078597802,
     "body_width_um": 10,
     "gap_um": 20,
-    "pad_um": 248.397209688,
+    "pad_um": 246.052945775,
     "bus_tbar_um": 6,
     "bus_width_um": 6,
     "bus_gap_um": 15,
-    "bus_end_gap_um": 17.4977269426
+    "bus_end_gap_um": 14.0996740009
   },
   "achieved_fine_mesh": {
-    "EC_measure_GHz": 0.202268038793,
-    "EC_data_GHz": 0.1998393024,
-    "EC_coupler_GHz": 0.125584435679,
-    "G_measure_coupler_GHz": 0.0602554828855,
-    "G_coupler_data_GHz": 0.058471646098,
-    "G_measure_data_GHz": 0.00563014225333,
-    "C_qubit_readout_fF": 9.09806141305,
-    "C_sigma_measure_fF": 96.0051201533,
-    "C_sigma_data_fF": 97.1583608291,
-    "C_coupler_fF": 155.215389741,
-    "C_qubit_coupler_fF": 5.61241529468,
-    "C_qubit_bus_fF": 1.24895750506,
-    "C_bus_fF": 65.2682907309,
-    "C_qubit_qubit_fF": 0.103870007017,
-    "C_qubit_ground_fF": 58.6141273338
+    "EC_measure_GHz": 0.202362078502,
+    "EC_data_GHz": 0.199990500129,
+    "EC_coupler_GHz": 0.125560357844,
+    "G_measure_coupler_GHz": 0.0604988056019,
+    "G_coupler_data_GHz": 0.0585340850235,
+    "G_measure_data_GHz": 0.00566494659608,
+    "C_qubit_readout_fF": 9.10432314563,
+    "C_sigma_measure_fF": 95.9685071278,
+    "C_sigma_data_fF": 97.0907817048,
+    "C_coupler_fF": 155.250815507,
+    "C_qubit_coupler_fF": 5.61434907432,
+    "C_qubit_bus_fF": 1.41138990962,
+    "C_bus_fF": 66.8176038934,
+    "C_qubit_qubit_fF": 0.0987839977722,
+    "C_qubit_ground_fF": 57.9470976494
   },
   "targets": {
     "EC_measure_GHz": 0.202171586927,
@@ -61,6 +61,6 @@
     "G_measure_data_GHz": 0.00555515701813,
     "C_qubit_readout_fF": 9.14746473079
   },
-  "synthesis_log": ["start              L_m  129.3 L_d  131.9 pad  252.6 l_c  43.5 bus   6.0 r  40.9 | EC_m 0.1999 EC_d 0.1974 EC_c 0.1260 G 0.0587 G_md 0.00600 C_qr 9.05", "  gauss-newton 1   L_m  129.4 L_d  131.8 pad  253.8 l_c  43.9 bus   1.5 r  41.5 | EC_m 0.2026 EC_d 0.2002 EC_c 0.1256 G 0.0595 G_md 0.00564 C_qr 9.16", "fine-mesh check    L_m  129.4 L_d  131.8 pad  253.8 l_c  43.9 bus   1.5 r  41.5 | EC_m 0.1988 EC_d 0.1966 EC_c 0.1240 G 0.0592 G_md 0.00559 C_qr 9.49", "pass 2 start       L_m  129.4 L_d  131.8 pad  253.8 l_c  43.9 bus   1.5 r  41.5 | EC_m 0.2026 EC_d 0.2002 EC_c 0.1256 G 0.0595 G_md 0.00564 C_qr 9.16", "  gauss-newton 1   L_m  127.4 L_d  129.8 pad  248.4 l_c  42.0 bus   1.8 r  38.4 | EC_m 0.2061 EC_d 0.2036 EC_c 0.1272 G 0.0598 G_md 0.00568 C_qr 8.79", "final (fine mesh)  L_m  127.4 L_d  129.8 pad  248.4 l_c  42.0 bus   1.8 r  38.4 | EC_m 0.2023 EC_d 0.1998 EC_c 0.1256 G 0.0594 G_md 0.00563 C_qr 9.10"],
-  "max_rel_err": 0.0134983106605
+  "synthesis_log": ["start              L_m  127.4 L_d  129.8 pad  248.4 l_c  42.0 bus   1.8 r  38.4 | EC_m 0.2029 EC_d 0.2006 EC_c 0.1272 G 0.0586 G_md 0.00544 C_qr 8.78", "  gauss-newton 1   L_m  126.0 L_d  128.5 pad  252.1 l_c  44.3 bus   2.8 r  41.5 | EC_m 0.2023 EC_d 0.1999 EC_c 0.1256 G 0.0594 G_md 0.00563 C_qr 9.16", "fine-mesh check    L_m  126.0 L_d  128.5 pad  252.1 l_c  44.3 bus   2.8 r  41.5 | EC_m 0.1983 EC_d 0.1959 EC_c 0.1240 G 0.0589 G_md 0.00557 C_qr 9.51", "pass 2 start       L_m  126.0 L_d  128.5 pad  252.1 l_c  44.3 bus   2.8 r  41.5 | EC_m 0.2023 EC_d 0.1999 EC_c 0.1256 G 0.0594 G_md 0.00563 C_qr 9.16", "  gauss-newton 1   L_m  123.4 L_d  125.7 pad  246.1 l_c  42.7 bus   3.0 r  38.2 | EC_m 0.2065 EC_d 0.2040 EC_c 0.1272 G 0.0600 G_md 0.00573 C_qr 8.77", "final (fine mesh)  L_m  123.4 L_d  125.7 pad  246.1 l_c  42.7 bus   3.0 r  38.2 | EC_m 0.2024 EC_d 0.2000 EC_c 0.1256 G 0.0595 G_md 0.00566 C_qr 9.10"],
+  "max_rel_err": 0.0197635418026
 }

@@ -155,7 +155,7 @@ if(EXISTS /dev/full)   # opens, then every write fails: caught by the check afte
   qpuforge_cli_test(write_fails_full "error: cannot write /dev/full" synth-chip ${CLI_CHIP} /dev/full --shots 50 --rounds 2 --z-only)
 endif()
 add_test(NAME cli_exit_status COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpuforge_cli> -DCHIP=${CLI_CHIP} -DMISSING=${CLI_NO_CHIP}
-         -DSYNTH=${CMAKE_CURRENT_SOURCE_DIR}/designs/alpha1-v11/example_characterisation_synthetic.json
+         -DOUT=${CLI_OUT}_exit_status_synth.json
          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_exit_status.cmake)
 set_tests_properties(cli_exit_status PROPERTIES LABELS unit)
 # CLI guards for `analyze --materials` (not validation checks), on the committed Alpha-1 v1.1 design: a sidecar with

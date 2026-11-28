@@ -4,8 +4,8 @@
 # Option dependencies and value ranges are checked on a chip file that does not exist: a usage error exits 1 before any
 # file is read, so a check that went missing (or ran after load_design) shows as exit 2, "cannot open".
 # Usage: cmake -DEXE=<qpuforge> -DCHIP=<examples/alpha1.json> -DMISSING=<a path that does not exist>
-#              -DSYNTH=<a characterisation file the gate fails on> -P check_cli_exit_status.cmake
-foreach(v EXE CHIP MISSING SYNTH)
+#              -DOUT=<a characterisation file to write> -P check_cli_exit_status.cmake
+foreach(v EXE CHIP MISSING OUT)
   if(NOT DEFINED ${v})
     message(FATAL_ERROR "check_cli_exit_status.cmake: -D${v}=... is required")
   endif()
@@ -29,7 +29,10 @@ expect_status(1 run "${CHIP}" ghz:3 --shots)        # missing value
 expect_status(1 run "${CHIP}" ghz:3 --shots lots)   # malformed number (was 2, from std::stoi)
 expect_status(1 run "${CHIP}")                      # missing <circuit>
 expect_status(2 analyze "${MISSING}")               # error while running: the chip file cannot be read
-expect_status(3 hwgate "${CHIP}" "${SYNTH}" --shots 50)   # gate not passed (a 50-shot gate on a mismatched chip)
+# 3: a virtual chip with 8 us of dephasing the model does not know fails the gate by a wide margin (logical error per
+# round above the limit, measured/model ratio about 4-5 against 2). Made here, so no committed design file is involved.
+expect_status(0 synth-chip "${CHIP}" "${OUT}" --seed 1 --shots 200 --rounds 2,4,6 --z-only --hidden-dephasing-us 8)
+expect_status(3 hwgate "${CHIP}" "${OUT}" --shots 200)
 
 # qec: options that need another option
 expect_status(1 qec "${MISSING}" --veto)

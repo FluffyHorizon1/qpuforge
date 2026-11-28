@@ -1,46 +1,46 @@
 CZ calibration: 16 unique frequency combinations for 168 pairs (0 simulated, 16 cached)
 1. Gamma-1 device (97 qubits: 49 data + 48 measure, tunable couplers)
-   mean T1 147 us (best 157), T2 202 us, readout error 0.55% at 300 ns; 168 CZ pairs: 43.1 ns, error 9.09e-04, leakage 6.2e-05 (max 2.3e-04); collisions 0
+   mean T1 147 us (best 157), T2 202 us, readout error 0.55% at 300 ns; 168 CZ pairs: 43.5 ns, error 9.13e-04, leakage 4.5e-05 (max 8.4e-05); collisions 0
 
 2. Logical error per round vs code distance (14-round memory, both bases, exact matching decoder)
-   d=3: memory-Z eps 0.08179% +- 0.00244% (1133 failures / 100000), memory-X eps 0.08033% +- 0.00242% (1113 / 100000), round 730 ns
-   d=5: memory-Z eps 0.01567% +- 0.00106% (219 failures / 100000), memory-X eps 0.01589% +- 0.00107% (222 / 100000), round 738 ns
-   d=7: memory-Z eps 0.00279% +- 0.00032% (78 failures / 200000), memory-X eps 0.00264% +- 0.00031% (74 / 200000), round 746 ns
-   Lambda(3->5): Z 5.22, X 5.06;  Lambda(5->7): Z 5.62, X 6.01;  d=7 logical lifetime 27.5 ms (175x best physical T1)
+   d=3: memory-Z eps 0.08362% +- 0.00247% (1158 failures / 100000), memory-X eps 0.08406% +- 0.00248% (1164 / 100000), round 731 ns
+   d=5: memory-Z eps 0.01575% +- 0.00106% (220 failures / 100000), memory-X eps 0.01611% +- 0.00107% (225 / 100000), round 739 ns
+   d=7: memory-Z eps 0.00314% +- 0.00034% (88 failures / 200000), memory-X eps 0.00272% +- 0.00031% (76 / 200000), round 747 ns
+   Lambda(3->5): Z 5.31, X 5.22;  Lambda(5->7): Z 5.01, X 5.93;  d=7 logical lifetime 25.5 ms (162x best physical T1)
 
 3. Decoding (exact minimum-weight matching: DP up to 8 defects, blossom beyond)
-   d=7, 14 rounds: 11.6 defects per shot (max 39), 1.632% of shots above 22; software decode 0.88 us per round on one core (round 0.75 us)
-   d=7, 40 rounds (4000 shots, same syndromes): 31.9 defects per shot, 89.7% above 22
+   d=7, 14 rounds: 11.6 defects per shot (max 36), 1.510% of shots above 22; software decode 0.80 us per round on one core (round 0.75 us)
+   d=7, 40 rounds (4000 shots, same syndromes): 32.0 defects per shot, 89.4% above 22
      exact matching          P_L 0.00125 (5 failures), decode 2.0 us per round
-     greedy above 22 defects P_L 0.07775 (311 failures), decode 264.6 us per round
+     greedy above 22 defects P_L 0.08250 (330 failures), decode 270.3 us per round
 
 4. High-energy impacts (correlated error bursts; the decoder keeps its quiet-chip priors)
    no mitigation: T1 burst, 25 ms recovery (memory-Z)
-     quiet chip: eps 0.000054 per round, 11.5 defects per shot
+     quiet chip: eps 0.000036 per round, 11.6 defects per shot
      severity 1.0e+00: logical qubit randomised within the run (eps >= 0.076), 150.8 defects per shot
-     severity 3.2e-01: logical qubit randomised within the run (eps >= 0.076), 91.5 defects per shot
-     severity 1.0e-01: eps 0.023015 per round, 43.5 defects per shot
-     severity 3.2e-02: eps 0.001289 per round, 22.6 defects per shot
-     severity 1.0e-02: eps 0.000183 per round, 15.1 defects per shot
-     severity 3.2e-03: eps 0.000043 per round, 12.7 defects per shot
-     one impact flips the logical qubit with probability 0.50; unprotected for 115.2 ms; syndrome above 1.5x quiet for 103.0 ms
-     floor 3.73e-08 per round = 0.14% of the d=7 error; impacts would dominate from about d = 14 at this Lambda
+     severity 3.2e-01: logical qubit randomised within the run (eps >= 0.076), 91.3 defects per shot
+     severity 1.0e-01: eps 0.023949 per round, 43.7 defects per shot
+     severity 3.2e-02: eps 0.001474 per round, 22.7 defects per shot
+     severity 1.0e-02: eps 0.000154 per round, 15.1 defects per shot
+     severity 3.2e-03: eps 0.000057 per round, 12.7 defects per shot
+     one impact flips the logical qubit with probability 0.50; unprotected for 135.3 ms; syndrome above 1.5x quiet for 102.8 ms
+     floor 3.73e-08 per round = 0.13% of the d=7 error; impacts would dominate from about d = 15 at this Lambda
    gap-engineered junctions: dephasing burst, 1 ms (memory-X)
-     quiet chip: eps 0.000036 per round, 11.5 defects per shot
-     severity 1.0e+00: logical qubit randomised within the run (eps >= 0.076), 179.0 defects per shot
+     quiet chip: eps 0.000043 per round, 11.5 defects per shot
+     severity 1.0e+00: logical qubit randomised within the run (eps >= 0.076), 178.8 defects per shot
      severity 3.2e-01: logical qubit randomised within the run (eps >= 0.076), 171.9 defects per shot
      severity 1.0e-01: logical qubit randomised within the run (eps >= 0.076), 135.3 defects per shot
-     severity 3.2e-02: logical qubit randomised within the run (eps >= 0.076), 73.7 defects per shot
-     severity 1.0e-02: eps 0.006251 per round, 34.8 defects per shot
-     severity 3.2e-03: eps 0.000420 per round, 19.4 defects per shot
-     severity 1.0e-03: eps 0.000082 per round, 14.1 defects per shot
-     severity 3.2e-04: eps 0.000043 per round, 12.4 defects per shot
-     one impact flips the logical qubit with probability 0.50; unprotected for 7.1 ms; syndrome above 1.5x quiet for 6.1 ms
-     floor 3.73e-08 per round = 0.14% of the d=7 error; impacts would dominate from about d = 14 at this Lambda
+     severity 3.2e-02: logical qubit randomised within the run (eps >= 0.076), 73.6 defects per shot
+     severity 1.0e-02: eps 0.006483 per round, 34.8 defects per shot
+     severity 3.2e-03: eps 0.000362 per round, 19.3 defects per shot
+     severity 1.0e-03: eps 0.000093 per round, 14.1 defects per shot
+     severity 3.2e-04: eps 0.000025 per round, 12.4 defects per shot
+     one impact flips the logical qubit with probability 0.50; unprotected for 6.9 ms; syndrome above 1.5x quiet for 6.1 ms
+     floor 3.73e-08 per round = 0.13% of the d=7 error; impacts would dominate from about d = 15 at this Lambda
 
 5. Long experiment at d=7 (40 rounds): detection rate per round
-   leakage-removing reset (Gamma-1)   P_L(40) 0.00148 (74 failures / 50000), detection 0.0325 -> 0.0325 (drift -0.6%), leaked data 9.5e-05 meas 1.3e-04
-   plain reset (no leakage removal)   P_L(40) 0.02504 (1252 failures / 50000), detection 0.0330 -> 0.0440 (drift +29.0%), leaked data 1.7e-03 meas 2.2e-03
+   leakage-removing reset (Gamma-1)   P_L(40) 0.00122 (61 failures / 50000), detection 0.0331 -> 0.0325 (drift -1.1%), leaked data 6.3e-05 meas 9.4e-05
+   plain reset (no leakage removal)   P_L(40) 0.01792 (896 failures / 50000), detection 0.0332 -> 0.0406 (drift +20.7%), leaked data 1.2e-03 meas 1.6e-03
 
 6. Fabrication yield at 97 qubits (junction resistance spread; frequency-collision rules)
    spread 1.0%: collision-free  91/100 (91%), frequency scatter 29 MHz rms
@@ -51,10 +51,10 @@ CZ calibration: 16 unique frequency combinations for 168 pairs (0 simulated, 16 
    11 feedlines, 8.8 resonators per line, 6.90-7.38 GHz; Beta-1 needs 190 lines, Alpha-1 64
 
 8. Physical layout (97-qubit chip from the Beta-1 rev C cells)
-   chip 13.0 x 13.0 mm, 83667 etch polygons, 265 junction regions, 459 bump pads -> designs/gamma1/GF97.gds
-   DRC: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 194 width + 1016 space violations
-   extracted vs target: E_C within 2.8%, couplings within 5.7%, qubit-readout capacitance +4.2% (13.84 fF, target 13.29)
-   post-layout: g_qc 170.6 MHz, readout g 235.5 MHz (design 229.5), parked exchange re-nulled at 8.203 GHz (residual gap 0.000 MHz, ZZ -5.88 kHz)
+   chip 13.0 x 13.0 mm, 82911 etch polygons, 265 junction regions, 459 bump pads -> designs/gamma1/GF97.gds
+   DRC: placement/island-spacing checks clean (0 problems); merged-etch width/space (4/4 um, projection metric): 0 width + 0 space violations
+   extracted vs target: E_C within 0.1%, couplings within 5.5%, qubit-readout capacitance -0.0% (13.29 fF, target 13.29)
+   post-layout: g_qc 168.9 MHz, readout g 229.2 MHz (design 229.5), parked exchange re-nulled at 8.425 GHz (residual gap 0.000 MHz, ZZ -4.32 kHz)
 
 9. Gamma memory gate (simulation, before tape-out)
    [PASS] Lambda(5->7) >= 2 in both bases
@@ -63,7 +63,7 @@ CZ calibration: 16 unique frequency combinations for 168 pairs (0 simulated, 16 
    [PASS] logical-error floor from impacts below 10% of the distance-7 error (both scenarios)
    [PASS] detection rate flat over 40 rounds with the leakage-removing reset (drift < 5%)
    [PASS] trimmed fabrication yield >= 80% collision-free
-   [PASS] first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated)
+   [PASS] layout passes placement, island-spacing and mask width/space DRC (4 um / 4 um, merged etch layer)
    [PASS] extracted E_C within 3%, couplings and readout capacitance within 6%; parked exchange re-nullable
 
-review complete in 1664 s -> designs/gamma1/gamma1_review.json
+review complete in 858 s -> designs/gamma1/gamma1_review.json

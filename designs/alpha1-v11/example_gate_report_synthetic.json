@@ -78,7 +78,7 @@
     {
       "name": "Distance-3 logical error per round",
       "criterion": "<= 1.5%",
-      "value": 0.00494963104854,
+      "value": 0.00505828525531,
       "threshold": 0.015,
       "worst": null,
       "evaluated": true,
@@ -88,7 +88,7 @@
     {
       "name": "Detection-rate drift over 25 rounds",
       "criterion": "< 10%",
-      "value": 0.00611095197174,
+      "value": 0.00536039054274,
       "threshold": 0.1,
       "worst": null,
       "evaluated": true,
@@ -98,7 +98,7 @@
     {
       "name": "Model vs measurement (larger of measured/model and its inverse)",
       "criterion": "<= 2",
-      "value": 1.06261618259,
+      "value": 1.04643653037,
       "threshold": 2,
       "worst": null,
       "evaluated": true,
@@ -107,8 +107,8 @@
     }
   ],
   "model_vs_measurement": [
-    {"d": 3, "basis": "X", "eps_measured": 0.00498132421352, "eps_model": 0.00499426950382, "ratio": 0.997407971217, "round_counts": 3},
-    {"d": 3, "basis": "Z", "eps_measured": 0.00491793788357, "eps_model": 0.00522588038004, "ratio": 0.941073565776, "round_counts": 3}
+    {"d": 3, "basis": "X", "eps_measured": 0.00490986269687, "eps_model": 0.00469198327313, "ratio": 1.04643653037, "round_counts": 3},
+    {"d": 3, "basis": "Z", "eps_measured": 0.00520670781375, "eps_model": 0.00532892023499, "ratio": 0.977066194305, "round_counts": 3}
   ],
   "qubits_measured": 17,
   "pairs_measured": 24,

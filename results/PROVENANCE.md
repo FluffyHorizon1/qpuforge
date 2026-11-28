@@ -9,6 +9,8 @@ the commands below to reproduce them.
 | `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (`.txt` = stdout and stderr) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-28T00:03:39Z | 995 s |
 | `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-28T00:17:57Z | 858 s |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
+| `results/design_study.{csv,txt}` | `design_study > results/design_study.txt` from the repository root (default: 300 trajectories; the program writes the CSV itself) | `802ceb7d5cb230879c79d054633b23bc422938f5` | g++ 13.3.0 | 4 (informational) | 2026-11-27 (time not recorded) | 31 s |
+| `results/test_output.txt` | `test_qpuforge` (no arguments: every group in turn, in one process; 346 checks) | `be4bf53` (`main` b6ad7e0 with this documentation; the materials reader's group included) | g++ 13.3.0 | 4 (informational) | 2026-11-28 (time not recorded) | — |
 | `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` (warm start from the 0.4 cell file, `git show 5125500:designs/alpha1-v11/layout_cells.json`), output copied to the committed path | `0900b14` (`layout.hpp` and `src/` unchanged since) | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 267 s |
 | `designs/beta1/layout_cells.json` (also used by GF-97) | same, with `designs/beta1/beta1.json` and the 0.4 Beta-1 cell file | same | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 280 s |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | same | g++ 13.3.0 | — | 2026-11-27T23:34:33Z | — |
@@ -18,24 +20,31 @@ the commands below to reproduce them.
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
-  The Alpha-1 v1.1, Beta-1 and Gamma-1 reviews were regenerated on `scs-bot/fab-readiness` from the committed tree
-  `d47ced4` (each JSON says `source_tree_dirty: false`), with CZ model version 3 and the re-synthesised cells. A later
-  commit on that branch (`b3f6373`) rewrote one line of `pulse.hpp` for C++17 without changing any value.
+  BUILD_PLACEHOLDER
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
   - gamma: frame Monte Carlo seeds 11 + rounds (distance scaling; memory-X adds 7919), 77 (decoder comparison), 505 (impacts), 21 + rounds (long runs); fab Monte Carlo seed 7.
-- **Thread count.** Since the deterministic Monte Carlo (`docs/design/deterministic-mc.md`) every shot has its own
-  RNG stream (`seed`, shot), so the reviews regenerated on this branch reproduce at any `OMP_NUM_THREADS`; they were run
-  with 4. Outputs made before it (Alpha-1 v1.0, and any row above with 2 or 8 threads) need their recorded thread count.
+- **Thread count does not change the results.** Since 0.4 the Pauli-frame Monte Carlo seeds every shot from
+  (`seed`, shot index) and adds its partial sums in a fixed block order, and the trajectory emulator adds its sampled
+  XEB in trajectory order (`docs/design/deterministic-mc.md`). Every Monte Carlo number in the 0.4 outputs above is
+  therefore bit-identical at any `OMP_NUM_THREADS`, and `openmp_threads` in each JSON is informational. The
+  `determinism` and `determinism_env` CTest guards check this on reference workloads; rerunning `design_study` at
+  `OMP_NUM_THREADS=2` reproduces both `results/design_study.*` files byte for byte (checked 2026-11-28). The 0.3
+  outputs, and the earlier 0.4 outputs made at 2 threads, came from one RNG stream per thread (`seed`, thread id).
+  Per-shot seeding draws a different, statistically equivalent sample, so the values differ from those within Monte
+  Carlo error even where nothing else changed.
 - **Machine-dependent fields.** `runtime_s` and the decode times (`decode_us_per_round*`) are wall-clock measurements
-  and change from run to run. A rerun with the same thread count reproduces every other number.
+  and change from run to run, as do the group times, the decode times and the fault-enumeration times (reference /
+  fast) printed in `results/test_output.txt`. With the same toolchain, a rerun at any thread count reproduces every
+  other number.
 - **Cell files.** Both were synthesised with the DRC-aware generator (bus no narrower than its strip, shorted staircase
   ends, ground-sliver clean-up of the extraction cells, G_md aimed 1.5 % high) in one run each, warm-started from the 0.4
   cell file. The synthesis is deterministic: rerunning the command on the same code and starting file gives the same
   cells. The reviews evaluate the committed cells against the current targets.
-- **Alpha-1 v1.0 review (not regenerated for v0.3).** `results/alpha1_review.{json,txt}` reproduce digit for digit only
-  with the binary that was committed alongside them, run with two threads from a checkout of `3fe4d23`:
+- **Alpha-1 v1.0 review (historical; not regenerated for v0.3 or v0.4).** `results/alpha1_review.{json,txt}` reproduce
+  digit for digit only with the binary that was committed alongside them, run with two threads from a checkout of
+  `3fe4d23`:
   ```
   git worktree add --detach /tmp/v10 3fe4d23 && cd /tmp/v10
   OMP_NUM_THREADS=2 ./examples/alpha1_review      # Gen-0 eps 0.0123228449889 +- 0.000124525386964, as committed
@@ -44,16 +53,17 @@ the commands below to reproduce them.
   the runtime on the last line (418 s against 421 s). Checked on 2026-11-27 with g++ 14.2 runtime libraries.
   Rebuilt from source (`3fe4d23` or `release/v0.3`; g++ 14.2 or clang 19.1.7, `-O3`) the same program gives Gen-0
   eps 0.0120023693144 at 8 threads. Two things differ, and they account for all of it:
-  - **Thread count** (see above): the same binary gives Gen-0 0.012151 / 0.012323 / 0.012306 / 0.012278 / 0.012108 at
-    1 / 2 / 4 / 8 / 16 threads. Only 2 threads matches the committed file.
-  - **FMA contraction:** that binary contains AVX-512 and FMA instructions (`vfmadd*`, 197 of them), so it was built
+  - **Thread count:** that code predates the thread-count-independent Monte Carlo. It gives each OpenMP thread its own
+    RNG stream (`seed`, thread id), so its sample depends on `OMP_NUM_THREADS`: the same binary gives Gen-0 0.012151 /
+    0.012323 / 0.012306 / 0.012278 / 0.012108 at 1 / 2 / 4 / 8 / 16 threads. Only 2 threads matches the committed file.
+  - **FMA contraction:** that binary contains AVX-512 and FMA instructions (199 FMA-family instructions, 129 of them `vfmadd*`), so it was built
     with `-march=native` or similar. GCC and Clang then fuse `a*b+c` by default, which changes the Gen-0 noise model in
     the last bits (detection rate at 10 rounds 0.088772 -> 0.088812) and so the sample. Built from the same source at
     8 threads: plain `-O3` 0.0120023693144; `-O3 -march=native` 0.0122286733965 (g++ 14.2 and clang 19.1.7 agree
     exactly); `-O3 -march=native -ffp-contract=off` 0.0120023693144 again.
   No code change between `3fe4d23` and `release/v0.3` affects the ladder: both trees give identical results with the
   same flags and thread count. The frame Monte Carlo uses its own xoshiro256 generator, not `std::` distributions, so
-  libstdc++ vs libc++ is not a factor. Since this branch, CMake builds every target with `-ffp-contract=off`, so an
+  libstdc++ vs libc++ is not a factor. Since 0.4 (`e4f4987`), CMake builds every target with `-ffp-contract=off`, so an
   `-march` choice no longer changes results; `ctest -R fp_contract` checks it. The headline (Alpha-1 0.45-0.46 % per
   round, Lambda about 2.6) holds within Monte Carlo spread under every combination; the v1.0 table should be read as a
   sample, not as exact.

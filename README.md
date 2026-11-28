@@ -30,7 +30,7 @@ chip.json ──► device physics ─────────► noise model �
 
 | Layer | Module | What it does |
 |---|---|---|
-| Exact decoding at any size | `matching.hpp`, `qec.hpp` | Edmonds' blossom algorithm (primal-dual, O(n³)) for minimum-weight perfect matching of any number of defects. The dynamic programme is kept for up to 8 defects, where it is faster. The greedy fallback above 22 defects is gone. On a 30-round distance-5 run (20 defects per shot on average) decoding takes about 40 µs per shot, against 39 ms for the v0.3 decoder |
+| Exact decoding at any size | `matching.hpp`, `qec.hpp` | Edmonds' blossom algorithm (primal-dual, O(n³)) for minimum-weight perfect matching of any number of defects. The dynamic programme is kept for up to 8 defects, where it is faster. The greedy fallback above 22 defects is gone. On a 30-round distance-5 run (20 defects per shot on average) decoding takes about 26 µs per shot, against 28 ms for the v0.3 decoder (wall-clock, from `results/test_output.txt`) |
 | Both memory bases | `qec.hpp` | Memory experiments in the X basis (\|+⟩ logical state, X-type detectors, logical X) beside the Z basis |
 | Correlated bursts | `qec.hpp` | High-energy impacts as a chip-wide excess decay or dephasing rate that relaxes exponentially; the decoder keeps its quiet-chip priors. Gives the probability that one impact flips the logical qubit, the unprotected time, how long the burst is visible in the syndrome, and the logical-error floor |
 | Hardware gate | `characterise.hpp` | A data-file format for measured chip parameters, a model built from them, and automatic evaluation of the roadmap's hardware gates, including model versus measurement. A virtual chip generates test data until hardware exists |
@@ -38,7 +38,7 @@ chip.json ──► device physics ─────────► noise model �
 | Error bars | `qec.hpp` | `fit_eps_per_round_err`: the 1σ error of a fitted logical error per round, propagated through the fit. v0.3 took it from the last round count alone, which was 20–40 % too small |
 | Faster setup | `qec.hpp` | Single-fault enumeration follows only the qubits a fault touches, skips the time slices that do not act on them, and runs in parallel. On the Gamma-1 chip (distance 7, 14 rounds) it takes 3.9 s on two cores against 33 s for the v0.3 routine, with identical output |
 | Designs | `presets.hpp` | Readout plan that scales with the chip (at most 9 resonators per feedline); Beta-1 rev C; Gamma-1 (GF-97) |
-| Reproducible Monte Carlo | `qec.hpp`, `emulator.hpp` | Every frame-simulation shot is seeded from (seed, shot) and partial sums are added in a fixed order, so every Monte Carlo result is bit-identical for any `OMP_NUM_THREADS`. Committed outputs no longer depend on the machine's core count |
+| Reproducible Monte Carlo | `qec.hpp`, `emulator.hpp` | Every frame-simulation shot is seeded from (seed, shot) and partial sums are added in a fixed order, so every Monte Carlo result is bit-identical for any `OMP_NUM_THREADS`. Committed outputs, except the historical Alpha-1 v1.0 review (`results/alpha1_review.*`), no longer depend on the machine's core count |
 | Hardened serialisation | `json.hpp`, `gds.hpp` | RFC 8259 JSON parsing with a nesting limit; GDSII writes fail loudly on I/O errors; JSON and GDSII round-trip tests |
 
 ### What's new in v0.3
@@ -54,7 +54,7 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 346 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 346 validation checks (~6 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
@@ -64,12 +64,13 @@ python3 tools/fill_spec.py beta    # BETA-1.md from its template and review data
 
 `ctest` runs one entry per test, labelled `unit`, `physics`, `pulse`, `qec`, `layout` and `smoke`.
 
-The `json` and `gds` unit groups (64 checks) cover the JSON parser/writer (including a lossless design-file round trip for every preset) and the GDSII stream writer (record framing, UNITS encoding, coordinate/record-length guards, reproducible `SOURCE_DATE_EPOCH` dates).
+The `json` and `gds` unit groups (64 checks) cover the JSON parser/writer (including a lossless design-file round trip for the `gen0`, `alpha1`, `alpha1v11` and `beta1` presets) and the GDSII stream writer (record framing, UNITS encoding, coordinate/record-length guards, reproducible `SOURCE_DATE_EPOCH` dates).
 
 - The three `smoke` entries run the review programs end to end with 200 shots. They write into the build tree and
   leave the committed outputs untouched.
 - Each review program also takes `--out DIR`, `--cache FILE` and `--smoke`; see `examples/review_io.hpp`.
-- Committed review outputs record their source commit, compiler, seeds and date (`results/PROVENANCE.md`).
+- Committed review outputs, except the historical Alpha-1 v1.0 review, record their source commit, compiler, seeds and
+  date (`results/PROVENANCE.md`).
 
 ## CLI
 
@@ -139,18 +140,18 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   experiments give zero detection events.
 * Circuit distance: every single fault is corrected at d = 3 (6,434 faults). At d = 5 every single fault (12,975) and 20,000
   random fault pairs are corrected.
-* JSON: parser/writer round trips, typed accessors, error paths, and a lossless `design_to_json` / `design_from_json` cycle for every preset.
+* JSON: parser/writer round trips, typed accessors, error paths, and a lossless `design_to_json` / `design_from_json` cycle for the `gen0`, `alpha1`, `alpha1v11` and `beta1` presets.
 * GDSII: record framing, UNITS encoding, closed-ring coordinates, record-length and int32 guards, `SOURCE_DATE_EPOCH` stamps.
 * Pauli-frame model vs exact statevector trajectories (1,000): detection rates and logical error agree within statistics
-  (P_L 0.0240 ± 0.0048 vs 0.0243).
+  (P_L 0.0240 ± 0.0048 vs 0.0237).
 * Eigensolver: Householder + QL vs Jacobi on random symmetric matrices (eigenvalues to 1e-13, orthogonality 4e-15).
 * Pulse-level CZ: charge matrix elements stay continuous over a 0–0.32 Φ0 flux sweep (no sign flips). Idle evolution
-  reproduces the static ZZ phase to 1e-14 rad. The |11⟩–|20⟩ gap with the coupler on matches 2nd-order perturbation theory
+  reproduces the static ZZ phase to better than 1e-12 rad. The |11⟩–|20⟩ gap with the coupler on matches 2nd-order perturbation theory
   (36.2 vs 34.9 MHz). The designed g12 nulls the parked exchange (< 1e-5 MHz). Calibrated CZ: 40 ns, 1−F = 1.0e-4,
   leakage 6.6e-5, |φ−π| < 2e-3. Halving dt changes F by 6e-7. With 4/4/4 levels, one more coupler level changes the CZ
   phase by 6e-5 rad and one more qubit level by 2e-4 rad. The earlier default of 3 coupler levels was off by 4e-3 rad.
 * Leakage frame model: bit-identical to the leakage-free model when all rates are zero. Gate-leakage plus seepage
-  populations match the two-state Markov solution (within 3.5 %). A leakage-removing reset clears measure-qubit leakage
+  populations match the two-state Markov solution (within 4 %). A leakage-removing reset clears measure-qubit leakage
   (5× lower) and DQLR clears data-qubit leakage (3× lower).
 * Per-pair calibration reaches the noise model and the frame program: overridden pairs carry their own control error
   and leakage.
@@ -177,8 +178,8 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 * Bursts: the excess rates are exact, the logical error rises with severity, a 25 ms burst randomises the logical
   qubit, and the expected number of flips scales linearly with the recovery time.
 * Hardware gate: a scatter-free "measurement" of a design returns that design's noise model (to 1e-9 or better in
-  every parameter). A virtual chip passes model versus measurement (ratio 1.09); the same chip with a hidden dephasing
-  source fails it (ratio 6.2). Threshold failures and missing data are reported.
+  every parameter). A virtual chip passes model versus measurement (ratio 1.06); the same chip with a hidden dephasing
+  source fails it (ratio 6.1). Threshold failures and missing data are reported.
 * Designs: feedline plans of Beta-1 and Gamma-1, no frequency collisions, and the CZ interaction point solved at the
   tuned anharmonicity (1–2.5 MHz above the idle-anharmonicity estimate).
 * Materials sidecar (`forge.materials.v0`, `materials.hpp`, [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md)): the
@@ -191,14 +192,15 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 
 | Design (3×3 chip) | t_CZ | mean \|ZZ\| | GHZ-9 | random circuits (10 cycles) | QFT-6 |
 |---|---|---|---|---|---|
-| fixed coupling g = 2 MHz | 275 ns | 13 kHz | 0.73 | 0.71 | 0.32 |
-| fixed coupling g = 6 MHz | 98 ns | 116 kHz | 0.27 | 0.58 | 0.02 |
-| fixed coupling g = 12 MHz | 54 ns | 462 kHz | 0.06 | 0.10 | 0.01 |
-| **tunable coupler** (g_max 40 MHz, 5 kHz residual) | 23 ns | 5 kHz | **0.93** | **0.86** | **0.77** |
+| fixed coupling g = 2 MHz | 275 ns | 13 kHz | 0.74 | 0.71 | 0.32 |
+| fixed coupling g = 6 MHz | 98 ns | 116 kHz | 0.28 | 0.58 | 0.02 |
+| fixed coupling g = 12 MHz | 54 ns | 462 kHz | 0.05 | 0.10 | 0.01 |
+| **tunable coupler** (g_max 40 MHz, 5 kHz residual) | 23 ns | 5 kHz | **0.93** | **0.86** | **0.76** |
 
 Error correction (`examples/alpha1_review.cpp`, distance-3 surface code, logical error per round): Gen-0 fixed coupling
 1.23 % → tunable couplers 0.54 % → plus fast readout 0.54 % → plus active reset **0.45 % (Alpha-1)**. The same physics at
-distance 5 gives 0.18 % (Λ ≈ 2.6). Full data is in `results/` and `designs/alpha1/`.
+distance 5 gives 0.18 % (Λ ≈ 2.6). This is the historical Alpha-1 v1.0 review (pre-PR #2 model, not regenerated; see
+`designs/alpha1/README.md`); full data is in `results/` and `designs/alpha1/`.
 
 The tunable coupler wins clearly. With fixed coupling, faster gates and always-on ZZ crosstalk trade against each other.
 
@@ -206,15 +208,11 @@ The tunable coupler wins clearly. With fixed coupling, faster gates and always-o
 
 | Design | Code distance | Logical error per round | Notes |
 |---|---|---|---|
-**v0.4 results** (simulation; see the design specs for assumptions). Logical error per round, memory-Z / memory-X:
-
-| Design | Code distance | Logical error per round | Notes |
-|---|---|---|---|
-| Alpha-1 v1.1 (AF-17) | 3 | **0.375 %** / 0.360 % | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 247 µs = 3.3× best T1 |
-| Alpha-1 v1.1 physics | 5 | 0.133 % (Z) | Λ(3→5) = 2.9 ± 0.2, from a fit over 5–15 rounds |
-| Beta-1 rev C (BF-49) | 3 | 0.0824 % / 0.0752 % | |
-| Beta-1 rev C (BF-49) | 5 | **0.0158 %** / 0.0136 % | Λ(3→5) = 5.2 ± 0.4 (Z), 5.5 ± 0.5 (X); logical lifetime 4.7 ms = 30× best T1 |
-| Gamma-1 (GF-97) | 7 | **0.0028 %** / 0.0026 % | Λ(5→7) = 5.6 ± 0.7 (Z), 6.0 ± 0.8 (X); logical lifetime 27 ms = 175× best T1; impact floor 3.7e-08 per round |
+| Alpha-1 v1.1 (AF-17) | 3 | **0.374 %** / 0.370 % | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 248 µs = 3.3× best T1 |
+| Alpha-1 v1.1 physics | 5 | 0.107 % (Z) | Λ(3→5) = 3.5 ± 0.2, from a fit over 5–15 rounds |
+| Beta-1 rev C (BF-49) | 3 | 0.0777 % / 0.0744 % | |
+| Beta-1 rev C (BF-49) | 5 | **0.0157 %** / 0.0165 % | Λ(3→5) = 5.0 ± 0.4 (Z), 4.5 ± 0.4 (X); logical lifetime 4.7 ms = 30× best T1 |
+| Gamma-1 (GF-97) | 7 | **0.0036 %** / 0.0035 % | Λ(5→7) = 4.5 ± 0.5 (Z), 4.8 ± 0.6 (X); logical lifetime 21 ms = 133× best T1; impact floor 3.7e-08 per round |
 
 Every Λ is a matched-model best case: the decoder is given the noise model that generated the errors. The ± values
 are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators (a fit over 5–20 rounds, and one
@@ -255,7 +253,7 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
   time quadratic in the number of rounds (on two cores: 46 s for 40 rounds at distance 7, 87 s for 100 rounds at
   distance 5).
 * Results from before v0.4 with more than 22 defects in a shot used a greedy decoder fallback and were pessimistic. The
-  design reviews in this repository have been re-run with the exact decoder.
+  design reviews in this repository have been re-run with the exact decoder, except the historical Alpha-1 v1.0 review.
 * The statevector backend is practical to about 26–28 qubits; the Pauli-frame backend handles d = 5–7 easily.
 
 ## Roadmap

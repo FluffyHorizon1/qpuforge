@@ -1,0 +1,126 @@
+# Committed results must be reproducible from code (docs/RESULTS_POLICY.md).
+#
+#   policy + fast  every push and pull request: size limits and PROVENANCE coverage, then regenerate the cheap deterministic
+#                  outputs (design_study, the three GDSII files, the Beta-1/Gamma-1 specs) and diff them bit-for-bit
+#                  against the committed ones. About a minute of compute per compiler after the build.
+#   full           scheduled / manual only, gated the way `smoke` is in ci.yml: reruns the three review programs at their
+#                  committed 100000 shots (about 35 minutes at 4 threads) and diffs their JSON, text and GDSII.
+#
+# Both use tools/check_reproducibility.py, which masks only measured fields (runtimes, dates, provenance, decode times).
+name: Reproducibility
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '47 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: repro-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+jobs:
+  fast:
+    if: github.event_name != 'schedule'
+    name: policy + fast (${{ matrix.compiler }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          # The ubuntu-24.04 image ships a packages.microsoft.com source that
+          # intermittently returns 403 and fails apt-get update (see a03).
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/microsoft-prod.sources
+          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list \
+            /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if sudo apt-get -o Acquire::Retries=5 update; then ok=1; break; fi
+            echo "apt-get update failed (attempt $attempt); retrying..."
+            sleep $((attempt * 4))
+          done
+          if [ "$ok" != 1 ]; then echo "apt-get update failed after retries" >&2; exit 100; fi
+          sudo apt-get -o Acquire::Retries=5 install -y cmake ninja-build
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            sudo apt-get -o Acquire::Retries=5 install -y clang libomp-dev
+          else
+            sudo apt-get -o Acquire::Retries=5 install -y g++
+          fi
+
+      - name: Policy (size limits, provenance coverage)
+        run: python3 tools/check_reproducibility.py policy
+
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            export CXX=clang++
+          else
+            export CXX=g++
+          fi
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER="$CXX"
+
+      - name: Build the generators
+        run: cmake --build build --parallel --target design_study qpuforge_cli
+
+      - name: Regenerate and diff (fast tier)
+        env:
+          KEEP_REPRO_DIR: '1'
+        run: python3 tools/check_reproducibility.py regen --tier fast --build build
+
+      - name: Keep the regenerated files on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-fast-${{ matrix.compiler }}
+          path: /tmp/qpuforge-repro-*
+          if-no-files-found: ignore
+
+  full:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: full review regeneration (gcc)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/microsoft-prod.sources
+          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list \
+            /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if sudo apt-get -o Acquire::Retries=5 update; then ok=1; break; fi
+            echo "apt-get update failed (attempt $attempt); retrying..."
+            sleep $((attempt * 4))
+          done
+          if [ "$ok" != 1 ]; then echo "apt-get update failed after retries" >&2; exit 100; fi
+          sudo apt-get -o Acquire::Retries=5 install -y cmake ninja-build g++
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Regenerate and diff (full tier)
+        env:
+          KEEP_REPRO_DIR: '1'
+        run: python3 tools/check_reproducibility.py regen --tier full --build build
+
+      - name: Keep the regenerated files on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-full
+          path: /tmp/qpuforge-repro-*
+          if-no-files-found: ignore

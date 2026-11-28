@@ -26,6 +26,12 @@ chip.json ──► device physics ─────────► noise model �
 * [`designs/gamma1/GAMMA-1.md`](designs/gamma1/GAMMA-1.md): **Gamma-1 (GF-97)**, a 97-qubit distance-7 memory.
 * [`ROADMAP.md`](ROADMAP.md): programme phases (Alpha → Beta → Gamma → Delta) with simulation and hardware exit criteria.
 
+### Since v0.4 (unreleased)
+
+| Layer | Module | What it does |
+|---|---|---|
+| Lattice surgery | `surgery.hpp` | Several surface-code patches on one lattice with merge and split schedules: logical ZZ and XX measurement between two patches and the three-patch logical CNOT, with detectors and observables across the merge and split boundaries, Pauli-frame corrections, a stabiliser-tableau check of the noiseless circuit, one exact matching decoder per observable and the memory experiments' noise model. With Beta-1 physics the ZZ outcome is wrong in 0.82 % of measurements at d = 3 and 0.19 % at d = 5; a CNOT on \|00⟩ gets some output wrong in 2.8 % and 0.72 % of runs (`results/surgery_study.txt`, [design note](docs/design/lattice-surgery.md)) |
+
 ### What's new in v0.4
 
 | Layer | Module | What it does |
@@ -54,11 +60,12 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 319 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 375 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
 ./build/gamma1_review          # Gamma-1 review       -> designs/gamma1/gamma1_review.json
+./build/surgery_study          # lattice surgery      -> results/surgery_study.{txt,json}
 python3 tools/fill_spec.py beta    # BETA-1.md from its template and review data (also: gamma)
 ```
 
@@ -66,7 +73,7 @@ python3 tools/fill_spec.py beta    # BETA-1.md from its template and review data
 
 The `json` and `gds` unit groups (64 checks) cover the JSON parser/writer (including a lossless design-file round trip for every preset) and the GDSII stream writer (record framing, UNITS encoding, coordinate/record-length guards, reproducible `SOURCE_DATE_EPOCH` dates).
 
-- The three `smoke` entries run the review programs end to end with 200 shots. They write into the build tree and
+- The four `smoke` entries run the review programs and the surgery study end to end with 200 shots. They write into the build tree and
   leave the committed outputs untouched.
 - Each review program also takes `--out DIR`, `--cache FILE` and `--smoke`; see `examples/review_io.hpp`.
 - Committed review outputs record their source commit, compiler, seeds and date (`results/PROVENANCE.md`).
@@ -79,6 +86,7 @@ qpuforge new chip.json --preset alpha1v11                   # Alpha-1 v1.1 (phys
 qpuforge new chip.json --preset beta1                       # Beta-1 (distance 5, 49 qubits)
 qpuforge new chip.json --preset gamma1                      # Gamma-1 (distance 7, 97 qubits)
 qpuforge qec chip.json --basis both --rounds 14 --cache results/cz_cache.json   # memory in the Z and the X basis
+qpuforge surgery --op cnot --d 3,5 --input 00 --cache results/cz_cache.json     # lattice surgery (also --op zz|xx)
 qpuforge qec chip.json --bursts --cache results/cz_cache.json                   # + logical-error floor from impacts
 qpuforge synth-chip chip.json data.json --seed 3 --cache results/cz_cache.json  # virtual chip -> characterisation file
 qpuforge hwgate chip.json data.json --phase alpha --out report.json             # hardware gate from measured data
@@ -121,7 +129,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 319 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 375 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -176,6 +184,10 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   source fails it (ratio 6.2). Threshold failures and missing data are reported.
 * Designs: feedline plans of Beta-1 and Gamma-1, no frequency collisions, and the CZ interaction point solved at the
   tuned anharmonicity (1–2.5 MHz above the idle-anharmonicity estimate).
+* Lattice surgery: on a stabiliser tableau, no detector fires and every logical outcome is right for ZZ and XX
+  measurement on |00⟩ |01⟩ |10⟩ |11⟩ |++⟩ |+−⟩ |−+⟩ |−−⟩ (d = 3, 5) and for the CNOT on Z-, X-basis and Bell-pair inputs.
+  A single patch through the surgery engine reproduces the memory experiment shot for shot, and its chip equals Beta-1
+  at d = 3. The d = 3 detector error models have no undetectable logical faults and every single fault is corrected.
 * The new groups also pass under AddressSanitizer and UndefinedBehaviorSanitizer.
 
 ## Example: 3×3 chip design study (`examples/design_study.cpp`)
@@ -256,7 +268,7 @@ See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on t
 1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
 2. Multi-qubit pulse simulation of spectator crossings; flux-pulse distortion and predistortion model.
 3. Leakage heralding (3-state readout) and a leakage-aware decoder.
-4. Multi-patch circuits (lattice surgery) for Phase Gamma; a streaming decoder as the reference for the FPGA.
+4. A streaming decoder as the reference for the FPGA; a joint multi-observable decoder and routing for lattice surgery.
 5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.
 

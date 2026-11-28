@@ -13,10 +13,10 @@ assumptions listed in each design spec. They are design targets, not measured pe
 
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
-| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (319 validation checks) | n/a |
+| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (375 validation checks) | n/a |
 | **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11) | open: fabricate and characterise |
 | **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask DRC open (designs/beta1) | open |
-| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask DRC open (designs/gamma1). Logical operations open | planned |
+| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask DRC open (designs/gamma1). Lattice-surgery ZZ, XX and CNOT simulated at d = 3, 5 (results/surgery_study.txt) | planned |
 | Delta | modular | Several logical qubits linked between modules; logical-level benchmarks | planned | planned |
 
 ---
@@ -166,8 +166,12 @@ the chip in the same data file.
 
 ### Still open in Phase Gamma
 
-- Two distance-5 patches with lattice surgery, giving a logical CNOT. qpuforge needs multi-patch circuits with merge
-  and split schedules.
+- Two distance-5 patches with lattice surgery, giving a logical CNOT. **Simulated** (`surgery.hpp`,
+  `docs/design/lattice-surgery.md`): logical ZZ and XX measurement between two patches and the three-patch CNOT, at
+  d = 3 and 5. With Beta-1 physics at d = 5 the ZZ outcome is wrong in 0.19 % of measurements and a CNOT on |00⟩ gets
+  some output wrong in 0.72 % of runs
+  (`results/surgery_study.txt`). Still open: a chip layout for two or three d = 5 patches and their routing region,
+  real-time feed-forward of the corrections, and a joint decoder for all observables.
 - Leakage-aware decoding using heralded leakage from 3-state readout.
 - Real-time decoding at < 1 µs per round: FPGA first, then an ASIC. The exact software decoder is the reference.
 - An impact veto: detect a burst of detection events and discard or restart the affected window.

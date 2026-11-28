@@ -3,6 +3,27 @@
 All notable changes to qpuforge. Versions follow `MAJOR.MINOR.PATCH`; before 1.0, a minor release may change the API, and
 every such change is listed under **API changes**.
 
+## [Unreleased]
+
+Phase Gamma logical operations: lattice surgery between surface-code patches.
+
+### Added
+- `surgery.hpp`:
+  - Multi-patch geometry: `SurgeryLattice` (patches and merged regions on one qubit lattice), `region_faces`.
+  - Schedules: `SurgerySchedule` / `SurgeryPhase`; `build_surgery` writes the circuit and derives the detectors across
+    merges and splits, the reference bits and the classical-bit bookkeeping.
+  - Protocols: `surgery_parity` (logical Z_A Z_B or X_A X_B measurement), `surgery_cnot` (three-patch CNOT with
+    Pauli-frame corrections), `surgery_memory` (one patch), `surgery_experiment` (by name).
+  - `StabilizerTableau`, `tableau_records` and `check_surgery_noiseless`: noiseless verification of detectors and
+    observables on random measurement branches.
+  - `surgery_chip`: a chip for the lattice with Alpha-1 v1.1 or Beta-1 physics.
+  - `prepare_surgery`, `surgery_fault_signatures`, `run_surgery_frame`: one detector error model and exact matching
+    decoder per observable, and the Pauli-frame Monte Carlo (thread-count independent).
+- CLI: `qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input ..] [--readout Z|X] [--chip beta1|alpha1_v11] ...`.
+- `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
+- Tests: `surgery` and `surgery_cnot` groups (54 checks); the determinism guard also covers `run_surgery_frame`; a
+  smoke entry for the study. 375 checks in all.
+
 ## [0.4.0] (unreleased)
 
 Finishes the software side of Phases Alpha and Beta and starts Phase Gamma: an exact decoder at any number of defects,

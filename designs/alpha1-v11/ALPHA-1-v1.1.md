@@ -7,7 +7,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 | **Status** | Simulation gate **passed**: every criterion holds for every pair, including CZ leakage (§6). Layout (GDSII): placement and spacing checks clean; **the mask is not fabrication-ready**: four DRC space violations remain and the metal connectivity check is not clean (floating ground, flux-line return, junction landing; §5). |
 | **Supersedes** | Alpha-1 v1.0 (`designs/alpha1/ALPHA-1.md`, qpuforge v0.2) |
 | **Purpose** | First error-correction-ready chip: 17-qubit distance-3 rotated surface code (memory experiment) |
-| **Tooling** | qpuforge v0.4: `alpha1_v11_review` (353 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
+| **Tooling** | qpuforge v0.4: `alpha1_v11_review` (399 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
 
 All performance numbers are **simulation results** under the assumptions in §8.
 
@@ -17,7 +17,7 @@ All performance numbers are **simulation results** under the assumptions in §8.
 |---|---|---|
 | Tunable coupler | Abstract, g_max = 40 MHz. Idle ZZ: 5 kHz typed (24 Nov v1.0 review); since PR #2 computed by `alpha1()` from a coupler transmon at the exchange null, −4 to −14 kHz | **Physical coupler transmon** per pair: f_max 8.5 GHz (park at the sweet spot), α_c −130 MHz, g_qc 160 MHz |
 | Direct coupling | Not modelled in the 24 Nov v1.0 review (4 MHz); since PR #2 `alpha1()` has 1 MHz (0.035 fF), cancelled at the coupler's exchange null | **Per-pair g12 = 9.4–9.8 MHz**, chosen so the parked coupler cancels the qubit–qubit exchange: no avoided crossings when a measure qubit sweeps past its other neighbours |
-| CZ gate | 23.3 ns, 2e-3 control error (assumed) | **Pulse-level**: sin² flux ramps (7 ns) + flat top, 3-knob calibration per pair. 39.7–49.2 ns, simulated coherent error 8.1e-5, leakage 4.4e-5 |
+| CZ gate | 23.3 ns, 2e-3 control error (assumed) | **Pulse-level**: sin² flux ramps (7 ns) + flat top, 3-knob calibration per pair. 35.6–49.2 ns, simulated coherent error 7.9e-5, leakage 4.8e-5 |
 | Leakage | Folded into control error | **Simulated**: CZ leakage of the moving qubit, leaked-partner phase scrambling, transport (5 %), seepage at 2/T1 |
 | Reset | Active reset 200 ns, 0.3 % | Same, made **leakage-removing** (multi-level reset: \|2⟩ → \|0⟩) |
 | Layout | Floor plan (SVG) | **MoM-synthesised cells, assembled chip, DRC, GDSII**, post-layout circuit check |
@@ -43,7 +43,7 @@ The per-pair g12 in the table above is set by the pulse-level calibration itself
 **Protocol.** The measure qubit (the higher frequency) is the *mover*. For each CZ:
 
 1. Its flux pulse brings |11⟩ into resonance with |20⟩ (f_mover + α = f_data). The interaction point is 5.33–5.50 GHz, an excursion of 308–665 MHz.
-2. At the same time the coupler swings from 8.5 GHz down to ≈ 6.04–6.14 GHz, which turns on the |11⟩–|20⟩ coupling (gap 36 MHz for the 5.99/5.29 GHz test pair with the coupler at 6.10 GHz, `results/test_output.txt`).
+2. At the same time the coupler swings from 8.5 GHz down to ≈ 6.03–6.14 GHz, which turns on the |11⟩–|20⟩ coupling (gap 36 MHz for the 5.99/5.29 GHz test pair with the coupler at 6.10 GHz, `results/test_output.txt`).
 3. One full |11⟩ → |20⟩ → |11⟩ cycle gives the conditional phase π.
 
 Three knobs are calibrated per pair:
@@ -64,9 +64,9 @@ The simulation covers:
 
 | Quantity (24 pairs) | Value |
 |---|---|
-| Duration | 39.7–49.2 ns (mean 43.9 ns) |
-| Coherent error (1 − F_avg, closed system) | 8.1e-5 mean |
-| Leakage per CZ (moving qubit) | 4.4e-5 mean, 8.4e-5 max |
+| Duration | 35.6–49.2 ns (mean 43.7 ns) |
+| Coherent error (1 − F_avg, closed system) | 7.9e-5 mean, 3.6e-4 max (Q8–Q11) |
+| Leakage per CZ (moving qubit) | 4.8e-5 mean, 1.2e-4 max (Q8–Q10) |
 | 1/f flux noise (local dephasing at the excursion + quasi-static sensitivity) | 3.2e-5 |
 | Residual idle ZZ at park | 3.4–4.5 kHz |
 | Spectator crossings (Landau–Zener, nulled exchange) | < 1e-15 |
@@ -80,12 +80,12 @@ The per-pair table is `alpha1_v11_review.json → cz_calibration.per_pair`. The 
 | | Logical error per round | Round |
 |---|---|---|
 | v1.0 model | 0.454 % ± 0.006 % | 847 ns |
-| **v1.1 model (pulse CZ + leakage + leakage-removing reset), memory-Z** | **0.374 % ± 0.004 %** | 928 ns |
-| v1.1 model, memory-X (\|+⟩ logical state, phase flips) | 0.368 % ± 0.005 % | 928 ns |
-| Logical lifetime | **248 µs** = 3.3 × best physical T1 (75.6 µs) | |
-| Distance-5 projection (same physics, 49 qubits) | 0.117 % ± 0.007 % → **Λ = 3.07 ± 0.19** | |
+| **v1.1 model (pulse CZ + leakage + leakage-removing reset), memory-Z** | **0.377 % ± 0.004 %** | 928 ns |
+| v1.1 model, memory-X (\|+⟩ logical state, phase flips) | 0.360 % ± 0.005 % | 928 ns |
+| Logical lifetime | **246 µs** = 3.3 × best physical T1 (75.6 µs) | |
+| Distance-5 projection (same physics, 49 qubits) | 0.123 % ± 0.007 % → **Λ = 2.95 ± 0.18** | |
 
-The v1.0, lifetime and distance-5 rows are memory-Z. The two bases differ by 0.006 %, which is 1.0 standard error.
+The v1.0, lifetime and distance-5 rows are memory-Z. The two bases differ by 0.017 %, which is 2.7 standard errors.
 The ± values are 1σ Monte Carlo errors of the fits. The distance-5 projection compares distance 3 and distance 5 over
 5–15 rounds, a shorter fit than the headline rows. Since qpuforge 0.4 the Monte Carlo is thread-count independent
 (`docs/design/deterministic-mc.md`): a rerun gives the same numbers bit for bit at any `OMP_NUM_THREADS`.
@@ -94,35 +94,35 @@ The v1.0 row is the abstract v1.0 model run inside this review with the current 
 direct coupling and a coupler transmon parked at the exchange null (idle ZZ −4 to −14 kHz, computed), not the 4 MHz
 coupling and typed 5 kHz idle ZZ of the 24 Nov v1.0 review (`designs/alpha1/ALPHA-1.md`).
 
-v1.1 is better than v1.0 despite the slower CZ. The physically modelled control error (≈ 1.07e-3) is about half the
+v1.1 is better than v1.0 despite the slower CZ. The physically modelled control error (≈ 1.06e-3) is about half the
 2e-3 that v1.0 assumed.
 
 **Leakage handling** (eps over 5–25 rounds; P_L after 50 rounds):
 
 | | eps / round | P_L (50 rounds) | leaked data / measure |
 |---|---|---|---|
-| Leakage not modelled | 0.363 % | 0.151 | — |
-| No leakage removal | 0.401 % | 0.163 | 8.7e-4 / 1.3e-3 |
-| **Leakage-removing reset (chosen)** | **0.374 %** | **0.154** | 4.6e-5 / 8.9e-5 |
-| + DQLR each round (30 ns, 5e-4 error) | 0.406 % | 0.166 | 5.3e-6 / 7.9e-5 |
-| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.180 / 0.189 | 3.8e-4 / 4.4e-5 |
+| Leakage not modelled | 0.366 % | 0.150 | — |
+| No leakage removal | 0.395 % | 0.163 | 1.0e-3 / 1.4e-3 |
+| **Leakage-removing reset (chosen)** | **0.366 %** | **0.153** | 4.9e-5 / 9.7e-5 |
+| + DQLR each round (30 ns, 5e-4 error) | 0.402 % | 0.168 | 5.5e-6 / 8.8e-5 |
+| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.183 / 0.191 | 3.9e-4 / 4.5e-5 |
 
 **Decision:** the leakage-removing reset is enough for Alpha-1. DQLR removes data-qubit leakage but costs more than it
 saves at distance 3, even at 10× leakage. It is carried to Beta as an option to re-test at distance 5.
 
-**Error budget** (eps change when one source is removed): T1 −79 %, CZ/1q control −43 %, Tφ −30 %, readout −17 %,
-reset −11 %, leakage −3 %, thermal −2 %, ZZ +1 %. Changes of a few per cent are within the Monte Carlo noise.
+**Error budget** (eps change when one source is removed): T1 −80 %, CZ/1q control −40 %, Tφ −32 %, readout −18 %,
+reset −13 %, leakage −5 %, thermal −3 %, ZZ +1 %. Changes of a few per cent are within the Monte Carlo noise.
 
 **Sensitivity** (single change):
 
 | Change | eps change |
 |---|---|
-| Dielectric Q ×2 | −37 % |
+| Dielectric Q ×2 | −36 % |
 | T_eff 35 mK | −27 % |
-| Readout 300 ns | −25 % |
-| CZ residual 5e-4 | −20 % |
-| Readout separation 0.25 % | −11 % |
-| Flux noise ×3 | +8 % |
+| Readout 300 ns | −22 % |
+| CZ residual 5e-4 | −19 % |
+| Readout separation 0.25 % | −10 % |
+| Flux noise ×3 | +9 % |
 | CZ residual 2e-3 | +37 % |
 
 These ranks set the Beta-1 upgrade list.
@@ -168,7 +168,7 @@ rebuilt from the extracted circuit:
 
 | Layer | Content |
 |---|---|
-| 1 | Etch: ground-plane cut-outs minus metal islands (14,689 polygons) |
+| 1 | Etch: ground-plane cut-outs minus metal islands (14,855 polygons) |
 | 2 | Josephson junction / SQUID regions (41) |
 | 3 | Flip-chip bump pads (75): XY, qubit flux, coupler flux, resonator–feedline coupling |
 | 10 | Chip outline |
@@ -189,10 +189,10 @@ rebuilt from the extracted circuit:
 
 | Criterion | Threshold | Result |
 |---|---|---|
-| d=3 logical error per round | ≤ 0.6 % | 0.374 % (memory-Z), 0.368 % (memory-X) ✔ |
+| d=3 logical error per round | ≤ 0.6 % | 0.377 % (memory-Z), 0.360 % (memory-X) ✔ |
 | Logical lifetime vs best T1 | > 2× | 3.3× ✔ |
-| CZ coherent error / leakage, every pair | ≤ 5e-4 / ≤ 2e-4 | largest pair 3.6e-4 / 8.4e-5 (means 8.1e-5 / 4.4e-5) ✔ |
-| Idle ZZ at park | ≤ 10 kHz | 3.4–4.5 kHz, mean 3.9 kHz (4.3 kHz re-nulled post-layout) ✔ |
+| CZ coherent error / leakage, every pair | ≤ 5e-4 / ≤ 2e-4 | largest pair 3.6e-4 / 1.2e-4 (means 7.9e-5 / 4.8e-5) ✔ |
+| Idle ZZ at park | ≤ 10 kHz | 3.4–4.5 kHz, mean 3.9 kHz (4.3 kHz re-nulled post-layout) ✔ (computed: `alpha1_v11_review.json → exit_criteria`) |
 | Layout | placement/spacing checks clean; E_C within 3 %, couplings within 6 %, exchange re-nullable (mask DRC and connectivity reported, not gated) | clean; 0.05 %; 4.6 %; yes ✔ (mask DRC 0 + 4, connectivity not clean) |
 | Fabrication Monte Carlo, 2 % junction spread | ≥ 90 % collision-free | 98 % (v1.0 review; same frequency plan) ✔ |
 

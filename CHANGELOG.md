@@ -82,6 +82,10 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `results/cz_cache.json` regenerated; caches of other model versions are rejected.
 - The layout criteria of the Alpha, Beta and Gamma gates (ROADMAP.md) list the mask DRC and metal connectivity as
   reported, required before fabrication, and not gated in simulation.
+- Regenerated on the merged tree with CZ model version 4 and the new cells (`results/PROVENANCE.md`): the three reviews
+  at 100000 shots, `BETA-1.md` and `GAMMA-1.md`, the Alpha-1 v1.1 characterisation rehearsal, the three GDS files and
+  their previews, and the test log. Alpha-1 v1.1: memory-Z 0.377 % ± 0.004 % per round, memory-X 0.360 %, Λ(3→5)
+  projection 2.95 ± 0.18; the Alpha gate, now computed per pair, passes. Beta-1: 9 of 9 criteria pass; Gamma-1: 8 of 8.
 
 ### API changes
 - New header `include/qpuforge/materials.hpp`, included by `qpuforge.hpp`. It adds `MaterialsQuantity`,

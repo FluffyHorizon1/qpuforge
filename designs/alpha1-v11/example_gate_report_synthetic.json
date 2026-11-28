@@ -48,7 +48,7 @@
     {
       "name": "Median CZ leakage per gate",
       "criterion": "<= 1e-3",
-      "value": 4.10629133925e-05,
+      "value": 3.86062535905e-05,
       "threshold": 0.001,
       "worst": 0.000322171038615,
       "evaluated": true,
@@ -78,7 +78,7 @@
     {
       "name": "Distance-3 logical error per round",
       "criterion": "<= 1.5%",
-      "value": 0.00505828525531,
+      "value": 0.00496545848075,
       "threshold": 0.015,
       "worst": null,
       "evaluated": true,
@@ -88,7 +88,7 @@
     {
       "name": "Detection-rate drift over 25 rounds",
       "criterion": "< 10%",
-      "value": 0.00536039054274,
+      "value": 0.0027093830212,
       "threshold": 0.1,
       "worst": null,
       "evaluated": true,
@@ -98,7 +98,7 @@
     {
       "name": "Model vs measurement (larger of measured/model and its inverse)",
       "criterion": "<= 2",
-      "value": 1.04643653037,
+      "value": 1.03990873993,
       "threshold": 2,
       "worst": null,
       "evaluated": true,
@@ -107,8 +107,8 @@
     }
   ],
   "model_vs_measurement": [
-    {"d": 3, "basis": "X", "eps_measured": 0.00490986269687, "eps_model": 0.00469198327313, "ratio": 1.04643653037, "round_counts": 3},
-    {"d": 3, "basis": "Z", "eps_measured": 0.00520670781375, "eps_model": 0.00532892023499, "ratio": 0.977066194305, "round_counts": 3}
+    {"d": 3, "basis": "X", "eps_measured": 0.00483989169762, "eps_model": 0.0048912901462, "ratio": 0.989491842226, "round_counts": 3},
+    {"d": 3, "basis": "Z", "eps_measured": 0.00509102526388, "eps_model": 0.00529420166712, "ratio": 0.961622844007, "round_counts": 3}
   ],
   "qubits_measured": 17,
   "pairs_measured": 24,

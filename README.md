@@ -208,11 +208,11 @@ The tunable coupler wins clearly. With fixed coupling, faster gates and always-o
 
 | Design | Code distance | Logical error per round | Notes |
 |---|---|---|---|
-| Alpha-1 v1.1 (AF-17) | 3 | **0.374 %** / 0.370 % | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 248 µs = 3.3× best T1 |
-| Alpha-1 v1.1 physics | 5 | 0.107 % (Z) | Λ(3→5) = 3.5 ± 0.2, from a fit over 5–15 rounds |
-| Beta-1 rev C (BF-49) | 3 | 0.0777 % / 0.0744 % | |
-| Beta-1 rev C (BF-49) | 5 | **0.0157 %** / 0.0165 % | Λ(3→5) = 5.0 ± 0.4 (Z), 4.5 ± 0.4 (X); logical lifetime 4.7 ms = 30× best T1 |
-| Gamma-1 (GF-97) | 7 | **0.0036 %** / 0.0035 % | Λ(5→7) = 4.5 ± 0.5 (Z), 4.8 ± 0.6 (X); logical lifetime 21 ms = 133× best T1; impact floor 3.7e-08 per round |
+| Alpha-1 v1.1 (AF-17) | 3 | **0.377 %** / 0.360 % | pulse-level CZ (36–49 ns), leakage model, leakage-removing reset; logical lifetime 246 µs = 3.3× best T1 |
+| Alpha-1 v1.1 physics | 5 | 0.123 % (Z) | Λ(3→5) = 2.9 ± 0.2, from a fit over 5–15 rounds |
+| Beta-1 rev C (BF-49) | 3 | 0.0772 % / 0.0718 % | |
+| Beta-1 rev C (BF-49) | 5 | **0.0147 %** / 0.0128 % | Λ(3→5) = 5.3 ± 0.5 (Z), 5.6 ± 0.6 (X); logical lifetime 5.0 ms = 32× best T1 |
+| Gamma-1 (GF-97) | 7 | **0.0032 %** / 0.0026 % | Λ(5→7) = 4.3 ± 0.6 (Z), 5.5 ± 0.7 (X); logical lifetime 26 ms = 163× best T1; impact floor 3.7e-08 per round |
 
 Every Λ is a matched-model best case: the decoder is given the noise model that generated the errors. The ± values
 are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators (a fit over 5–20 rounds, and one

@@ -29,6 +29,8 @@ ctest --test-dir build -LE smoke      # one CTest entry per group, excluding end
 
 Please run `./build/test_qpuforge` or `ctest --test-dir build -LE smoke` before opening a pull request. Mention any tests you could not run, and why.
 
+The review and study programs record the commit they were built from, and whether tracked files were modified, in their JSON output (`provenance.source_commit` and `provenance.source_tree_dirty`). The stamp is taken on every build, so a build directory can be kept across commits and does not have to be configured again. Before runs whose output will be committed, commit your changes and build once (`cmake --build build`), then run the programs without building in between: a run rewrites tracked output files, and a build made after that records a modified tree. See `results/PROVENANCE.md`.
+
 ## Code style
 
 - C++17, no compiler extensions required of contributors. Keep the library **header-only**.

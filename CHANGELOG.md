@@ -141,6 +141,20 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - CLI: `hwgate --out`, `cz --out`, the `synth-chip` data file and the `gds --cells` write-back fail with "cannot write"
   (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
   `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
+- Review and study programs (`alpha1_v11_review`, `beta1_review`, `gamma1_review`, `decoder_study`, `decoder_sweeps`,
+  `surgery_study`): `provenance.source_commit` and `provenance.source_tree_dirty` now describe the tree the program was
+  built from. They were compile definitions (`QPUFORGE_GIT_SHA`, `QPUFORGE_GIT_DIRTY`; no longer read) computed when
+  CMake configured the build directory, so a directory configured at one commit and rebuilt after later commits kept
+  writing the old commit into its outputs. The stamp is now taken on every build: the target
+  `qpuforge_git_stamp_update` runs `cmake/git_stamp.cmake`, which rewrites the one source file of a small static
+  library (`qpuforge_git_stamp`) only when the commit or the dirty flag changes. A new commit costs one small compile
+  and six relinks, and a build directory does not have to be configured again before a recorded run. The dirty flag
+  means what it did (tracked files modified, untracked files not counted) but is now read at every build: a build made
+  after a recorded run has rewritten its tracked output files records `true`. Outside a git checkout or without git the
+  stamp is `"unknown"` / `false`, as it is for a program compiled by hand (`examples/git_stamp.hpp`), and the build
+  still works; a source tree unpacked inside another repository no longer takes that repository's commit. New CTest
+  guard `git_stamp` (label `unit`, reported as skipped where git is not installed). `fp_contract_flags` now also checks
+  the targets created outside the target helper (`test_determinism` and the new library).
 
 ### Changed
 - **Layout cells.** The bus is never drawn narrower than its strip: below that, the direct-coupling knob of the

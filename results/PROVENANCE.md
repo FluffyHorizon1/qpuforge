@@ -28,6 +28,17 @@ the commands below to reproduce them.
   `0b2ea59` (`main` at 2e19180 merged into `scs-bot/fab-readiness`): each review JSON says `source_tree_dirty: false`.
   The test log was made later, from `8de7512` (clean tree a0a5686, which `main` has after #21 and #24).
   `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
+- **Source stamp.** The review and study programs write the commit they were built from into their JSON
+  (`provenance.source_commit`), and `provenance.source_tree_dirty`: `true` if tracked files differed from that commit
+  when the program was built (untracked files do not count). The stamp is taken on every build
+  (`cmake/git_stamp.cmake`), so it describes the tree the binary was built from, whenever its build directory was
+  configured. For recorded runs, commit, run `cmake --build build` and then run the programs: the build directory does
+  not have to be configured again. Build before the first run and not between runs: a run rewrites tracked files (the
+  committed outputs), and a build made after that records `source_tree_dirty: true`. A binary that is not rebuilt
+  after a commit keeps the stamp of the tree it was built from. The stamp is `"unknown"` / `false` outside a git
+  checkout, without git, and for a program compiled by hand.
+  The outputs in the table predate this: their stamp was taken when CMake configured the build directory, and a
+  directory configured at an earlier commit would have recorded that commit.
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.

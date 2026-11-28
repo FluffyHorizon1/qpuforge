@@ -7,12 +7,15 @@
 // number is a deterministic pulse simulation of a calibrated gate from the CZ cache.
 //   1. static flux offsets on the calibrated gates
 //   2. one exponential tail on both lines, gate on its own: programmed as calibrated, and with the amplitudes re-calibrated
-//   3. the same tail in the memory cycle of each chip: gates calibrated alone, then run back to back, round after round
+//   3. the same tail in the memory cycle of each chip: gates calibrated alone, then run back to back, round after round;
+//      per gate, and per measure qubit (the phase shifts of its gates add up between its two Hadamards)
 //   4. predistortion of an example line with fit errors
 //   5. AWG sample rate and bandwidth (with a local re-calibration), DAC resolution, timing skew between the two lines
+//   6. the pair class that the calibration's leakage fallback handled, re-calibrated for 1 - F
 #include "qpuforge/qpuforge.hpp"
 #include "review_io.hpp"
 #include <cstdarg>
+#include <exception>
 #include <fstream>
 #include <map>
 
@@ -30,18 +33,38 @@ namespace {
 
 struct PairClass { double fm{0}, ft{0}, curv{0}; CZSystem S; CZPulse P; };        // one calibrated frequency combination
 struct Slot { int a{0}, b{0}, mover{0}, cls{0}, line{0}; double offset{0}; };       // one CZ of the cycle
-struct Line { int mover{0}; double period{0}; std::vector<int> gates; };            // the flux line of one measure qubit
-struct Chip { std::string name; double allowance{0}; std::vector<PairClass> cls; std::vector<Slot> gates; std::vector<Line> lines; };
+struct Line { int mover{0}; std::vector<int> gates; };                              // the flux line of one measure qubit
+struct Chip {
+    std::string name; double allowance{0};
+    double period{0};                  // round period, ns: the same for every line (the slowest line of the compiled schedule)
+    double period_min{0};              // shortest line period of that schedule (its lines are not synchronised)
+    std::vector<PairClass> cls; std::vector<Slot> gates; std::vector<Line> lines;
+};
+
+// An exception must not leave an OpenMP loop: the first one is kept and thrown again after the loop.
+struct LoopGuard {
+    std::exception_ptr first;
+    template <class F> void run(F&& body) {
+        try { body(); }
+        catch (...) {
+#pragma omp critical(flux_study_guard)
+            if (!first) first = std::current_exception();
+        }
+    }
+    void rethrow() { if (first) std::rethrow_exception(first); }
+};
 
 // Calibrated pair classes of a chip and the pulse pattern of its memory experiment: for every measure qubit (the mover
-// of all its CZ gates) the start of each CZ within a round and the period, taken from a late round of the compiled
-// schedule, where it repeats.
+// of all its CZ gates) the start of each CZ within a round, taken from a round of the compiled schedule in which the
+// pattern of every line has stopped changing (it changes during the first ten rounds). The compiler starts every gate
+// as soon as its qubits are free, so its lines keep slightly different periods; a machine runs all of them on one
+// clock, and the study gives every line the period of the slowest.
 Chip load_chip(const ChipDesign& D, const std::string& cache, int max_classes) {
     Chip C; C.name = D.name; C.allowance = D.coupler.residual_ctrl_err;
     auto R = analyze(D);
     const auto cal = calibrate_chip_cz(D, R, false, cache);
     const double sig2 = flux_noise_variance(D.flux_noise_uPhi0);
-    const int rounds = 10, ref = 6;
+    const int rounds = 30, ref = 24;
     CompileOptions co; co.layout = "trivial";
     const auto prog = compile(memory_experiment(rotated_surface_code(D.surface_d), rounds, 'Z').circuit, chip_graph(D, R), co);
     std::map<std::pair<int, int>, std::vector<double>> starts;
@@ -64,11 +87,17 @@ Chip load_chip(const ChipDesign& D, const std::string& cache, int max_classes) {
         const auto& v = starts.at({g.a, g.b});
         if (int(v.size()) != rounds) throw std::runtime_error("flux_distortion_study: a pair does not have one CZ per round");
         g.offset = v[std::size_t(ref)];
-        auto& L = C.lines[std::size_t(g.line)];
-        L.gates.push_back(int(C.gates.size()));
-        L.period = v[std::size_t(ref) + 1] - v[std::size_t(ref)];
+        // settled: the pair repeats with one period over the rounds around the reference round
+        const double per = v[std::size_t(ref) + 1] - v[std::size_t(ref)];
+        for (int r = ref - 4; r + 1 < rounds; ++r)
+            if (std::abs(v[std::size_t(r) + 1] - v[std::size_t(r)] - per) > 1e-6) throw std::runtime_error("flux_distortion_study: the schedule has not settled by the reference round");
+        C.period = std::max(C.period, per);
+        C.period_min = C.period_min > 0 ? std::min(C.period_min, per) : per;
+        C.lines[std::size_t(g.line)].gates.push_back(int(C.gates.size()));
         C.gates.push_back(g);
     }
+    if (C.gates.empty()) throw std::runtime_error("flux_distortion_study: no calibrated CZ gate");
+    if (C.period - C.period_min > 0.02 * C.period) throw std::runtime_error("flux_distortion_study: the line periods of the schedule differ by more than 2 %");
     for (auto& L : C.lines) {
         std::sort(L.gates.begin(), L.gates.end(), [&](int x, int y) { return C.gates[std::size_t(x)].offset < C.gates[std::size_t(y)].offset; });
         const double t0 = C.gates[std::size_t(L.gates.front())].offset;
@@ -81,25 +110,29 @@ Chip load_chip(const ChipDesign& D, const std::string& cache, int max_classes) {
 struct Alone { CZCommand cmd; CZFrame frame; double err{0}, leak{0}, cphase{0}; };
 std::vector<Alone> alone(const Chip& C, const FluxSetup& F, bool recalibrate_amplitude) {
     std::vector<Alone> v(C.cls.size());
+    LoopGuard guard;
 #pragma omp parallel for schedule(dynamic)
-    for (int i = 0; i < int(C.cls.size()); ++i) {
+    for (int i = 0; i < int(C.cls.size()); ++i) guard.run([&] {
         const auto& c = C.cls[std::size_t(i)];
         Alone A; A.cmd = recalibrate_amplitude ? cz_matched_command(c.S, c.P, F) : cz_nominal_command(c.S, c.P);
         const auto r = simulate_cz_drive(c.S, cz_gate_drive(c.S, c.P, F, A.cmd));
         A.frame = cz_frame(r); A.err = 1 - r.fidelity; A.leak = r.leakage; A.cphase = r.cphase;
         v[std::size_t(i)] = A;
-    }
+    });
+    guard.rethrow();
     return v;
 }
 
 // Every gate of the chip in round `round` of the cycle (0: the first round after a long idle), relative to the same
 // gate on its own: with the virtual Z gates kept from the calibration alone (fixed) and re-calibrated in place (free).
 // est_*: the quasi-static estimate of the same numbers, from the flux offsets averaged over the flat top and the
-// gate's response to constant offsets (cz_offset_response), with no pulse simulation.
-struct InCycle { double fixed{0}, free{0}, dleak{0}, dphase{0}, est_fixed{0}, est_free{0}; };
+// gate's response to constant offsets (cz_offset_response), with no pulse simulation. offset: the mover line's flux
+// averaged over the flat top, against the gate on its own, as a fraction of the mover's flux step.
+struct InCycle { double fixed{0}, free{0}, dleak{0}, dphase{0}, est_fixed{0}, est_free{0}, offset{0}; };   // offset: mover flat top, fraction of its step
 std::vector<InCycle> in_cycle(const Chip& C, const FluxSetup& F, const std::vector<Alone>& al, const std::vector<CZOffsetResponse>& resp, int round) {
     const double Ts = F.awg.period(), settle = F.settle_ns();
-    std::vector<double> start(C.gates.size()), period(C.lines.size());
+    std::vector<double> start(C.gates.size());
+    double busy = 0;                   // the longest time a line needs for the pulses of one round
     for (std::size_t l = 0; l < C.lines.size(); ++l) {
         // pulses start on the AWG sample grid, and never before the previous pulse on the line has ended and settled
         double free_at = -1e300;
@@ -110,15 +143,16 @@ std::vector<InCycle> in_cycle(const Chip& C, const FluxSetup& F, const std::vect
             start[std::size_t(j)] = t;
             free_at = t + C.cls[std::size_t(g.cls)].P.duration() + settle;
         }
-        period[l] = std::ceil(std::max(C.lines[l].period, free_at) / Ts - 1e-9) * Ts;
+        busy = std::max(busy, free_at);
     }
+    const double T = std::ceil(std::max(C.period, busy) / Ts - 1e-9) * Ts;   // the round period, on the sample grid
     std::vector<InCycle> v(C.gates.size());
+    LoopGuard guard;
 #pragma omp parallel for schedule(dynamic)
-    for (int gi = 0; gi < int(C.gates.size()); ++gi) {
+    for (int gi = 0; gi < int(C.gates.size()); ++gi) guard.run([&] {
         const auto& g = C.gates[std::size_t(gi)];
         const auto& c = C.cls[std::size_t(g.cls)];
         const auto& A = al[std::size_t(g.cls)];
-        const double T = period[std::size_t(g.line)];
         std::vector<FluxPulse> mover, coupler;
         for (int r = 0; r <= round; ++r) {
             for (int j : C.lines[std::size_t(g.line)].gates) {
@@ -138,6 +172,7 @@ std::vector<InCycle> in_cycle(const Chip& C, const FluxSetup& F, const std::vect
             t += W.h[s];
         }
         if (hold > 0) { dm /= hold; dc /= hold; }
+        x.offset = dm / (c.P.flux1_int - c.S.flux1_idle);
         x.est_fixed = resp[std::size_t(g.cls)].added_fixed(dm, dc);
         x.est_free = resp[std::size_t(g.cls)].added_free(dm, dc);
         x.fixed = (1 - cz_fidelity_in_frame(r, A.frame)) - A.err;
@@ -146,22 +181,41 @@ std::vector<InCycle> in_cycle(const Chip& C, const FluxSetup& F, const std::vect
         x.dphase = cz_frame(r).th_mover - A.frame.th_mover;
         x.dphase = std::remainder(x.dphase, 2 * PI);
         v[std::size_t(gi)] = x;
-    }
+    });
+    guard.rethrow();
     return v;
 }
+// The measure qubit of a line is in a superposition between its two Hadamards, and the phase shifts of its gates add
+// up there. With the virtual Z gates kept from the calibration alone, that sum is a Z rotation nobody corrects, and
+// the qubit's outcome flips with probability sin^2(sum / 2). `independent` counts the same phases gate by gate, the
+// way a sum of per-gate errors does. An estimate from the mover phases of the pair simulations: the data qubits'
+// phases and the conditional-phase errors are not in it, and nothing here simulates more than one pair.
+struct LinePhase { double sum{0}, flip{0}, independent{0}; int gates{0}; };
+std::vector<LinePhase> line_phases(const Chip& C, const std::vector<InCycle>& v) {
+    std::vector<LinePhase> out(C.lines.size());
+    for (std::size_t l = 0; l < C.lines.size(); ++l) {
+        LinePhase& p = out[l];
+        for (int g : C.lines[l].gates) { const double d = v[std::size_t(g)].dphase; p.sum += d; p.independent += std::pow(std::sin(0.5 * d), 2); ++p.gates; }
+        p.flip = std::pow(std::sin(0.5 * p.sum), 2);
+    }
+    return out;
+}
+// Probability that depolarising CZ gates with average infidelity r flip the outcome of a measure qubit with n gates:
+// a two-qubit depolarising channel with average gate infidelity r applies each of the 15 Paulis with probability
+// r / 12, and 8 of them have Z or Y on the measure qubit. To first order in r.
+double depolarising_flip(double r, double gates) { return gates * r * 8.0 / 12.0; }
 // Response of every class to constant flux offsets, on ideal lines.
 std::vector<CZOffsetResponse> responses(const Chip& C) {
     std::vector<CZOffsetResponse> v(C.cls.size());
+    LoopGuard guard;
 #pragma omp parallel for schedule(dynamic)
-    for (int i = 0; i < int(C.cls.size()); ++i) v[std::size_t(i)] = cz_offset_response(C.cls[std::size_t(i)].S, cz_ideal_drive(C.cls[std::size_t(i)].S, C.cls[std::size_t(i)].P));
+    for (int i = 0; i < int(C.cls.size()); ++i)
+        guard.run([&] { v[std::size_t(i)] = cz_offset_response(C.cls[std::size_t(i)].S, cz_ideal_drive(C.cls[std::size_t(i)].S, C.cls[std::size_t(i)].P)); });
+    guard.rethrow();
     return v;
 }
 // A round late enough for the slowest tail to have reached its periodic state (exp(-14) of the start remains).
-int steady_round(const Chip& C, double tau_max) {
-    double p = 1e300;
-    for (const auto& L : C.lines) p = std::min(p, L.period);
-    return std::min(600, int(std::ceil(14 * tau_max / p)) + 2);
-}
+int steady_round(const Chip& C, double tau_max) { return std::min(600, int(std::ceil(14 * tau_max / C.period)) + 2); }
 
 // Local three-knob calibration on a given setup, as on hardware: programmed mover step, flat-top length and programmed
 // coupler step, minimising 1 - F from the amplitude-matched start.
@@ -186,7 +240,11 @@ template <class V, class F> Stat stat(const V& v, F f) {
     for (const auto& x : v) { const double y = f(x); s.mean += y / double(v.size()); s.max = std::max(s.max, y); }
     return s;
 }
-double median(std::vector<double> v) { std::sort(v.begin(), v.end()); return v.size() % 2 ? v[v.size() / 2] : 0.5 * (v[v.size() / 2 - 1] + v[v.size() / 2]); }
+double median(std::vector<double> v) {
+    if (v.empty()) throw std::invalid_argument("median of no values");
+    std::sort(v.begin(), v.end());
+    return v.size() % 2 ? v[v.size() / 2] : 0.5 * (v[v.size() / 2 - 1] + v[v.size() / 2]);
+}
 Json jstat(const Stat& s) { Json o = Json::object(); o.set("mean", s.mean); o.set("max", s.max); return o; }
 FluxSetup with_tail(double a, double tau) {
     FluxSetup F; F.pad_ns = 0;
@@ -194,9 +252,7 @@ FluxSetup with_tail(double a, double tau) {
     return F;
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
+int run(int argc, char** argv) {
     const auto t_start = std::chrono::steady_clock::now();
     const auto opt = review::parse(argc, argv, 0);
     const std::string txt_path = opt.path("results/flux_distortion_study.txt"), json_path = opt.path("results/flux_distortion_study.json");
@@ -224,6 +280,12 @@ int main(int argc, char** argv) {
     FluxSetup ideal; ideal.pad_ns = 0;
     const auto ref = alone(A, ideal, false);
     const auto respA = responses(A);
+    std::vector<double> slope(A.cls.size());     // the mover's frequency per flux at the interaction point (dressed |10>, coupler on), GHz / Phi0
+    for (std::size_t i = 0; i < A.cls.size(); ++i) {
+        const auto& c = A.cls[i];
+        auto f10 = [&](double f1) { const auto d = c.S.dressed(f1, c.P.fluxc_on, c.S.flux2_idle); return d.E[2] - d.E[0]; };
+        slope[i] = (f10(c.P.flux1_int + 1e-4) - f10(c.P.flux1_int - 1e-4)) / 2e-4;
+    }
     {
         Json jc = Json::array();
         for (std::size_t i = 0; i < A.cls.size(); ++i) {
@@ -233,6 +295,7 @@ int main(int argc, char** argv) {
             o.set("f_mover_GHz", c.fm); o.set("f_target_GHz", c.ft); o.set("t_cz_ns", c.P.duration());
             o.set("step_mover_Phi0", c.P.flux1_int - c.S.flux1_idle); o.set("step_coupler_Phi0", c.P.fluxc_on - c.S.fluxc_idle);
             o.set("err_ideal_lines", ref[i].err); o.set("leakage_ideal_lines", ref[i].leak);
+            o.set("mover_slope_GHz_per_Phi0", slope[i]);
             Json jr = Json::object();           // added 1 - F for constant offsets dm, dc (Phi0): m dm + c dc + mm dm^2 + cc dc^2 + mc dm dc
             jr.set("free_m", R.free_m); jr.set("free_c", R.free_c); jr.set("free_mm", R.free_mm); jr.set("free_cc", R.free_cc); jr.set("free_mc", R.free_mc);
             jr.set("fixed_m", R.fixed_m); jr.set("fixed_c", R.fixed_c); jr.set("fixed_mm", R.fixed_mm); jr.set("fixed_cc", R.fixed_cc); jr.set("fixed_mc", R.fixed_mc);
@@ -251,8 +314,9 @@ int main(int argc, char** argv) {
     for (double eps : opt.smoke ? std::vector<double>{3e-4} : std::vector<double>{1e-4, 3e-4, 1e-3}) {
         for (int line = 0; line < 2; ++line) {
             std::vector<double> dfree(A.cls.size()), dfixed(A.cls.size());
+            LoopGuard guard;
 #pragma omp parallel for schedule(dynamic)
-            for (int i = 0; i < int(A.cls.size()); ++i) {
+            for (int i = 0; i < int(A.cls.size()); ++i) guard.run([&] {
                 const auto& c = A.cls[std::size_t(i)];
                 double fr = 0, fx = 0;
                 for (int sgn : {+1, -1}) {
@@ -263,7 +327,8 @@ int main(int argc, char** argv) {
                     fx += 0.5 * ((1 - cz_fidelity_in_frame(r, ref[std::size_t(i)].frame)) - ref[std::size_t(i)].err);
                 }
                 dfree[std::size_t(i)] = fr; dfixed[std::size_t(i)] = fx;
-            }
+            });
+            guard.rethrow();
             const Stat sf = stat(dfree, [](double x) { return x; }), sx = stat(dfixed, [](double x) { return x; });
             out("   %.0e    %-8s   %.2e / %.2e   %.2e / %.2e\n", eps, line == 0 ? "mover" : "coupler", median(dfree), sf.max, median(dfixed), sx.max);
             Json o = Json::object();
@@ -283,8 +348,12 @@ int main(int argc, char** argv) {
         out("   curvature of 1 - F in flux from these runs / the curvature stored with the calibrations: %.2f-%.2f\n", lo, hi);
         std::vector<double> ratio, phase;
         for (const auto& R : respA) { ratio.push_back(R.fixed_mm / R.free_mm); phase.push_back(std::abs(R.phase_mover) * 1e-3); }
-        out("   constant offset on the mover line (cz_offset_response): fixed costs %.1f times free (median; %.1f-%.1f); the mover's phase moves by %.2f rad per mPhi0 (median)\n\n",
-            median(ratio), -stat(ratio, [](double x) { return -x; }).max, stat(ratio, [](double x) { return x; }).max, median(phase));
+        out("   constant offset on the mover line (cz_offset_response): fixed costs %.1f times free (median; %.1f-%.1f); the mover's phase moves by %.2f rad per mPhi0 (median; %.2f-%.2f)\n",
+            median(ratio), -stat(ratio, [](double x) { return -x; }).max, stat(ratio, [](double x) { return x; }).max, median(phase), -stat(phase, [](double x) { return -x; }).max,
+            stat(phase, [](double x) { return x; }).max);
+        std::vector<double> sl;
+        for (double x : slope) sl.push_back(std::abs(x));
+        out("   the mover's frequency at its interaction flux moves by %.2f-%.2f GHz per Phi0 (median %.2f)\n\n", -stat(sl, [](double x) { return -x; }).max, stat(sl, [](double x) { return x; }).max, median(sl));
         J.set("static_offsets", j1);
         Json o = Json::object(); o.set("min", lo); o.set("max", hi);
         J.set("curvature_ratio_to_calibration", o);
@@ -319,21 +388,29 @@ int main(int argc, char** argv) {
     if (!opt.smoke) chips.push_back(load_chip(beta1(), opt.cache, max_cls));
     Json j3 = Json::array(), jtol = Json::array();
     out("3. The same tail in the memory cycle. Each gate keeps the amplitudes and virtual Z gates calibrated on its own;\n");
-    out("   added error against the gate on its own (mean / max over the CZ gates of a round)\n");
-    struct Tol { std::string chip; double tau, a_fixed, a_free; };
+    out("   a) per gate: added error against the gate on its own (mean / max over the CZ gates of a round)\n");
+    out("   b) per measure qubit, virtual Z gates fixed: the phase shifts of its gates add up between its two Hadamards.\n");
+    out("      flip = sin^2(sum / 2), the probability that this rotation flips the outcome (mean / max over the measure qubits);\n");
+    out("      gate by gate = the same phases counted independently (mean). An estimate from the mover phases of the pair simulations.\n");
+    out("      first round, Z gates of the steady state = the flip of the first round when the virtual Z gates are calibrated in the running cycle\n");
+    struct Tol { std::string chip; double tau, a_fixed, a_summed, a_free; };
     std::vector<Tol> tols;
     struct Est { std::string chip; double tau, sim_fixed, est_fixed, sim_free, est_free; };
     std::vector<Est> ests;
+    struct FlipRow { double a, tau; Stat first, steady, settling; double first_ind, steady_ind, sum_max, offset; };
+    double spread_lo = 1e300, spread_hi = 0;      // worst gate / mean, fixed, steady state, for tau >= 30 ns
     for (const auto& C : chips) {
         const auto resp = &C == &chips.front() ? respA : responses(C);
-        double pmin = 1e300, pmax = 0;
-        for (const auto& L : C.lines) { pmin = std::min(pmin, L.period); pmax = std::max(pmax, L.period); }
         int n4 = 0; for (const auto& L : C.lines) if (L.gates.size() == 4) ++n4;
-        out("   %s: %zu CZ per round on %zu measure-qubit lines (%d with four pulses back to back), round %.0f-%.0f ns\n", C.name.c_str(), C.gates.size(), C.lines.size(), n4, pmin, pmax);
-        out("       a       tau ns   first round: fixed              free                   steady state: fixed             free                   mover phase, rad rms\n");
+        out("   %s: %zu CZ per round on %zu measure-qubit lines (%d with four pulses), round period %.1f ns for every line\n", C.name.c_str(), C.gates.size(), C.lines.size(), n4, C.period);
+        out("   (the slowest line of the compiled schedule, whose lines run at %.1f-%.1f ns; pattern of a round after the schedule has settled)\n", C.period_min, C.period);
+        out("   a)  a       tau ns   first round: fixed              free                   steady state: fixed             free                   mover phase, rad rms\n");
         std::vector<TailCase> cases;
         for (double tau : taus) cases.push_back({a_ref, tau});
-        if (!opt.smoke && &C == &chips.front()) { cases.push_back({-a_ref, 30}); cases.push_back({3 * a_ref, 30}); }
+        if (!opt.smoke && &C == &chips.front()) for (double tau : {10.0, 30.0, 1000.0}) cases.push_back({3 * a_ref, tau});
+        if (!opt.smoke && &C == &chips.front()) cases.push_back({-a_ref, 30});
+        std::vector<FlipRow> flips;
+        const double ref_flip = depolarising_flip(0.1 * C.allowance, double(C.gates.size()) / double(C.lines.size()));
         for (const auto& tc : cases) {
             const FluxSetup F = with_tail(tc.a, tc.tau);
             const auto al = alone(C, F, true);
@@ -343,41 +420,73 @@ int main(int argc, char** argv) {
             const Stat f1 = stat(c1, [](const InCycle& x) { return x.fixed; }), g1 = stat(c1, [](const InCycle& x) { return x.free; });
             const double ph = std::sqrt(stat(c1, [](const InCycle& x) { return x.dphase * x.dphase; }).mean);
             const double ef = stat(c1, [](const InCycle& x) { return x.est_fixed; }).mean, eg = stat(c1, [](const InCycle& x) { return x.est_free; }).mean;
+            const auto l0 = line_phases(C, c0), l1 = line_phases(C, c1);
+            std::vector<double> settle(l0.size());     // first round with the virtual Z gates of the steady state: what is left while the lines settle
+            for (std::size_t l = 0; l < l0.size(); ++l) settle[l] = std::pow(std::sin(0.5 * (l0[l].sum - l1[l].sum)), 2);
+            FlipRow fr{tc.a, tc.tau, stat(l0, [](const LinePhase& x) { return x.flip; }), stat(l1, [](const LinePhase& x) { return x.flip; }), stat(settle, [](double x) { return x; }),
+                       stat(l0, [](const LinePhase& x) { return x.independent; }).mean, stat(l1, [](const LinePhase& x) { return x.independent; }).mean,
+                       stat(l1, [](const LinePhase& x) { return std::abs(x.sum); }).max, stat(c1, [](const InCycle& x) { return x.offset; }).mean};
+            flips.push_back(fr);
             out("   %+.1e  %7.0f   %+.2e / %+.2e   %+.2e / %+.2e    %+.2e / %+.2e   %+.2e / %+.2e    %.4f\n", tc.a, tc.tau, f0.mean, f0.max, g0.mean, g0.max, f1.mean, f1.max, g1.mean, g1.max, ph);
             Json o = Json::object();
             o.set("chip", C.name); o.set("a", tc.a); o.set("tau_ns", tc.tau); o.set("steady_round", rs);
             o.set("first_round_fixed", jstat(f0)); o.set("first_round_free", jstat(g0)); o.set("steady_fixed", jstat(f1)); o.set("steady_free", jstat(g1));
             o.set("steady_mover_phase_rms_rad", ph);
             o.set("steady_fixed_estimate_mean", ef); o.set("steady_free_estimate_mean", eg);
+            o.set("first_round_flip", jstat(fr.first)); o.set("steady_flip", jstat(fr.steady)); o.set("first_round_flip_with_steady_state_frames", jstat(fr.settling));
+            o.set("first_round_flip_gate_by_gate_mean", fr.first_ind); o.set("steady_flip_gate_by_gate_mean", fr.steady_ind);
+            o.set("steady_summed_phase_max_rad", fr.sum_max); o.set("steady_mover_flat_top_offset_mean", fr.offset);
             j3.push(o);
             if (tc.a == a_ref) ests.push_back({C.name, tc.tau, f1.mean, ef, g1.mean, eg});
             if (tc.a == a_ref) {
                 const double target = 0.1 * C.allowance;
-                auto tol = [&](double e) { return e > 0 ? std::abs(a_ref) * std::sqrt(target / e) : 1e9; };
-                tols.push_back({C.name, tc.tau, tol(std::max(f0.mean, f1.mean)), tol(std::max(g0.mean, g1.mean))});
+                auto tol = [&](double e, double limit) { return e > 0 ? std::abs(a_ref) * std::sqrt(limit / e) : 1e9; };
+                tols.push_back({C.name, tc.tau, tol(std::max(f0.mean, f1.mean), target), tol(std::max(fr.first.mean, fr.steady.mean), ref_flip), tol(std::max(g0.mean, g1.mean), target)});
+                if (tc.tau >= 30 && f1.mean > 0) { spread_lo = std::min(spread_lo, f1.max / f1.mean); spread_hi = std::max(spread_hi, f1.max / f1.mean); }
             }
         }
+        out("   b)  a       tau ns   first round: flip       gate by gate   steady state: flip      gate by gate   first round, Z gates of the steady state   summed phase, rad (max)   mover flat top / step (mean)\n");
+        for (const auto& fr : flips)
+            out("   %+.1e  %7.0f   %.2e / %.2e     %.2e       %.2e / %.2e     %.2e       %.2e / %.2e                        %.4f                    %+.2e\n", fr.a, fr.tau, fr.first.mean, fr.first.max, fr.first_ind,
+                fr.steady.mean, fr.steady.max, fr.steady_ind, fr.settling.mean, fr.settling.max, fr.sum_max, fr.offset);
+        out("      for comparison, depolarising gates at a tenth of the allowance flip a measure qubit with probability %.2e per round (%.2f gates on average)\n",
+            ref_flip, double(C.gates.size()) / double(C.lines.size()));
     }
-    out("   largest tail amplitude |a| that keeps the mean added error below a tenth of the chip's residual control-error allowance,\n");
-    out("   from the a^2 growth of the added error (checked above between 0.1 %% and 0.3 %%); the larger of first round and steady state\n");
-    out("   chip                     allowance   tau ns    fixed       free\n");
+    out("   largest tail amplitude |a| that keeps the added error below a tenth of the chip's residual control-error allowance, from the a^2\n");
+    out("   growth of the added error%s; the larger of first round and steady state.\n", opt.smoke ? "" : " (checked above at 10, 30 and 1000 ns between 0.1 % and 0.3 %)");
+    out("   fixed, per gate: mean over the gates;  fixed, summed: mean flip of a measure qubit against that of depolarising gates at the\n");
+    out("   same tenth (3b);  free: mean over the gates\n");
+    out("   chip                     allowance   tau ns    fixed, per gate   fixed, summed   free\n");
     const double tol_cap = 0.01;                 // no statement beyond 1 %
     auto pct = [&](double a) { char b[32]; if (a > tol_cap) std::snprintf(b, sizeof b, "> 1 %%"); else std::snprintf(b, sizeof b, "%.3f %%", 100 * a); return std::string(b); };
     for (const auto& t : tols) {
         const double allow = t.chip == A.name ? A.allowance : chips.back().allowance;
-        out("   %-24s %.0e    %7.0f   %-9s   %s\n", t.chip.c_str(), allow, t.tau, pct(t.a_fixed).c_str(), pct(t.a_free).c_str());
+        out("   %-24s %.0e    %7.0f   %-15s   %-13s   %s\n", t.chip.c_str(), allow, t.tau, pct(t.a_fixed).c_str(), pct(t.a_summed).c_str(), pct(t.a_free).c_str());
         Json o = Json::object();
         o.set("chip", t.chip); o.set("allowance", allow); o.set("target_added_error", 0.1 * allow); o.set("tau_ns", t.tau);
-        o.set("a_max_fixed", std::min(t.a_fixed, tol_cap)); o.set("a_max_free", std::min(t.a_free, tol_cap));
-        o.set("fixed_above_cap", t.a_fixed > tol_cap); o.set("free_above_cap", t.a_free > tol_cap);
+        o.set("a_max_fixed", std::min(t.a_fixed, tol_cap)); o.set("a_max_fixed_summed", std::min(t.a_summed, tol_cap)); o.set("a_max_free", std::min(t.a_free, tol_cap));
+        o.set("fixed_above_cap", t.a_fixed > tol_cap); o.set("fixed_summed_above_cap", t.a_summed > tol_cap); o.set("free_above_cap", t.a_free > tol_cap);
         jtol.push(o);
     }
+    if (spread_hi > 0) out("   the worst gate of a round has %.1f-%.1f times the mean added error (fixed, steady state, tau >= 30 ns)\n", spread_lo, spread_hi);
     out("   quasi-static estimate / simulation, steady state (mean added error; the estimate takes the flux offsets averaged over the\n");
     out("   flat top and each gate's response to constant offsets, without a pulse simulation; shown where the simulation gives more than 1e-6):\n");
     out("   chip                     tau ns    fixed    free\n");
     auto ratio = [](double est, double sim) { char b[16]; if (sim > 1e-6) std::snprintf(b, sizeof b, "%.2f", est / sim); else std::snprintf(b, sizeof b, "-"); return std::string(b); };
     for (const auto& e : ests) out("   %-24s %7.0f    %-6s   %s\n", e.chip.c_str(), e.tau, ratio(e.est_fixed, e.sim_fixed).c_str(), ratio(e.est_free, e.sim_free).c_str());
     out("\n");
+    {
+        Json jc = Json::array();
+        for (const auto& C : chips) {
+            Json o = Json::object();
+            o.set("chip", C.name); o.set("allowance", C.allowance); o.set("cz_per_round", int(C.gates.size())); o.set("measure_qubit_lines", int(C.lines.size()));
+            o.set("round_period_ns", C.period); o.set("schedule_line_period_min_ns", C.period_min);
+            o.set("depolarising_flip_at_a_tenth_of_the_allowance", depolarising_flip(0.1 * C.allowance, double(C.gates.size()) / double(C.lines.size())));
+            jc.push(o);
+        }
+        J.set("cycles", jc);
+        if (spread_hi > 0) { Json o = Json::object(); o.set("min", spread_lo); o.set("max", spread_hi); J.set("worst_gate_over_mean_fixed", o); }
+    }
     J.set("tail_in_cycle", j3); J.set("tail_tolerance", jtol);
 
     // ---------------------------------------------------------------- 4. predistortion of an example line
@@ -437,12 +546,14 @@ int main(int argc, char** argv) {
     out("   a) sample-and-hold and bandwidth (single-pole low-pass, 10-90 %% rise time), no tails; three pair classes, gate on its own:\n");
     out("      amplitudes re-calibrated only, and after a local re-calibration of the three knobs (mover step, flat-top length, coupler step)\n");
     out("      sample rate   rise ns    class          amplitudes only   three knobs   leakage     flat top\n");
-    std::vector<int> pick;                       // classes that the plain 1 - F calibration produced (not the leakage fallback)
-    for (std::size_t i = 0; i < A.cls.size(); ++i) {
-        const auto& c = A.cls[i];
-        if ((c.fm == 5.99 && c.ft == 5.29) || (c.fm == 5.87 && c.ft == 5.29) || (c.fm == 5.87 && c.ft == 5.11)) pick.push_back(int(i));
-    }
-    if (opt.smoke || pick.empty()) { pick.clear(); pick.push_back(0); }
+    // three classes that the plain 1 - F calibration produced (not the leakage fallback); the smoke run takes the first class
+    auto find_class = [&](double fm, double ft) {
+        for (std::size_t i = 0; i < A.cls.size(); ++i) if (std::abs(A.cls[i].fm - fm) < 1e-6 && std::abs(A.cls[i].ft - ft) < 1e-6) return int(i);
+        throw std::runtime_error("flux_distortion_study: the CZ cache has no " + std::to_string(fm) + " / " + std::to_string(ft) + " GHz pair class");
+    };
+    std::vector<int> pick;
+    if (opt.smoke) pick.push_back(0);
+    else pick = {find_class(5.99, 5.29), find_class(5.87, 5.29), find_class(5.87, 5.11)};
     struct AwgCase { double gs, rise; };
     const std::vector<AwgCase> awg_cases = opt.smoke ? std::vector<AwgCase>{{2.4, 1.0}} : std::vector<AwgCase>{{0, 1.0}, {0, 2.0}, {2.4, 0.5}, {2.4, 1.0}, {2.4, 2.0}, {1.0, 1.0}, {1.0, 2.0}};
     const int max_eval = opt.smoke ? 12 : 80;
@@ -453,12 +564,14 @@ int main(int argc, char** argv) {
         FluxSetup F; F.awg.sample_ns = ac.gs > 0 ? 1.0 / ac.gs : 0.0;
         F.mover.line.rise_ns = ac.rise; F.coupler.line.rise_ns = ac.rise;
         std::vector<Recal> rc(pick.size()); std::vector<double> am(pick.size());
+        LoopGuard guard;
 #pragma omp parallel for schedule(dynamic)
-        for (int k = 0; k < int(pick.size()); ++k) {
+        for (int k = 0; k < int(pick.size()); ++k) guard.run([&] {
             const auto& c = A.cls[std::size_t(pick[std::size_t(k)])];
             am[std::size_t(k)] = 1 - simulate_cz_drive(c.S, cz_gate_drive(c.S, c.P, F, cz_matched_command(c.S, c.P, F))).fidelity;
             rc[std::size_t(k)] = recalibrate(c, F, max_eval);
-        }
+        });
+        guard.rethrow();
         for (std::size_t k = 0; k < pick.size(); ++k) {
             const auto& c = A.cls[std::size_t(pick[k])];
             const double e0 = ref[std::size_t(pick[k])].err;
@@ -468,6 +581,7 @@ int main(int argc, char** argv) {
             Json o = Json::object();
             o.set("sample_rate_GSps", ac.gs); o.set("rise_ns", ac.rise); o.set("f_mover_GHz", c.fm); o.set("f_target_GHz", c.ft);
             o.set("added_amplitudes_only", am[k] - e0); o.set("added_three_knobs", rc[k].err - e0); o.set("leakage_three_knobs", rc[k].leak);
+            o.set("added_leakage_three_knobs", rc[k].leak - ref[std::size_t(pick[k])].leak);
             o.set("flat_top_change_ns", rc[k].P.t_flat - c.P.t_flat);
             j5a.push(o);
         }
@@ -483,7 +597,7 @@ int main(int argc, char** argv) {
     J.set("awg_sampling", j5a);
 
     out("   b) DAC resolution, full scale 1 Phi0 peak to peak: the re-calibrated gates of 2.4 GS/s and 1.0 ns played through the DAC (max over the classes),\n");
-    out("      and the bound from section 1 for a flat top that is off by half a step on both lines\n");
+    out("      and the bound for a flat top that is off by half a step on both lines, in the worse combination of signs (response to constant offsets, all classes)\n");
     out("      bits   step, Phi0    added error   bound\n");
     Json j5b = Json::array();
     int bits_needed = 0;
@@ -491,15 +605,17 @@ int main(int argc, char** argv) {
         FluxSetup F; F.awg.sample_ns = 1.0 / 2.4; F.mover.line.rise_ns = 1.0; F.coupler.line.rise_ns = 1.0;
         FluxSetup Fq = F; Fq.awg.bits = bits; Fq.awg.full_scale = 1.0;
         std::vector<double> d(pick.size());
+        LoopGuard guard;
 #pragma omp parallel for schedule(dynamic)
-        for (int k = 0; k < int(pick.size()); ++k) {
+        for (int k = 0; k < int(pick.size()); ++k) guard.run([&] {
             const auto& c = A.cls[std::size_t(pick[std::size_t(k)])];
             const auto& rc = at24[std::size_t(k)];
             d[std::size_t(k)] = (1 - simulate_cz_drive(c.S, cz_gate_drive(c.S, rc.P, Fq, rc.cmd)).fidelity) - rc.err;
-        }
+        });
+        guard.rethrow();
         const double lsb = 1.0 / std::ldexp(1.0, bits);
-        double bound = 0;                       // 1 - F is quadratic in the offsets (section 1): half a step on each line, worst class
-        for (const auto& c : A.cls) bound = std::max(bound, 0.5 * c.curv * (0.5 * lsb) * (0.5 * lsb));
+        double bound = 0;                       // half a step on each line, either sign: the worst class and combination (free virtual Z gates)
+        for (const auto& R : respA) for (int sm : {+1, -1}) for (int sc : {+1, -1}) bound = std::max(bound, R.added_free(sm * 0.5 * lsb, sc * 0.5 * lsb));
         const Stat s = stat(d, [](double x) { return x; });
         out("      %2d     %.1e      %+.1e      %.1e\n", bits, lsb, s.max, bound);
         if (!bits_needed && bound <= 0.1 * A.allowance) bits_needed = bits;
@@ -508,10 +624,11 @@ int main(int argc, char** argv) {
     }
     J.set("dac_resolution", j5b);
 
-    out("   c) timing skew between the mover and the coupler line, gates as calibrated (%zu classes, median / worst, free)\n", A.cls.size());
-    out("      late line   by ns    added error\n");
+    out("   c) timing skew between the mover and the coupler line (free). All %zu classes as calibrated (median / worst); the three classes of 5a\n", A.cls.size());
+    out("      as calibrated and after the local three-knob re-calibration with the skew present (worst of the three)\n");
+    out("      late line   by ns    as calibrated            three classes: as calibrated   three knobs\n");
     Json j5c = Json::array();
-    double skew_fit = 0;                                    // worst added error / skew^2, from the largest skew
+    double skew_fit = 0, recal_keeps_lo = 1e300, recal_keeps_hi = 0;   // worst added error / skew^2; share of the error the re-calibration leaves
     for (double d : opt.smoke ? std::vector<double>{0.2} : std::vector<double>{0.05, 0.1, 0.2, 0.5}) for (int which = 0; which < 2; ++which) {
         FluxSetup F; F.pad_ns = d;
         (which == 0 ? F.coupler.line.delay_ns : F.mover.line.delay_ns) = d;
@@ -520,13 +637,44 @@ int main(int argc, char** argv) {
         std::vector<double> v(A.cls.size());
         for (std::size_t i = 0; i < A.cls.size(); ++i) v[i] = sk[i].err - base[i].err;
         const Stat s = stat(v, [](double x) { return x; });
-        out("      %-8s    %.2f     %.2e / %.2e\n", which == 0 ? "coupler" : "mover", d, median(v), s.max);
+        std::vector<double> rk(pick.size());
+        LoopGuard guard;
+#pragma omp parallel for schedule(dynamic)
+        for (int k = 0; k < int(pick.size()); ++k)
+            guard.run([&] { rk[std::size_t(k)] = recalibrate(A.cls[std::size_t(pick[std::size_t(k)])], F, max_eval).err - base[std::size_t(pick[std::size_t(k)])].err; });
+        guard.rethrow();
+        double as_cal = -1e300, three = -1e300;
+        for (std::size_t k = 0; k < pick.size(); ++k) { as_cal = std::max(as_cal, v[std::size_t(pick[k])]); three = std::max(three, rk[k]); }
+        out("      %-8s    %.2f     %.2e / %.2e      %.2e                       %.2e\n", which == 0 ? "coupler" : "mover", d, median(v), s.max, as_cal, three);
         Json o = Json::object(); o.set("late_line", which == 0 ? "coupler" : "mover"); o.set("skew_ns", d); o.set("added_median", median(v)); o.set("added_worst", s.max);
+        o.set("three_classes_as_calibrated_worst", as_cal); o.set("three_classes_three_knobs_worst", three);
         j5c.push(o);
         skew_fit = std::max(skew_fit, s.max / (d * d));
+        if (as_cal > 1e-6) { recal_keeps_lo = std::min(recal_keeps_lo, three / as_cal); recal_keeps_hi = std::max(recal_keeps_hi, three / as_cal); }
     }
+    if (recal_keeps_hi > 0) out("      the re-calibration leaves %.0f-%.0f %% of the added error of the three classes\n", 100 * recal_keeps_lo, 100 * recal_keeps_hi);
     out("\n");
     J.set("timing_skew", j5c);
+
+    // ---------------------------------------------------------------- 6. the class of the leakage fallback
+    if (!opt.smoke) {
+        const int k = find_class(5.81, 5.29);
+        const auto& c = A.cls[std::size_t(k)];
+        const Recal rp = recalibrate(c, ideal, 400);
+        const CZCommand n0 = cz_nominal_command(c.S, c.P);
+        out("6. The %.2f/%.2f GHz class: the cache entry that the leakage fallback of CZ model version 4 changed (results/PROVENANCE.md).\n", c.fm, c.ft);
+        out("   Stored pulse: 1 - F %.2e, leakage %.2e. Re-calibrated from it for 1 - F alone (three knobs, ideal lines, 400 evaluations):\n", ref[std::size_t(k)].err, ref[std::size_t(k)].leak);
+        out("   1 - F %.2e, leakage %.2e (flat top %+.2f ns, mover step %+.1e Phi0, coupler step %+.1e Phi0); limits of the Alpha gate: %.0e and %.0e.\n",
+            rp.err, rp.leak, rp.P.t_flat - c.P.t_flat, rp.cmd.amp_mover - n0.amp_mover, rp.cmd.amp_coupler - n0.amp_coupler, CZModel::coh_limit, CZModel::leak_limit);
+        out("   Nothing uses this pulse: the cache and the reviews keep the stored one.\n\n");
+        Json o = Json::object();
+        o.set("f_mover_GHz", c.fm); o.set("f_target_GHz", c.ft);
+        o.set("stored_err", ref[std::size_t(k)].err); o.set("stored_leakage", ref[std::size_t(k)].leak);
+        o.set("repolished_err", rp.err); o.set("repolished_leakage", rp.leak);
+        o.set("flat_top_change_ns", rp.P.t_flat - c.P.t_flat); o.set("mover_step_change_Phi0", rp.cmd.amp_mover - n0.amp_mover); o.set("coupler_step_change_Phi0", rp.cmd.amp_coupler - n0.amp_coupler);
+        o.set("coherent_limit", CZModel::coh_limit); o.set("leakage_limit", CZModel::leak_limit);
+        J.set("leakage_fallback_class_repolished", o);
+    }
 
     // ---------------------------------------------------------------- summary
     out("Summary: what keeps each contribution below a tenth of the residual control-error allowance\n");
@@ -535,10 +683,10 @@ int main(int argc, char** argv) {
         out("   residual tail of the corrected step response, at the worst time constant:\n");
         Json jt = Json::array();
         for (const auto& C : chips) {
-            double tf = 1, tr = 1;
-            for (const auto& t : tols) if (t.chip == C.name) { tf = std::min(tf, t.a_fixed); tr = std::min(tr, t.a_free); }
-            out("      %s (allowance %.0e): %.3f %% (fixed), %.3f %% (free)\n", C.name.c_str(), C.allowance, 100 * tf, 100 * tr);
-            Json o = Json::object(); o.set("chip", C.name); o.set("tail_amplitude_fixed", tf); o.set("tail_amplitude_free", tr);
+            double tf = 1, ts = 1, tr = 1;
+            for (const auto& t : tols) if (t.chip == C.name) { tf = std::min(tf, t.a_fixed); ts = std::min(ts, t.a_summed); tr = std::min(tr, t.a_free); }
+            out("      %s (allowance %.0e): %.3f %% (fixed, per gate), %.3f %% (fixed, phases summed per measure qubit), %.3f %% (free)\n", C.name.c_str(), C.allowance, 100 * tf, 100 * ts, 100 * tr);
+            Json o = Json::object(); o.set("chip", C.name); o.set("tail_amplitude_fixed", tf); o.set("tail_amplitude_fixed_summed", ts); o.set("tail_amplitude_free", tr);
             jt.push(o);
         }
         js.set("tail_tolerance", jt);
@@ -558,7 +706,7 @@ int main(int argc, char** argv) {
         js.set("awg_within_target", awg_ok);
         if (bits_needed) out("      DAC resolution at 1 Phi0 full scale: %d bits\n", bits_needed);
         js.set("dac_bits", bits_needed);
-        if (skew_fit > 0) { const double sk = std::sqrt(target / skew_fit); out("      timing skew between mover and coupler line: %.2f ns\n", sk); js.set("skew_ns", sk); }
+        if (skew_fit > 0) { const double sk = std::sqrt(target / skew_fit); out("      timing skew between mover and coupler line: %.2f ns (gates as calibrated; the three-knob re-calibration does not remove it, 5c)\n", sk); js.set("skew_ns", sk); }
     }
     J.set("summary", js);
 
@@ -570,4 +718,11 @@ int main(int argc, char** argv) {
     J.dump(f); f << "\n";
     std::printf("wrote %s and %s\n", txt_path.c_str(), json_path.c_str());
     return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    try { return run(argc, argv); }
+    catch (const std::exception& e) { std::fprintf(stderr, "error: %s\n", e.what()); return 2; }
 }

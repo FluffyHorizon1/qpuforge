@@ -2439,8 +2439,8 @@ inline double flux_loop_T1_us(double M_pH, double EJsum_GHz, double EC_GHz, doub
 // one quadrant on that metal: kBumpNeighbourFraction L_b / N. The fractions are the island's charge by quadrant, taken
 // as equal; the ground straps between plaquettes are ignored (they lower the term). Metal with no ground bump: 0.
 inline constexpr double kBumpOwnFraction = 0.75, kBumpNeighbourFraction = 0.25;
-inline double bump_return_pH(const ChipLayout& L, const std::string& ground_ref) {
-    for (const auto& g : L.grounds) if (g.name == ground_ref) return g.bumps > 0 ? kBumpInductance_pH / g.bumps : 0.0;
+inline double bump_return_pH(const ChipLayout& L, const std::string& ground_ref, double bump_pH = kBumpInductance_pH) {
+    for (const auto& g : L.grounds) if (g.name == ground_ref) return g.bumps > 0 ? bump_pH / g.bumps : 0.0;
     return 0.0;
 }
 inline double flux_cm_T1_us(double M_cm_pH, double EJ_GHz, double f_GHz, double Z0 = 50) {
@@ -2502,6 +2502,13 @@ struct LineBudget {
     LineCell meas, data;
     std::string coupler; FluxCoupling coupler_flux;      // representative coupler and its flux line
     double f_coupler_GHz{0};
+    // model parameters of line_budget_evaluate: line impedance, and the shared bump return (bump_return_pH)
+    double Z0{50}, bump_pH{kBumpInductance_pH}, bump_own_fraction{kBumpOwnFraction}, bump_neighbour_fraction{kBumpNeighbourFraction};
+    // the solves, kept so that line_budget_evaluate can derive everything again for other model parameters
+    bool solved{false}, crosstalk_solved{false};
+    struct CrossSolve { int line_qubit{-1}; std::string victim; FluxCoupling X; };
+    std::vector<CrossSolve> cross;                       // line_budget_crosstalk, in the order solved
+    std::map<int, std::vector<int>> cross_neighbours;    // per representative qubit: its coupled neighbours, nearest to its line's pad first
     double min_ratio_drive{1e300}, min_ratio_flux_cap{1e300}, min_ratio_flux_loop{1e300}, min_ratio_flux_cm{1e300};
     double min_T1_drive_us{1e300}, min_T1_flux_cap_us{1e300}, min_T1_flux_loop_us{1e300}, min_T1_flux_cm_us{1e300};
     int worst_drive_qubit{-1}, worst_flux_cap_qubit{-1}, worst_flux_loop_qubit{-1}, worst_flux_cm_qubit{-1};
@@ -2523,10 +2530,131 @@ inline std::pair<int, int> pair_ends(const std::string& s) {      // "C5-8" -> (
     return {std::stoi(s.substr(1, d - 1)), std::stoi(s.substr(d + 1))};
 }
 }
+// The cheap half of the budget: every T1 limit, the drive power, the crosstalk ratios and the inputs of the gates, from
+// the solves that line_budget and line_budget_crosstalk keep in B, for the model parameters in B (line impedance Z0,
+// bump inductance bump_pH and the quadrant fractions of the shared bump return). Both call it; call it again after
+// changing a model parameter: a sensitivity study needs no new solve.
+inline void line_budget_evaluate(LineBudget& B, const ChipDesign& D, const ChipReport& R, const ChipLayout& L, const LayoutMetrics& m) {
+    if (!B.solved) return;
+    {   // start again from the solves
+        LineBudget E;
+        E.note = B.note; E.separate_xy = B.separate_xy; E.meas = B.meas; E.data = B.data; E.coupler = B.coupler; E.coupler_flux = B.coupler_flux;
+        E.f_coupler_GHz = B.f_coupler_GHz; E.Z0 = B.Z0; E.bump_pH = B.bump_pH; E.bump_own_fraction = B.bump_own_fraction;
+        E.bump_neighbour_fraction = B.bump_neighbour_fraction; E.solved = B.solved; E.crosstalk_solved = B.crosstalk_solved;
+        E.cross = std::move(B.cross); E.cross_neighbours = std::move(B.cross_neighbours);
+        for (LineCell* c : {&E.meas, &E.data}) { c->flux.others.clear(); c->flux.worst_other.clear(); c->flux.worst_other_ratio = 0; }
+        B = std::move(E);
+    }
+    const double Z0 = B.Z0, f_coupler_GHz = B.f_coupler_GHz, own_f = B.bump_own_fraction, nb_f = B.bump_neighbour_fraction;
+    // C(n, target): a coupler or bus to one of its own two qubits from the cell metrics (the window may clip it), else from the window
+    auto C_nt = [&](const std::string& n, const std::string& t) {
+        if (n[0] != 'C' && n[0] != 'B') return -1.0;
+        const auto [a, b] = detail::pair_ends(n);
+        const int tq = std::stoi(t.substr(1));
+        return a == tq || b == tq ? (n[0] == 'C' ? m.C_qc : m.C_qb) : -1.0;
+    };
+    double T1max = 0; for (const auto& q : R.q) T1max = std::max(T1max, q.T1_us);
+    for (std::size_t i = 0; i < D.qubits.size() && i < R.q.size(); ++i) {
+        const bool meas = D.qubits[i].role != "data";
+        const LineCell& c = meas ? B.meas : B.data;       // the cell's own-qubit couplings stand for this qubit's
+        const auto& rq = R.q[i];
+        const double f = rq.f01;
+        const double tcap = line_T1_us(c.C_sigma_fF, c.C_flux_eff(f), f, Z0);
+        const double d = std::max(std::abs(D.qubits[i].squid_d), kAssumedSquidAsymmetry);
+        const double EJsum = EJ_from_Rn_GHz(D.qubits[i].Rn_kOhm, D.gap_ueV);
+        const double mb = bump_return_pH(L, "SQ" + std::to_string(D.qubits[i].id), B.bump_pH);
+        B.max_M_bump_pH = std::max(B.max_M_bump_pH, own_f * mb);
+        for (const auto& g : L.grounds) if (g.name == "SQ" + std::to_string(D.qubits[i].id)) B.min_bumps = B.min_bumps < 0 ? g.bumps : std::min(B.min_bumps, g.bumps);
+        const double tloop = flux_loop_T1_us(c.flux.M_pH, EJsum, rq.EC, d, D.qubits[i].flux, f, Z0),
+                     tcm = flux_cm_T1_us(c.flux.M_cm_pH + own_f * mb, rq.EJ, f, Z0);
+        auto upd = [&](double t, double& mt, double& mr, int& wq) { mt = std::min(mt, t); if (t / rq.T1_us < mr) { mr = t / rq.T1_us; wq = D.qubits[i].id; } };
+        upd(tcap, B.min_T1_flux_cap_us, B.min_ratio_flux_cap, B.worst_flux_cap_qubit);
+        upd(tloop, B.min_T1_flux_loop_us, B.min_ratio_flux_loop, B.worst_flux_loop_qubit);
+        upd(tcm, B.min_T1_flux_cm_us, B.min_ratio_flux_cm, B.worst_flux_cm_qubit);
+        if (B.separate_xy) {
+            const double ceff = c.C_xy_eff("Q" + std::to_string(c.qubit), f, C_nt);
+            upd(line_T1_us(c.C_sigma_fF, ceff, f, Z0), B.min_T1_drive_us, B.min_ratio_drive, B.worst_drive_qubit);
+            B.drive_power_dBm = std::max(B.drive_power_dBm, drive_power_dBm(ceff, c.C_sigma_fF, rq.n01));
+            if (c.C_xy_fF != 0) {
+                const double mf = (ceff - c.C_xy_fF) / c.C_xy_fF;
+                B.min_mediated_fraction = std::min(B.min_mediated_fraction, mf); B.max_mediated_fraction = std::max(B.max_mediated_fraction, mf);
+            }
+        } else {                                           // driven through the flux line: the common mode is the drive port
+            upd(tcm, B.min_T1_drive_us, B.min_ratio_drive, B.worst_drive_qubit);
+            B.drive_power_dBm = std::max(B.drive_power_dBm, flux_drive_power_dBm(c.flux.M_cm_pH - own_f * mb, rq.EJ, rq.EC));
+        }
+    }
+    for (const LineCell* c : {&B.meas, &B.data}) {
+        if (B.separate_xy)
+            for (const auto& n : c->win.C.names) if (n[0] == 'C') {              // coupler decay into the XY line
+                const double t = line_T1_us(m.C_c, c->win.mutual("XY" + std::to_string(c->qubit), n), f_coupler_GHz, Z0);
+                if (t < B.min_T1_coupler_us) { B.min_T1_coupler_us = t; B.worst_coupler = n; }
+            }
+        B.max_I_half_mA = std::max(B.max_I_half_mA, c->flux.I_half_mA); B.min_M_pH = std::min(B.min_M_pH, c->flux.M_pH);
+    }
+    if (B.coupler_flux.ok) {
+        B.max_I_half_mA = std::max(B.max_I_half_mA, B.coupler_flux.I_half_mA);
+        if (!B.separate_xy) {                              // coupler decay into its own flux line (common mode)
+            const FluxTransmon ct = FluxTransmon::from_target(D.coupler.f_max_GHz, D.coupler.alpha_GHz);
+            B.M_bump_coupler_pH = own_f * bump_return_pH(L, "SC" + B.coupler, B.bump_pH);
+            B.min_T1_coupler_us = flux_cm_T1_us(B.coupler_flux.M_cm_pH + B.M_bump_coupler_pH, ct.EJ(ct.flux_for_f01(f_coupler_GHz)), f_coupler_GHz, Z0);
+            B.worst_coupler = "C" + B.coupler;
+        }
+    } else if (!B.coupler.empty()) { B.note = "coupler flux line: " + B.coupler_flux.note; B.max_I_half_mA = 1e300; }
+    B.ratio_coupler = T1max > 0 ? B.min_T1_coupler_us / T1max : 1e300;
+    B.evaluated = true;
+    if (!B.crosstalk_solved) return;
+    std::map<int, int> index;
+    for (std::size_t i = 0; i < D.qubits.size(); ++i) index[D.qubits[i].id] = int(i);
+    for (LineCell* c : {&B.meas, &B.data}) {
+        const auto nit = B.cross_neighbours.find(c->qubit);
+        if (c->qubit < 0 || nit == B.cross_neighbours.end()) continue;
+        const std::string line = "FQ" + std::to_string(c->qubit);
+        auto flux_victim = [&](const std::string& owner, const FluxCoupling& X) {
+            if (!X.ok) return;
+            c->flux.others.push_back({owner, X.M_pH});
+            const double r = c->flux.M_pH > 0 ? X.M_pH / c->flux.M_pH : 0.0;
+            if (r > c->flux.worst_other_ratio) { c->flux.worst_other_ratio = r; c->flux.worst_other = owner; }
+        };
+        auto solve_of = [&](const std::string& victim) -> const FluxCoupling* {
+            for (const auto& cs : B.cross) if (cs.line_qubit == c->qubit && cs.victim == victim) return &cs.X;
+            return nullptr;
+        };
+        const auto& nb = nit->second;
+        for (std::size_t k = 0; k < nb.size(); ++k) {
+            const int j = nb[k];
+            const bool jmeas = D.qubits[std::size_t(index[j])].role != "data";
+            const LineCell& own = jmeas ? B.meas : B.data;         // the neighbour's own drive: its role's cell
+            const std::string qj = "Q" + std::to_string(j);
+            double x = 0;
+            if (B.separate_xy) {
+                const double fj = R.q[std::size_t(index[j])].f01;
+                const double there = c->C_xy_eff(qj, fj, C_nt), self = own.C_xy_eff("Q" + std::to_string(own.qubit), fj, C_nt);
+                x = self != 0 ? std::abs(there / self) : 1e300;
+            }
+            if (k < 2) {                                           // the two nearest: flux and (through the flux lines) drive
+                const FluxCoupling none;
+                const FluxCoupling* Xp = solve_of(qj);
+                const FluxCoupling& X = Xp ? *Xp : none;
+                flux_victim(qj, X);
+                if (!B.separate_xy) {                              // with the shared bump return on both sides, worst signs
+                    const double mb = bump_return_pH(L, "SQ" + std::to_string(c->qubit), B.bump_pH), mbj = bump_return_pH(L, "S" + qj, B.bump_pH);
+                    const double self = own.flux.M_cm_pH - own_f * mbj;
+                    x = !X.ok || self <= 0 ? 1e300 : (X.M_cm_pH + nb_f * mb) / self;
+                }
+                for (const std::string& tag : {std::to_string(c->qubit) + "-" + std::to_string(j), std::to_string(j) + "-" + std::to_string(c->qubit)})
+                    if (const FluxCoupling* Y = solve_of("C" + tag)) flux_victim("C" + tag, *Y);
+            }
+            if (x > B.max_drive_crosstalk) { B.max_drive_crosstalk = x; B.worst_crosstalk = (B.separate_xy ? "XY" : "FQ") + std::to_string(c->qubit) + " -> " + qj; }
+        }
+        if (c->flux.worst_other_ratio > B.max_flux_crosstalk) { B.max_flux_crosstalk = c->flux.worst_other_ratio; B.worst_flux_crosstalk = line + " -> " + c->flux.worst_other; }
+    }
+    B.crosstalk_evaluated = true;
+}
 // mo: the mesh of the control windows (capacitance); flux_mo: the mesh of the flux-coupling solves.
 inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const ChipLayout& L, const LayoutMetrics& m, double f_coupler_GHz,
                               const MeshOptions& mo, double Z0 = 50, const MeshOptions& flux_mo = kFluxMesh) {
-    LineBudget B; B.f_coupler_GHz = f_coupler_GHz;
+    LineBudget B; B.f_coupler_GHz = f_coupler_GHz; B.Z0 = Z0;
     // representative qubits
     Rect bb{1e300, 1e300, -1e300, -1e300};
     for (const auto& q : D.qubits) { bb.x0 = std::min(bb.x0, q.x_um); bb.y0 = std::min(bb.y0, q.y_um); bb.x1 = std::max(bb.x1, q.x_um); bb.y1 = std::max(bb.y1, q.y_um); }
@@ -2566,63 +2694,8 @@ inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const Ch
     // representative coupler: one of the measure qubit's
     for (const auto& c : D.couplings) if (c.a == B.meas.qubit || c.b == B.meas.qubit) { B.coupler = std::to_string(c.a) + "-" + std::to_string(c.b); break; }
     if (!B.coupler.empty()) B.coupler_flux = flux_coupling(L, "C" + B.coupler, "FC" + B.coupler, flux_mo);
-    // C(n, target): a coupler or bus to one of its own two qubits from the cell metrics (the window may clip it), else from the window
-    auto C_nt = [&](const std::string& n, const std::string& t) {
-        if (n[0] != 'C' && n[0] != 'B') return -1.0;
-        const auto [a, b] = detail::pair_ends(n);
-        const int tq = std::stoi(t.substr(1));
-        return a == tq || b == tq ? (n[0] == 'C' ? m.C_qc : m.C_qb) : -1.0;
-    };
-    double T1max = 0; for (const auto& q : R.q) T1max = std::max(T1max, q.T1_us);
-    for (std::size_t i = 0; i < D.qubits.size() && i < R.q.size(); ++i) {
-        const bool meas = D.qubits[i].role != "data";
-        const LineCell& c = meas ? B.meas : B.data;       // the cell's own-qubit couplings stand for this qubit's
-        const auto& rq = R.q[i];
-        const double f = rq.f01;
-        const double tcap = line_T1_us(c.C_sigma_fF, c.C_flux_eff(f), f, Z0);
-        const double d = std::max(std::abs(D.qubits[i].squid_d), kAssumedSquidAsymmetry);
-        const double EJsum = EJ_from_Rn_GHz(D.qubits[i].Rn_kOhm, D.gap_ueV);
-        const double mb = bump_return_pH(L, "SQ" + std::to_string(D.qubits[i].id));
-        B.max_M_bump_pH = std::max(B.max_M_bump_pH, kBumpOwnFraction * mb);
-        for (const auto& g : L.grounds) if (g.name == "SQ" + std::to_string(D.qubits[i].id)) B.min_bumps = B.min_bumps < 0 ? g.bumps : std::min(B.min_bumps, g.bumps);
-        const double tloop = flux_loop_T1_us(c.flux.M_pH, EJsum, rq.EC, d, D.qubits[i].flux, f, Z0),
-                     tcm = flux_cm_T1_us(c.flux.M_cm_pH + kBumpOwnFraction * mb, rq.EJ, f, Z0);
-        auto upd = [&](double t, double& mt, double& mr, int& wq) { mt = std::min(mt, t); if (t / rq.T1_us < mr) { mr = t / rq.T1_us; wq = D.qubits[i].id; } };
-        upd(tcap, B.min_T1_flux_cap_us, B.min_ratio_flux_cap, B.worst_flux_cap_qubit);
-        upd(tloop, B.min_T1_flux_loop_us, B.min_ratio_flux_loop, B.worst_flux_loop_qubit);
-        upd(tcm, B.min_T1_flux_cm_us, B.min_ratio_flux_cm, B.worst_flux_cm_qubit);
-        if (B.separate_xy) {
-            const double ceff = c.C_xy_eff("Q" + std::to_string(c.qubit), f, C_nt);
-            upd(line_T1_us(c.C_sigma_fF, ceff, f, Z0), B.min_T1_drive_us, B.min_ratio_drive, B.worst_drive_qubit);
-            B.drive_power_dBm = std::max(B.drive_power_dBm, drive_power_dBm(ceff, c.C_sigma_fF, rq.n01));
-            if (c.C_xy_fF != 0) {
-                const double mf = (ceff - c.C_xy_fF) / c.C_xy_fF;
-                B.min_mediated_fraction = std::min(B.min_mediated_fraction, mf); B.max_mediated_fraction = std::max(B.max_mediated_fraction, mf);
-            }
-        } else {                                           // driven through the flux line: the common mode is the drive port
-            upd(tcm, B.min_T1_drive_us, B.min_ratio_drive, B.worst_drive_qubit);
-            B.drive_power_dBm = std::max(B.drive_power_dBm, flux_drive_power_dBm(c.flux.M_cm_pH - kBumpOwnFraction * mb, rq.EJ, rq.EC));
-        }
-    }
-    for (const LineCell* c : {&B.meas, &B.data}) {
-        if (B.separate_xy)
-            for (const auto& n : c->win.C.names) if (n[0] == 'C') {              // coupler decay into the XY line
-                const double t = line_T1_us(m.C_c, c->win.mutual("XY" + std::to_string(c->qubit), n), f_coupler_GHz, Z0);
-                if (t < B.min_T1_coupler_us) { B.min_T1_coupler_us = t; B.worst_coupler = n; }
-            }
-        B.max_I_half_mA = std::max(B.max_I_half_mA, c->flux.I_half_mA); B.min_M_pH = std::min(B.min_M_pH, c->flux.M_pH);
-    }
-    if (B.coupler_flux.ok) {
-        B.max_I_half_mA = std::max(B.max_I_half_mA, B.coupler_flux.I_half_mA);
-        if (!B.separate_xy) {                              // coupler decay into its own flux line (common mode)
-            const FluxTransmon ct = FluxTransmon::from_target(D.coupler.f_max_GHz, D.coupler.alpha_GHz);
-            B.M_bump_coupler_pH = kBumpOwnFraction * bump_return_pH(L, "SC" + B.coupler);
-            B.min_T1_coupler_us = flux_cm_T1_us(B.coupler_flux.M_cm_pH + B.M_bump_coupler_pH, ct.EJ(ct.flux_for_f01(f_coupler_GHz)), f_coupler_GHz, Z0);
-            B.worst_coupler = "C" + B.coupler;
-        }
-    } else if (!B.coupler.empty()) { B.note = "coupler flux line: " + B.coupler_flux.note; B.max_I_half_mA = 1e300; }
-    B.ratio_coupler = T1max > 0 ? B.min_T1_coupler_us / T1max : 1e300;
-    B.evaluated = true;
+    B.solved = true;
+    line_budget_evaluate(B, D, R, L, m);
     return B;
 }
 // Crosstalk of the representative qubits' flux lines, kept apart from line_budget because of its cost: one
@@ -2634,16 +2707,11 @@ inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const Ch
 inline constexpr double kCrossLocal = 150.0;
 inline void line_budget_crosstalk(LineBudget& B, const ChipDesign& D, const ChipReport& R, const ChipLayout& L, const LayoutMetrics& m,
                                   const MeshOptions& cross_mo = kFluxCrossMesh) {
-    if (!B.evaluated) return;
+    if (!B.solved) return;
     std::map<int, int> index;
     for (std::size_t i = 0; i < D.qubits.size(); ++i) index[D.qubits[i].id] = int(i);
-    auto C_nt = [&](const std::string& n, const std::string& t) {
-        if (n[0] != 'C' && n[0] != 'B') return -1.0;
-        const auto [a, b] = detail::pair_ends(n);
-        const int tq = std::stoi(t.substr(1));
-        return a == tq || b == tq ? (n[0] == 'C' ? m.C_qc : m.C_qb) : -1.0;
-    };
-    for (LineCell* c : {&B.meas, &B.data}) {
+    B.cross.clear(); B.cross_neighbours.clear();
+    for (const LineCell* c : {&B.meas, &B.data}) {
         if (c->qubit < 0) continue;
         const std::string line = "FQ" + std::to_string(c->qubit);
         const int il = L.island(line);
@@ -2656,40 +2724,17 @@ inline void line_budget_crosstalk(LineBudget& B, const ChipDesign& D, const Chip
             nb.push_back({std::hypot(D.qubits[std::size_t(index[j])].x_um - pad.first, D.qubits[std::size_t(index[j])].y_um - pad.second), j});
         }
         std::sort(nb.begin(), nb.end());
-        c->flux.others.clear(); c->flux.worst_other.clear(); c->flux.worst_other_ratio = 0;
-        auto flux_victim = [&](const std::string& owner, const FluxCoupling& X) {
-            if (!X.ok) return;
-            c->flux.others.push_back({owner, X.M_pH});
-            const double r = c->flux.M_pH > 0 ? X.M_pH / c->flux.M_pH : 0.0;
-            if (r > c->flux.worst_other_ratio) { c->flux.worst_other_ratio = r; c->flux.worst_other = owner; }
-        };
-        for (std::size_t k = 0; k < nb.size(); ++k) {
-            const int j = nb[k].second;
-            const bool jmeas = D.qubits[std::size_t(index[j])].role != "data";
-            const LineCell& own = jmeas ? B.meas : B.data;         // the neighbour's own drive: its role's cell
-            const std::string qj = "Q" + std::to_string(j);
-            double x = 0;
-            if (B.separate_xy) {
-                const double fj = R.q[std::size_t(index[j])].f01;
-                const double there = c->C_xy_eff(qj, fj, C_nt), self = own.C_xy_eff("Q" + std::to_string(own.qubit), fj, C_nt);
-                x = self != 0 ? std::abs(there / self) : 1e300;
-            }
-            if (k < 2) {                                           // the two nearest: flux and (through the flux lines) drive
-                const FluxCoupling X = flux_coupling(L, qj, line, cross_mo, 60, 0, kCrossLocal);
-                flux_victim(qj, X);
-                if (!B.separate_xy) {                              // with the shared bump return on both sides, worst signs
-                    const double mb = bump_return_pH(L, "SQ" + std::to_string(c->qubit)), mbj = bump_return_pH(L, "S" + qj);
-                    const double self = own.flux.M_cm_pH - kBumpOwnFraction * mbj;
-                    x = !X.ok || self <= 0 ? 1e300 : (X.M_cm_pH + kBumpNeighbourFraction * mb) / self;
-                }
-                for (const std::string& tag : {std::to_string(c->qubit) + "-" + std::to_string(j), std::to_string(j) + "-" + std::to_string(c->qubit)})
-                    if (L.island("C" + tag) >= 0) flux_victim("C" + tag, flux_coupling(L, "C" + tag, line, cross_mo, 60, 0, kCrossLocal));
-            }
-            if (x > B.max_drive_crosstalk) { B.max_drive_crosstalk = x; B.worst_crosstalk = (B.separate_xy ? "XY" : "FQ") + std::to_string(c->qubit) + " -> " + qj; }
+        auto& order = B.cross_neighbours[c->qubit];
+        for (const auto& p : nb) order.push_back(p.second);
+        for (std::size_t k = 0; k < nb.size() && k < 2; ++k) {         // the two nearest: flux and (through the flux lines) drive
+            const std::string qj = "Q" + std::to_string(nb[k].second);
+            B.cross.push_back({c->qubit, qj, flux_coupling(L, qj, line, cross_mo, 60, 0, kCrossLocal)});
+            for (const std::string& tag : {std::to_string(c->qubit) + "-" + std::to_string(nb[k].second), std::to_string(nb[k].second) + "-" + std::to_string(c->qubit)})
+                if (L.island("C" + tag) >= 0) B.cross.push_back({c->qubit, "C" + tag, flux_coupling(L, "C" + tag, line, cross_mo, 60, 0, kCrossLocal)});
         }
-        if (c->flux.worst_other_ratio > B.max_flux_crosstalk) { B.max_flux_crosstalk = c->flux.worst_other_ratio; B.worst_flux_crosstalk = line + " -> " + c->flux.worst_other; }
     }
-    B.crosstalk_evaluated = true;
+    B.crosstalk_solved = true;
+    line_budget_evaluate(B, D, R, L, m);
 }
 inline std::string line_budget_summary(const LineBudget& B) {
     if (!B.evaluated) return "control lines: not evaluated (" + B.note + ")";
@@ -2726,12 +2771,12 @@ inline std::string line_budget_summary(const LineBudget& B) {
     char e[400];
     std::snprintf(e, sizeof e, "\n    shared return through the ground bumps (%.1f pH per bump assumed, fewest on a qubit's metal %d): up to %.3f pH added to M_cm "
                   "of a qubit, %.3f pH for the coupler; included in the common-mode T1 limits, the drive power and the drive crosstalk (worst signs)",
-                  kBumpInductance_pH, B.min_bumps, B.max_M_bump_pH, B.M_bump_coupler_pH);
+                  B.bump_pH, B.min_bumps, B.max_M_bump_pH, B.M_bump_coupler_pH);
     return std::string(b) + e;
 }
 inline Json line_budget_json(const LineBudget& B) {
     Json j = Json::object();
-    j.set("bump_inductance_assumed_pH", kBumpInductance_pH); j.set("min_ground_bumps_on_qubit_metal", B.min_bumps);
+    j.set("bump_inductance_assumed_pH", B.bump_pH); j.set("min_ground_bumps_on_qubit_metal", B.min_bumps);
     j.set("max_M_bump_return_pH", B.max_M_bump_pH); j.set("M_bump_return_coupler_pH", B.M_bump_coupler_pH);
     j.set("evaluated", B.evaluated); j.set("ok", B.ok());
     if (!B.evaluated) { j.set("note", B.note); return j; }

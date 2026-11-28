@@ -2477,6 +2477,41 @@ static void test_layout_checks() {
         CHECK(Fq.M_pH > 1.0 && Fq.I_half_mA < kMaxHalfFluxQuantum_mA && Fc.M_pH > 0.8 && Fc.I_half_mA < kMaxHalfFluxQuantum_mA, "launcher: qubit %.2f pH, coupler %.2f pH", Fq.M_pH, Fc.M_pH);
         CHECK(Fe.M_cm_pH > 2 * Fq.M_cm_pH && Fe.M_cm_pH > 0.5, "collar slot balance: M_cm %.3f pH with %g/%g um arms, %.3f pH with equal arms", Fq.M_cm_pH, cs.meas.slot_up, cs.meas.slot_down, Fe.M_cm_pH);
     }
+    {   // (10) line_budget_evaluate on synthetic cells: every qubit is checked at its own f01 (the capacitive flux-line
+        // limit goes as f^-4, so evaluating it at one frequency for all is wrong), the common mode carries the shared
+        // bump return (own fraction of L_b / N), and a sensitivity study changes only the model parameters
+        const ChipDesign D = alpha1_v11(3);
+        const ChipReport R = analyze(D);
+        ChipLayout L;
+        for (const auto& q : D.qubits) { GroundRef g; g.name = "SQ" + std::to_string(q.id); g.bumps = 8; L.grounds.push_back(g); }
+        LayoutMetrics m; m.C_sigma_m = 92; m.C_sigma_d = 95; m.C_c = 150; m.C_qc = 5.6; m.C_qb = 3;
+        LineBudget B; B.solved = true; B.f_coupler_GHz = 8.3;
+        int qm = -1, qd = -1;
+        for (const auto& q : D.qubits) { if (q.role == "data" && qd < 0) qd = q.id; if (q.role != "data" && qm < 0) qm = q.id; }
+        B.meas.qubit = qm; B.data.qubit = qd; B.meas.C_sigma_fF = m.C_sigma_m; B.data.C_sigma_fF = m.C_sigma_d;
+        B.meas.win.flux_zq = {{150.0, 0.05}}; B.data.win.flux_zq = {{120.0, 0.04}};
+        for (LineCell* c : {&B.meas, &B.data}) { c->flux.ok = true; c->flux.M_pH = 1.8; c->flux.M_cm_pH = 0.5; c->flux.I_half_mA = 0.57; }
+        line_budget_evaluate(B, D, R, L, m);
+        double cap = 1e300, cap55 = 1e300, cm = 1e300;
+        const double mb = 0.75 * kBumpInductance_pH / 8;
+        for (std::size_t i = 0; i < D.qubits.size(); ++i) {
+            const LineCell& c = D.qubits[i].role != "data" ? B.meas : B.data;
+            const double f = R.q[i].f01;
+            cap = std::min(cap, line_T1_us(c.C_sigma_fF, c.C_flux_eff(f), f) / R.q[i].T1_us);
+            cap55 = std::min(cap55, line_T1_us(c.C_sigma_fF, c.C_flux_eff(5.5), f) / R.q[i].T1_us);
+            cm = std::min(cm, flux_cm_T1_us(0.5 + mb, R.q[i].EJ, f) / R.q[i].T1_us);
+        }
+        LineBudget S = B; S.bump_pH = 2 * kBumpInductance_pH; line_budget_evaluate(S, D, R, L, m);
+        double cm2 = 1e300;
+        for (std::size_t i = 0; i < D.qubits.size(); ++i) cm2 = std::min(cm2, flux_cm_T1_us(0.5 + 2 * mb, R.q[i].EJ, R.q[i].f01) / R.q[i].T1_us);
+        std::printf("  line_budget_evaluate on synthetic cells: capacitive limit %.4gx at each f01 (%.4gx if all were taken at 5.5 GHz); common mode %.2fx with a %.4f pH bump "
+                    "term, %.2fx with the bump inductance doubled\n", B.min_ratio_flux_cap, cap55, B.min_ratio_flux_cm, B.max_M_bump_pH, S.min_ratio_flux_cm);
+        CHECK(B.evaluated && std::abs(B.min_ratio_flux_cap / cap - 1) < 1e-12 && std::abs(cap55 / cap - 1) > 0.01, "capacitive limit %.6g vs %.6g at each f01",
+              B.min_ratio_flux_cap, cap);
+        CHECK(std::abs(B.max_M_bump_pH - mb) < 1e-12 && std::abs(B.min_ratio_flux_cm / cm - 1) < 1e-12 && std::abs(S.min_ratio_flux_cm / cm2 - 1) < 1e-12 &&
+              std::abs(S.max_M_bump_pH - 2 * mb) < 1e-12 && S.min_ratio_flux_cap == B.min_ratio_flux_cap, "bump term %.4f pH (expected %.4f), common mode %.4g vs %.4g",
+              B.max_M_bump_pH, mb, B.min_ratio_flux_cm, cm);
+    }
     {   // (7) formulas. T1 of a coupling C into a matched line: C_sigma / (omega^2 C^2 Z0); the shorted line's weight
         // sin(beta z) makes the effective capacitance proportional to f, so that limit goes as f^-4, not f^-2.
         const double t = line_T1_us(95.0, 0.03, 6.0);

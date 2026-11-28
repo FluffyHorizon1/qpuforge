@@ -3,13 +3,15 @@
 // connectivity and ground bumps, the extracted cells against their targets, the control-line budget) without the rest
 // of the review, and the flux coupling of any one line to any one SQUID at a chosen mesh.
 //
-//   layout_gates gates <chip> <cells.json> [--flux-mesh H] [--cross-mesh H] [--window-mesh H] [--no-crosstalk] [--gds <out.gds>]
+//   layout_gates gates <chip> <cells.json> [--flux-mesh H] [--cross-mesh H] [--window-mesh H] [--no-crosstalk] [--bump-sensitivity] [--gds <out.gds>]
 //   layout_gates flux  <chip> <cells.json> <owner> <line> [--flux-mesh H]
 //
 // <chip> is a preset as the reviews use it: alpha1-v11 (AF-17, distance 3), beta1 (BF-49, distance 5) or gamma1
 // (GF-97, distance 7). A mesh is given by its edge panel size H in um (largest panel 50 um, growth 1.6 below 2 um and
 // 2.0 from 2 um). Defaults are the reviews' settings: cells and control windows 1.5 um, flux solves 1.5 um
-// (kFluxMesh), crosstalk solves 2.5 um (kFluxCrossMesh).
+// (kFluxMesh), crosstalk solves 2.5 um (kFluxCrossMesh). --bump-sensitivity evaluates the budget again (no new solve)
+// with the bump inductance halved and doubled, and with all of a qubit's current and half of a neighbour's taken through
+// the bumps (quadrant fractions 1 and 0.5 instead of 0.75 and 0.25).
 // Exit status: 0 when every gate passes (gates) or the solve ran (flux); 1 when a gate fails or the solve did not
 // run; 2 on a usage error or a file that cannot be read.
 #include "qpuforge/qpuforge.hpp"
@@ -36,7 +38,7 @@ MeshOptions mesh_of(double h) { return MeshOptions{h, 50.0, h < 2 ? 1.6 : 2.0}; 
 int usage(const char* why) {
     std::fprintf(stderr,
                  "layout_gates: %s\n"
-                 "usage: layout_gates gates <chip> <cells.json> [--flux-mesh H] [--cross-mesh H] [--window-mesh H] [--no-crosstalk] [--gds <out.gds>]\n"
+                 "usage: layout_gates gates <chip> <cells.json> [--flux-mesh H] [--cross-mesh H] [--window-mesh H] [--no-crosstalk] [--bump-sensitivity] [--gds <out.gds>]\n"
                  "       layout_gates flux  <chip> <cells.json> <owner> <line> [--flux-mesh H]\n"
                  "  <chip>: alpha1-v11 | beta1 | gamma1 (the presets of the reviews); H: edge panel size in um\n",
                  why);
@@ -73,7 +75,7 @@ int main(int argc, char** argv) {
     std::size_t first_opt = cmd == "flux" ? 5 : 3;
     if (cmd == "flux" && a.size() < 5) return usage("flux needs <owner> <line>");
     double h_flux = kFluxMesh.h_min, h_cross = kFluxCrossMesh.h_min, h_window = 1.5;
-    bool crosstalk = true;
+    bool crosstalk = true, bump_sensitivity = false;
     std::string gds;
     for (std::size_t i = first_opt; i < a.size(); ++i) {
         auto num = [&](double& v) {
@@ -86,6 +88,7 @@ int main(int argc, char** argv) {
         else if (a[i] == "--cross-mesh" && cmd == "gates") { if (!num(h_cross)) return usage("--cross-mesh needs a size in um (0.2 .. 20)"); }
         else if (a[i] == "--window-mesh" && cmd == "gates") { if (!num(h_window)) return usage("--window-mesh needs a size in um (0.2 .. 20)"); }
         else if (a[i] == "--no-crosstalk" && cmd == "gates") crosstalk = false;
+        else if (a[i] == "--bump-sensitivity" && cmd == "gates") bump_sensitivity = true;
         else if (a[i] == "--gds" && cmd == "gates" && i + 1 < a.size()) gds = a[++i];
         else return usage(("unknown option '" + a[i] + "'").c_str());
     }
@@ -134,6 +137,21 @@ int main(int argc, char** argv) {
                 B.data.qubit, B.data.win.C.panels, B.data.win.C.seconds);
     std::printf("  %s\n", line_budget_summary(B).c_str());
 
+    if (bump_sensitivity) {
+        struct Case { const char* what; double bump_pH, own, neighbour; };
+        for (const Case& k : {Case{"bump inductance halved", 0.5 * kBumpInductance_pH, kBumpOwnFraction, kBumpNeighbourFraction},
+                              Case{"bump inductance doubled", 2 * kBumpInductance_pH, kBumpOwnFraction, kBumpNeighbourFraction},
+                              Case{"quadrant fractions 1 / 0.5", kBumpInductance_pH, 1.0, 0.5}}) {
+            LineBudget S = B;
+            S.bump_pH = k.bump_pH; S.bump_own_fraction = k.own; S.bump_neighbour_fraction = k.neighbour;
+            line_budget_evaluate(S, D, R, L, m);
+            std::printf("  sensitivity, %s (%.1f pH per bump, fractions %.2f / %.2f): bump term up to %.3f pH (coupler %.3f pH); common-mode T1 %.1fx (Q%d), drive T1 %.1fx "
+                        "(Q%d), coupler T1 %.1fx; drive on a neighbour %.1f%% (%s); 25 MHz Rabi at %.1f dBm -> drive %s, flux %s\n", k.what, S.bump_pH, S.bump_own_fraction,
+                        S.bump_neighbour_fraction, S.max_M_bump_pH, S.M_bump_coupler_pH, std::min(S.min_ratio_flux_cm, 9999.0), S.worst_flux_cm_qubit,
+                        std::min(S.min_ratio_drive, 9999.0), S.worst_drive_qubit, std::min(S.ratio_coupler, 9999.0), 100 * std::min(S.max_drive_crosstalk, 99.0),
+                        S.worst_crosstalk.c_str(), S.drive_power_dBm, S.drive_ok() ? "ok" : "FAIL", S.flux_ok() ? "ok" : "FAIL");
+        }
+    }
     const bool drc = L.drc_clean(), conn = L.conn.nets_clean(), ground = L.conn.ground_ok(), bumps = L.conn.bumps_ok();
     const bool pass = drc && conn && ground && B.ok();
     std::printf("  gates: mask DRC and placement %s, nets %s, ground quality %s (ground bumps %s), control-line drive %s, flux lines %s%s -> %s\n", drc ? "ok" : "FAIL",

@@ -2138,6 +2138,58 @@ static void test_materials() {
               accepted(top(R"("placeholders": ["quantities.Q_dielectric"], "contains_placeholders": true, )", ph)),
               "placeholder bookkeeping must agree with the quantities, and the producer must be named");
     }
+    // (f) materials apply --out (decision D2): the written chip carries the applied values, keeps every Rn_kOhm (D1) and
+    //     names its sidecar in a materials_source block that design_from_json() ignores
+    {
+        CHECK(materials_detail::sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" &&
+              materials_detail::sha256_hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" &&
+              materials_detail::sha256_hex(std::string(1000, 'a')) == "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3",
+              "SHA-256 test vectors (FIPS 180-4 'abc', empty, 1000 x 'a')");
+        const std::string chip = temp_path("apply_in.json"), out = temp_path("apply_out.json"), out2 = temp_path("apply_out2.json");
+        save_design(A0, chip);
+        const std::string sidecar = test_data("materials-values.json");
+        const auto r = materials_apply_file(chip, sidecar, out);
+        const ChipDesign W = load_design(out), In = load_design(chip);   // compare with the chip as read from the file
+        ChipDesign CI = In;
+        apply_materials(V, CI);
+        bool same_rn = W.qubits.size() == In.qubits.size();
+        for (std::size_t i = 0; same_rn && i < W.qubits.size(); ++i) same_rn = W.qubits[i].Rn_kOhm == In.qubits[i].Rn_kOhm;
+        const auto RW = analyze(W), RC = analyze(CI);
+        const bool same_json = json_text(design_to_json(W)) == json_text(design_to_json(CI));
+        CHECK(W.Q_dielectric == 1e6 && W.gap_ueV == 190 && same_rn && same_json && RW.q[0].f01 == RC.q[0].f01 && RW.q[0].f01 != R0.q[0].f01 &&
+              r.report.applied() == 2,
+              "materials apply --out: the written chip equals the in-memory application (%d), every Rn_kOhm kept (%d), f01 %.4f -> %.4f GHz (in memory %.4f)",
+              int(same_json), int(same_rn), R0.q[0].f01, RW.q[0].f01, RC.q[0].f01);
+        const Json written = Json::parse(materials_detail::read_file(out));
+        const Json& ms = written["materials_source"];
+        const std::string sha = materials_detail::sha256_hex(materials_detail::read_file(sidecar));
+        bool lines = ms["quantities"].size() == 3;
+        for (std::size_t i = 0; lines && i < 3; ++i) {
+            const Json& l = ms["quantities"][i];
+            lines = l["quantity"].str() == rv.lines[i].quantity && l["applied"].boolean() == rv.lines[i].applied && l["after"].num() == rv.lines[i].after;
+        }
+        CHECK(ms["tool"].str() == "qpuforge materials apply" && ms["schema"].str() == "forge.materials.v0" && ms["sidecar"].str() == sidecar &&
+              ms["sidecar_sha256"].str() == sha && ms["produced_by"]["tool"].str() == "hand-written test fixture" && lines &&
+              ms["quantities"][0]["provenance"].str() == "assumed" && ms["quantities"][1]["provenance"].is_null() &&
+              !ms["loss_tangent_opt_in"].boolean() && ms["gap_policy"].str().find("fixed Rn_kOhm") == 0 && !ms.has("previous"),
+              "materials_source names the sidecar (sha256 %s), its producer and each quantity's provenance", sha.c_str());
+        materials_apply_file(out, test_data("materials-loss-tangent.json"), out2, MaterialsApplyOptions{true});
+        const Json chained = Json::parse(materials_detail::read_file(out2));
+        const ChipDesign W2 = load_design(out2);
+        CHECK(W2.Q_dielectric == 1.0 / 2.5e-7 && W2.gap_ueV == 190 && chained["materials_source"]["loss_tangent_opt_in"].boolean() &&
+              chained["materials_source"]["previous"]["sidecar_sha256"].str() == sha,
+              "a second apply keeps the first materials_source as `previous`");
+        bool overwrite = false, bad_left_nothing = false;
+        try { materials_apply_file(chip, sidecar, chip); } catch (const std::runtime_error& e) { overwrite = std::string(e.what()).find("would overwrite an input file") != std::string::npos; }
+        const std::string bad = temp_path("apply_bad_sidecar.json"), never = temp_path("apply_never.json");
+        { std::ofstream f(bad); f << sidecar_text(R"("Q_dielectric": {"value": 1e6, "unit": "dimensionless", "provenance": "guess"})"); }
+        std::remove(never.c_str());
+        try { materials_apply_file(chip, bad, never); } catch (const std::runtime_error& e) {
+            bad_left_nothing = std::string(e.what()).find(bad + ": materials sidecar: Q_dielectric: unknown provenance") == 0 && !std::ifstream(never);
+        }
+        CHECK(overwrite && bad_left_nothing, "apply refuses to overwrite its input (%d) and writes nothing for a bad sidecar (%d)", int(overwrite), int(bad_left_nothing));
+        for (const auto& f : {chip, out, out2, bad}) std::remove(f.c_str());
+    }
     {   // file errors name the file; a hand-built sidecar with a bad value throws before the design is touched
         bool missing = false, named = false, threw = false;
         try { load_materials(temp_path("no_such_sidecar.json")); } catch (const std::runtime_error& e) { missing = std::string(e.what()).find("cannot open") != std::string::npos; }

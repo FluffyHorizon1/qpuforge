@@ -87,6 +87,24 @@ set_tests_properties(cli_materials_loss_tangent PROPERTIES FAIL_REGULAR_EXPRESSI
 set_tests_properties(cli_materials_refused PROPERTIES PASS_REGULAR_EXPRESSION "error: .*alpha1_v11.json: materials sidecar: schema must be")
 set_tests_properties(cli_usage_materials PROPERTIES PASS_REGULAR_EXPRESSION "analyze <chip.json> \\[--materials <sidecar.json> \\[--loss-tangent\\]\\]")
 set_tests_properties(cli_materials cli_materials_placeholder cli_materials_loss_tangent cli_materials_refused cli_usage_materials PROPERTIES LABELS unit)
+# --materials on the other design-consuming sub-commands (it used to be silently ignored there): applied before the command
+# runs, the sidecar's error is raised, and layout/gds refuse it instead of ignoring it.
+add_test(NAME cli_materials_fab COMMAND qpuforge_cli fab ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_DATA}/materials-values.json --samples 5)
+add_test(NAME cli_materials_run COMMAND qpuforge_cli run ${QPUFORGE_CLI_CHIP} ghz:3 --traj 10 --shots 2 --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_budget COMMAND qpuforge_cli budget ${QPUFORGE_CLI_CHIP} ghz:3 --traj 10 --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_run_refused COMMAND qpuforge_cli run ${QPUFORGE_CLI_CHIP} ghz:3 --traj 10 --shots 2 --materials ${QPUFORGE_CLI_CHIP})
+add_test(NAME cli_materials_layout_refused COMMAND qpuforge_cli layout ${QPUFORGE_CLI_CHIP} cli_materials_layout.svg --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_loss_tangent_alone COMMAND qpuforge_cli fab ${QPUFORGE_CLI_CHIP} --loss-tangent --samples 5)
+set_tests_properties(cli_materials_fab PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06.*fabrication Monte Carlo: 5 chips")
+set_tests_properties(cli_materials_run PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06")
+set_tests_properties(cli_materials_budget PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +junction_gap_ueV.*scale with the gap.*error budget for GHZ-3")
+set_tests_properties(cli_materials_run_refused PROPERTIES PASS_REGULAR_EXPRESSION "error: .*alpha1_v11.json: materials sidecar: schema must be")
+set_tests_properties(cli_materials_layout_refused PROPERTIES PASS_REGULAR_EXPRESSION "error: --materials is not supported by `layout`")
+set_tests_properties(cli_loss_tangent_alone PROPERTIES PASS_REGULAR_EXPRESSION "error: --loss-tangent needs --materials")
+set_tests_properties(cli_materials_fab cli_materials_run cli_materials_budget cli_materials_run_refused cli_materials_layout_refused cli_loss_tangent_alone PROPERTIES LABELS unit)
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)

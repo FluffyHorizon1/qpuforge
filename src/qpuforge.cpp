@@ -24,6 +24,8 @@ static void usage() {
         "  qpuforge analyze <chip.json> [--materials <sidecar.json> [--loss-tangent]]\n"
         "                device physics report; --materials first applies a forge.materials.v0 sidecar (atomforge),\n"
         "                --loss-tangent lets it set Q_dielectric = 1/loss_tangent when Q_dielectric is null\n"
+        "  --materials <sidecar.json> [--loss-tangent] is also accepted by run, budget, fab, qec, cz, synth-chip and hwgate\n"
+        "                (not layout or gds); the sidecar is applied in memory, the chip JSON file is not changed\n"
         "  qpuforge run <chip.json> <circuit> [--traj N] [--shots N] [--seed S] [--off SRC,..] [--top K]\n"
         "  qpuforge budget <chip.json> <circuit> [--traj N]  error budget by noise source\n"
         "  qpuforge fab <chip.json> [--samples N] [--seed S] fabrication Monte Carlo (junction spread)\n"
@@ -174,9 +176,11 @@ static void print_materials(const std::string& path, const MaterialsSidecar& S, 
     }
 }
 
-static int cmd_analyze(int argc, char** argv) {
-    if (argc < 3) { usage(); return 1; }
-    auto D = load_design(argv[2]);
+// Load a chip design and, when the command line has --materials <sidecar.json> [--loss-tangent], apply the forge.materials.v0
+// sidecar to it in memory first (one line per quantity: applied or skipped). The chip JSON file is never changed. Every
+// sub-command that computes from the design calls this, so that --materials is never silently ignored.
+static ChipDesign load_design_cli(int argc, char** argv, const char* path) {
+    auto D = load_design(path);
     const std::string mat = arg(argc, argv, "--materials");
     if (has_flag(argc, argv, "--materials") && (mat.empty() || mat.rfind("--", 0) == 0))
         throw std::runtime_error("--materials needs a sidecar file");
@@ -189,6 +193,19 @@ static int cmd_analyze(int argc, char** argv) {
     } else if (has_flag(argc, argv, "--loss-tangent")) {
         throw std::runtime_error("--loss-tangent needs --materials <sidecar.json>");
     }
+    return D;
+}
+
+// layout and gds draw the chip from the chip JSON; a sidecar would change the frequency targets they synthesise to.
+static void refuse_materials(int argc, char** argv, const char* cmd) {
+    if (has_flag(argc, argv, "--materials") || has_flag(argc, argv, "--loss-tangent"))
+        throw std::runtime_error(std::string("--materials is not supported by `") + cmd +
+                                 "`: the layout follows the chip JSON (apply the sidecar values to a copy of the chip JSON first)");
+}
+
+static int cmd_analyze(int argc, char** argv) {
+    if (argc < 3) { usage(); return 1; }
+    const auto D = load_design_cli(argc, argv, argv[2]);
     print_report(D, analyze(D));
     return 0;
 }
@@ -203,7 +220,7 @@ static RunOptions run_opts(int argc, char** argv) {
 
 static int cmd_run(int argc, char** argv) {
     if (argc < 4) { usage(); return 1; }
-    const auto D = load_design(argv[2]);
+    const auto D = load_design_cli(argc, argv, argv[2]);
     const auto R = analyze(D);
     const auto G = chip_graph(D, R);
     bool native = false;
@@ -245,7 +262,7 @@ static int cmd_run(int argc, char** argv) {
 
 static int cmd_budget(int argc, char** argv) {
     if (argc < 4) { usage(); return 1; }
-    const auto D = load_design(argv[2]);
+    const auto D = load_design_cli(argc, argv, argv[2]);
     const auto R = analyze(D);
     const auto G = chip_graph(D, R);
     bool native = false;
@@ -273,7 +290,7 @@ static int cmd_budget(int argc, char** argv) {
 
 static int cmd_fab(int argc, char** argv) {
     if (argc < 3) { usage(); return 1; }
-    const auto D = load_design(argv[2]);
+    const auto D = load_design_cli(argc, argv, argv[2]);
     const int N = std::stoi(arg(argc, argv, "--samples", "200"));
     const auto F = fab_monte_carlo(D, N, unsigned(std::stoul(arg(argc, argv, "--seed", "1"))));
     auto stats = [](std::vector<double> v) { std::sort(v.begin(), v.end()); return std::array<double, 3>{v[v.size() / 10], v[v.size() / 2], v[v.size() * 9 / 10]}; };
@@ -289,6 +306,7 @@ static int cmd_fab(int argc, char** argv) {
 
 static int cmd_layout(int argc, char** argv) {
     if (argc < 4) { usage(); return 1; }
+    refuse_materials(argc, argv, "layout");
     const auto D = load_design(argv[2]);
     write_layout_svg(D, analyze(D), argv[3]);
     std::printf("wrote %s\n", argv[3]);
@@ -297,7 +315,7 @@ static int cmd_layout(int argc, char** argv) {
 
 static int cmd_cz(int argc, char** argv) {
     if (argc < 3) { usage(); return 1; }
-    auto D = load_design(argv[2]);
+    auto D = load_design_cli(argc, argv, argv[2]);
     D.coupler.physical = true;
     if (auto v = arg(argc, argv, "--g-qc"); !v.empty()) D.coupler.g_qc_MHz = std::stod(v);
     if (auto v = arg(argc, argv, "--f-on"); !v.empty()) D.coupler.f_on_GHz = std::stod(v);
@@ -321,6 +339,7 @@ static int cmd_cz(int argc, char** argv) {
 static int cmd_gds(int argc, char** argv) {
     if (argc < 4) { usage(); return 1; }
     using namespace layout;
+    refuse_materials(argc, argv, "gds");
     auto D = load_design(argv[2]);
     auto R = analyze(D);
     const std::string cells_path = arg(argc, argv, "--cells");
@@ -383,7 +402,7 @@ static int cmd_gds(int argc, char** argv) {
 
 static int cmd_qec(int argc, char** argv) {
     if (argc < 3) { usage(); return 1; }
-    auto D = load_design(argv[2]);
+    auto D = load_design_cli(argc, argv, argv[2]);
     if (auto v = arg(argc, argv, "--leakage-removal"); !v.empty()) {
         D.leakage.reset_removes_leakage = v == "lrr" || v == "lrr+dqlr";
         D.leakage.dqlr = v == "dqlr" || v == "lrr+dqlr";
@@ -524,7 +543,7 @@ static ChipReport calibrated_report(const ChipDesign& D, int argc, char** argv) 
 
 static int cmd_synth(int argc, char** argv) {
     if (argc < 4) { usage(); return 1; }
-    const auto D = load_design(argv[2]);
+    const auto D = load_design_cli(argc, argv, argv[2]);
     const auto R = calibrated_report(D, argc, argv);
     SynthOptions o;
     o.seed = unsigned(std::stoul(arg(argc, argv, "--seed", "1")));
@@ -542,7 +561,7 @@ static int cmd_synth(int argc, char** argv) {
 
 static int cmd_hwgate(int argc, char** argv) {
     if (argc < 4) { usage(); return 1; }
-    const auto D = load_design(argv[2]);
+    const auto D = load_design_cli(argc, argv, argv[2]);
     const auto R = calibrated_report(D, argc, argv);
     std::ifstream f(argv[3]);
     if (!f) throw std::runtime_error(std::string("cannot open ") + argv[3]);

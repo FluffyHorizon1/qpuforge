@@ -1,11 +1,12 @@
 # Design note: mask connectivity (SQUID landing, flux launcher, ground bumps and straps, control-line coupling)
 
-Status: **redesign in progress; not ready to merge.** The geometry and the checks below are implemented and pass on
-AF-17 with re-synthesised cells in a development run. The committed cell files, masks, previews, reviews and specs are
-still those of the previous geometry (on `main` since PR #45), which fails these checks, and BF-49 and GF-97 have not
-been taken through the gates. The numbers in
-"Results" are from that development run, not from committed review outputs; they will be replaced by the regenerated
-reviews.
+Status: **redesign in progress; not ready to merge. The combined control line is not shown to pass: with the converged
+field method (a stream-function solve on a uniform grid, "The second method" below), AF-17 fails the drive-crosstalk
+gate (about 13 % against 10 %) and passes the common-mode T1 gate (about 14.6×). The method-of-moments table under
+"Results" is superseded: at the gates' mesh its common-mode mutual is about 0.09 pH high and moves by ±0.04 pH from one
+mesh to the next.** The connectivity, ground and bump gates pass on AF-17 with re-synthesised development cells
+(`tests/data/layout/`). The committed cell files, masks, previews, reviews and specs are still those of the previous
+geometry (on `main` since PR #45), which fails these checks, and BF-49 and GF-97 have not been taken through the gates.
 
 ## Problem
 
@@ -147,7 +148,11 @@ These are assumptions of the model, not things it verifies.
 
 ## Results
 
-AF-17, development run with re-synthesised cells (fine mesh; not yet the committed review):
+AF-17 from `tests/data/layout/af17_dev_cells_combined.json` and `_separate.json`, as `layout_gates gates` computes the
+gates today (flux solves by the method of moments at 1.5 µm edge panels). **The flux and drive rows of this table are
+superseded by "The second method" below**; the connectivity, ground and bump rows stand. (The table was made from the
+scratch cells before the development files were committed; the committed files give M_cm 0.565 / 0.561 pH, common mode
+10.5×, neighbour drive 9.6 %.)
 
 | AF-17 | combined line (default) | separate XY line (tip at 100 µm) |
 |---|---|---|

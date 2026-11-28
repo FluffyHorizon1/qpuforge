@@ -75,8 +75,9 @@ int main(int argc, char** argv) {
     out("   decoding: detectors of the observables' Pauli type, one exact matching decoder (blossom) per observable\n");
     std::vector<Point> pts;
     std::map<std::string, std::pair<ChipDesign, ChipReport>> chips;
-    struct Job { std::string op, in; char basis; int kind; };
-    const std::vector<Job> jobs = {{"zz", "00", 'Z', 0}, {"xx", "++", 'X', 1}, {"cnot", "00", 'Z', 2}, {"cnot", "++", 'X', 3}};
+    struct Job { std::string op, in; char basis; int kind; std::string decoded; };
+    const std::vector<Job> jobs = {{"zz", "00", 'Z', 0, "m_ZZ,Z_A,Z_B"}, {"xx", "++", 'X', 1, "m_XX,X_A,X_B"},
+                                   {"cnot", "00", 'Z', 2, "Z_C,Z_T"}, {"cnot", "++", 'X', 3, "X_C,X_T"}};
     for (const std::string chip : {"alpha1_v11", "beta1"}) {
         for (int d : dists) {
             out("\n   %s physics, d = %d\n", chip == "beta1" ? "Beta-1" : "Alpha-1 v1.1", d);
@@ -92,7 +93,10 @@ int main(int argc, char** argv) {
                 }
                 const auto& [D, R] = chips.at(key);
                 const auto nm = noise_model(D, R);
-                const auto M = prepare_surgery(D, R, nm, E, jb.basis);
+                const auto M = prepare_surgery(D, R, nm, E, jb.basis);   // throws on an observable with undetectable flips
+                std::string decoded;
+                for (int k : M.obs) decoded += (decoded.empty() ? "" : ",") + E.observables[std::size_t(k)].name;
+                if (decoded != jb.decoded) { std::fprintf(stderr, "%s |%s>: decodes %s, expected %s\n", jb.op.c_str(), jb.in.c_str(), decoded.c_str(), jb.decoded.c_str()); return 1; }
                 Point p; p.chip = chip; p.op = jb.op; p.input = jb.in; p.d = d; p.basis = jb.basis;
                 p.seed = std::uint64_t(1000 + 100 * d + 10 * jb.kind + (chip == "beta1" ? 5 : 0));
                 p.r = run_surgery_frame(M, opt.shots, p.seed);
@@ -105,7 +109,6 @@ int main(int argc, char** argv) {
                 const std::string label = (jb.op == "zz" ? "ZZ |" : jb.op == "xx" ? "XX |" : "CNOT |") + jb.in + ">";
                 out("   %-17s %6d  %6d  %6.2f  %9d  %8.4f  %7.2f  %10.1e   %-66s %.5f+-%.5f\n", label.c_str(), E.circuit.n, p.r.rounds, p.r.total_ns / 1e3,
                     p.r.n_detectors, p.r.detection_rate, p.r.mean_defects, p.r.hyperedge_p, obs.c_str(), p.r.p_any, p.r.p_any_sem);
-                if (p.r.undetectable_logical) out("     ! %d fault mechanisms flip an observable without any detector\n", p.r.undetectable_logical);
                 pts.push_back(p);
             }
         }

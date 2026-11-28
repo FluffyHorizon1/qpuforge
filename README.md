@@ -87,7 +87,6 @@ Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decod
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 511 validation checks (~15 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge          # 541 validation checks (~15 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
@@ -171,7 +170,6 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 511 checks, all passing)
 ## Validation (`tests/test_qpuforge.cpp`, 541 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
@@ -351,14 +349,11 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
 See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on the tooling side:
 
 1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
-2. Multi-qubit pulse simulation of spectator crossings; flux-pulse distortion and predistortion model.
+2. Multi-qubit pulse simulation of spectator crossings; a net-zero (bipolar) CZ and a flux-line term in the calibration
+   (the line model and its study are in `fluxline.hpp`).
 3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, routes with bends
    and a router for more than three patches, a correlated decoder fast enough for real time, and a layout for the
    patches and their routing region.
-2. Multi-qubit pulse simulation of spectator crossings; a net-zero (bipolar) CZ and a flux-line term in the calibration
-   (the line model and its study are in `fluxline.hpp`).
-3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, a joint
-   multi-observable decoder and routing between patches.
 4. Data-qubit leakage heralding, and herald weights derived from the leakage model.
 5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.

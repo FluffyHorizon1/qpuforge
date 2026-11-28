@@ -30,6 +30,7 @@ Lattice surgery, next steps: one decoder pass that returns all observables of an
 union-find on one graph whose edges carry an observable mask); a two-pass correlated decoder that uses the detectors
 of both Pauli types; operations between patches that are not adjacent, through a routing strip; and a chip account for
 two and three d = 5 patches with their routing region. `surgery_study` sections 4 to 6.
+
 The next decoding items of Phase Gamma: herald weights derived from the leakage model instead of fixed factors,
 heralding of data-qubit leakage through DQLR (measured, and found to cost more than it recovers), and an
 operation-count model of the streaming union-find decoder with two stated hardware cost models. The hardware part is a
@@ -63,6 +64,21 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
 - `examples/flux_distortion_study.cpp` and its smoke test (`smoke_flux_distortion_study`).
 - Tests: group `flux_predistortion` (label `pulse`, 32 checks, about 3 s). 541 validation checks in all; the committed
   `results/test_output.txt` predates the group and holds 500.
+- q17, FEM reference cross-check scaffold (decided by Finnian Bond 2026-11-28: both Elmer and Palace; deviation
+  reported first, tolerance enforced later). `fem.hpp` (not in `qpuforge.hpp`; include it with `layout.hpp`):
+  `FemReference`, the `qpuforge.fem_crosscheck.v0` reader / writer (`reference_from_json`, `reference_to_json`,
+  `load_reference`), `import_elmer` (`CapacitanceMatrix.dat`, lumped → Maxwell), `import_palace` (`terminal-C.csv`),
+  `FemTolerance` (`enforced = false`), `compare_fem`, `circuit_of`, `comparison_summary`, `comparison_json`.
+  `docs/DATA_CONTRACT.md` §6. Test group `fem` (label layout) with synthetic fixtures in `tests/data/fem/`. No solver
+  is a build dependency; no committed number changes.
+- q18, opt-in flux-line distortion term (docs/design/flux-line-distortion.md; decided by Finnian Bond 2026-11-28:
+  additive to `residual_ctrl_err`, off by default, no regeneration). `device.hpp`: `FluxTail`, `FluxLineSpec`,
+  `ChipDesign::flux_line` (design JSON `tunable_coupler.flux_line`, written only when enabled). `pulse.hpp`:
+  `flux_line_eps_eff`, `flux_distortion_err`, `CZCalibration::distortion_modeled`, `flux_eps_eff`, `err_distortion`
+  (added to `err_ctrl`, hence `err_2q_ctrl`, when on; `cz_calibration_json` writes the two values only when on).
+  `qpuforge cz` prints the term when on. Off, every output is unchanged; the CZ cache key and `CZModel::kVersion` are
+  unchanged. Test group `flux_line` (label pulse; its checks are not in `results/test_output.txt`, which is not
+  regenerated).
 - `layout.hpp`:
   - `detail::place_ground_straps` (`detail::Strap`, `detail::IslandIndex`, `detail::island_index`,
     `detail::foot_comp`, `detail::UnionFindLite`; `kStrapW`, `kStrapMaxSpan`, `kStrapLinePenalty`,
@@ -236,7 +252,8 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
   the 500 below (`results/test_output.txt` predates them). The thread-count determinism digest also covers the herald
   model, derived weights through the batch and the streaming decoder, DQLR with heralding, and the operation profile.
   CLI guards for the two new options, and `cli_herald_stream` (below).
-- 500 validation checks in all (`results/test_output.txt`): 346 on `main` before the decoding work (the 321 of 0.4.0
+- 504 validation checks in all: 500 on `main` (`results/test_output.txt`, not regenerated for the mask-connectivity work) and
+  four more from it (below). Of the 500: 346 on `main` before the decoding work (the 321 of 0.4.0
   plus 25 in `materials`), plus 21 from the decoding work (#20), 48 from fabrication readiness (#19), 3 from the
   streaming decoder (#27) and 82 from lattice surgery (#21). The 0.4 groups now give 328: fabrication readiness added
   four `pulse_cz` checks and one `layout` check, the decoding work two `fault_enumeration` checks. The strict CLI (#24)
@@ -283,12 +300,12 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
   (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
   `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
 - Review and study programs (`alpha1_v11_review`, `beta1_review`, `gamma1_review`, `decoder_study`, `decoder_sweeps`,
-  `surgery_study`): `provenance.source_commit` and `provenance.source_tree_dirty` now describe the tree the program was
+  `decoder_study2`, `surgery_study`, `flux_distortion_study`): `provenance.source_commit` and `provenance.source_tree_dirty` now describe the tree the program was
   built from. They were compile definitions (`QPUFORGE_GIT_SHA`, `QPUFORGE_GIT_DIRTY`; no longer read) computed when
   CMake configured the build directory, so a directory configured at one commit and rebuilt after later commits kept
   writing the old commit into its outputs. The stamp is now taken on every build: the target `qpuforge_git_stamp_update`
   runs `cmake/git_stamp.cmake`, which rewrites the one source file of a small static library (`qpuforge_git_stamp`) only
-  when the commit or the dirty flag changes. A new commit costs one small compile and six relinks, and a build directory
+  when the commit or the dirty flag changes. A new commit costs one small compile and one relink per program, and a build directory
   does not have to be configured again before a recorded run. The Makefile rules `<program>/fast` skip a program's
   dependencies and therefore do not take the stamp. The dirty flag means what it did (tracked files modified, untracked
   files not counted) but is now read at every build: a build made after a recorded run has rewritten its tracked output
@@ -429,7 +446,9 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
 
 ### Known issues
 - **Open review findings on the mask connectivity now on `main`** (details in docs/design/mask-connectivity.md). The
-  approach is known to be electrically wrong on the points below; a redesign is in progress in PR #28:
+  approach is known to be electrically wrong on the points below. A redesign is in progress. Its first step, the
+  stricter checks of PR #28, is on `main` already and the committed masks fail them (`layout_presets`, 9 checks;
+  `qpuforge gds` reports "metal connectivity NOT clean" for them); the corrected geometry is not on `main` yet:
   - the SQUID ground lead and the flux-line short share one modelled airbridge to the plane (galvanic T1 channel,
     estimated 0.1–1 µs; the pocket is treated as ideal ground);
   - the flux-line short couples only ~0.004–0.011 pH to the SQUID loop (~90–290 mA for Φ0/2): the flux lines do not

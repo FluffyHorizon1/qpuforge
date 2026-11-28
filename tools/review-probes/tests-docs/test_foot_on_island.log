@@ -1,9 +1,0 @@
-[layout_geometry] bus knob continuity, shorted staircase end, ground-sliver fill (merges ground only, never island metal), metal connectivity, guarded fill
-  shorted staircase: 11 squares, 10 trench squares, 0 width + 0 space markers
-  ground-sliver fill: 1 rectangle(s) added, 0 space markers after
-  metal map of a closed ring: 2 components (plane 0, pocket 1, etch -1)
-  guarded fill: 1 kept, 1 undone; pocket on the plane: yes; 1 DRC marker(s) left
-  ground straps: 1 placed; first pocket strapped: yes; any strap over a qubit: no
-  (layout_geometry: 0.0 s)
-
-26 checks passed, 0 failed

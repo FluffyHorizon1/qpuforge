@@ -424,7 +424,8 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
   ranges above, a sidecar without `produced_by.tool`, or inconsistent `placeholders` / `contains_placeholders`.
 
 ### Known issues
-- **Not ready to merge: open review findings** (details in docs/design/mask-connectivity.md):
+- **Open review findings on the mask connectivity now on `main`** (details in docs/design/mask-connectivity.md). The
+  approach is known to be electrically wrong on the points below; a redesign is in progress in PR #28:
   - the SQUID ground lead and the flux-line short share one modelled airbridge to the plane (galvanic T1 channel,
     estimated 0.1–1 µs; the pocket is treated as ideal ground);
   - the flux-line short couples only ~0.004–0.011 pH to the SQUID loop (~90–290 mA for Φ0/2): the flux lines do not

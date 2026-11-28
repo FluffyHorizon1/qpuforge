@@ -13,10 +13,10 @@ assumptions listed in each design spec. They are design targets, not measured pe
 
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
-| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (500 validation checks on `main`) | n/a |
-| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11), including mask DRC and metal connectivity; foundry DRC not yet run | open: fabricate and characterise |
-| **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation, including mask DRC and metal connectivity; control-line budget missed by the flux line (9.7× vs 10×); foundry DRC not yet run (designs/beta1) | open |
-| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation, including mask DRC and metal connectivity; control-line budget missed by the flux line (9.7× vs 10×); foundry DRC not yet run (designs/gamma1). Lattice-surgery ZZ, XX and CNOT simulated at d = 3, 5 (results/surgery_study.txt) | planned |
+| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (541 validation checks) | n/a |
+| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11); mask not fabrication-ready: 4 DRC space violations, metal connectivity open | open: fabricate and characterise |
+| **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/beta1) | open |
+| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/gamma1). Lattice-surgery ZZ, XX and CNOT simulated at d = 3, 5 (results/surgery_study.txt) | planned |
 | Delta | modular | Several logical qubits linked between modules; logical-level benchmarks | planned | planned |
 
 ---
@@ -91,7 +91,9 @@ model fitted to measured T1/T2, gate errors and leakage.
 
 **Main risks.**
 - TLS defects lowering T1 → mitigated by materials work: tantalum or improved surface treatment.
-- Flux-pulse distortion raising the CZ error → mitigated by predistortion and closed-loop calibration.
+- Flux-pulse distortion raising the CZ error → mitigated by predistortion and closed-loop calibration. Simulated
+  requirement for a tenth of the 1e-3 allowance (`docs/design/flux-line-predistortion.md`): residual tails of the corrected
+  step response below 0.09 % with the virtual Z gates of every CZ calibrated in the cycle, below 0.03 % without.
 - Frequency collisions after fabrication → mitigated by junction trimming and the flux-tunable qubits.
 - Wiring and packaging (~70 lines) → mitigated by flip-chip with an interposer.
 
@@ -174,8 +176,15 @@ the chip in the same data file.
   `docs/design/lattice-surgery.md`): logical ZZ and XX measurement between two patches and the three-patch CNOT, at
   d = 3 and 5. With Beta-1 physics at d = 5 the ZZ outcome is wrong in 0.14 % of measurements and a CNOT on |00⟩ gets
   some output wrong in 0.71 % of runs
-  (`results/surgery_study.txt`). Still open: a chip layout for two or three d = 5 patches and their routing region,
-  real-time feed-forward of the corrections, and a joint decoder for all observables.
+  (`results/surgery_study.txt`). Also simulated: one joint decoder for all observables (same predictions as the
+  separate decoders on 1,600,000 shots, 1.9–3.4× less decode time); a two-pass correlated decoder (CNOT at d = 5:
+  0.71 % to 0.42 %, but 184 µs per shot against 15 µs, so not a real-time candidate); and operations through a
+  straight routing strip (CNOT at d = 5 with strips of 7: 1.82 %, same 12 rounds, 289 qubits against 169).
+  Chip account for "2×d5 + routing": two adjacent d = 5 patches need 109 qubits, 188 couplers, 13 feedlines and 432
+  lines, and 169 qubits with a strip of 7; a CNOT needs a third patch, 169 to 289 qubits and 672 to 1156 lines. The
+  8-frequency plan and the existing 16 CZ calibrations cover every lattice, with no frequency collision and a trimmed
+  fabrication yield of 98–99 %. Still open: a layout and control-line routing for these chips (none exists), routes
+  with bends, real-time feed-forward of the corrections, and a correlated decoder fast enough for real time.
 - Real-time decoding at < 1 µs per round: FPGA first, then an ASIC. The exact software decoder is the reference.
   Done in software: a weighted union-find decoder (`DecodeMethod::UnionFind`), within 1.1× of the exact decoder's
   logical error at d = 3 and 5 (`results/decoder_study.txt` for Gamma-1), and its streaming (sliding-window)

@@ -17,19 +17,32 @@ the commands below to reproduce them.
 | `designs/alpha1-v11/example_characterisation_synthetic.json`, `example_gate_report_synthetic.json` | the first two commands of `CHARACTERISATION-PLAN.md` §7 with `virtual.json` → `designs/alpha1-v11/example_characterisation_synthetic.json` and `--out designs/alpha1-v11/example_gate_report_synthetic.json`; the hidden-dephasing pair as written there (output not committed) | same | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:59:58Z | 22 s (all four) |
 | `designs/alpha1-v11/AF17_v11_layout.{png,svg}`, `AF17_v11_detail.{png,svg}`, `docs/from-committed-layout/af17-{full,zoom,q5}.svg` | `python3 tools/gds_preview.py designs/alpha1-v11/AF17_v11.gds <out>`; detail `--zoom 1550,2450,2250,3150`, zoom `--zoom 1350,2250,2700,3600`, Q5 `--zoom 1580,2480,2020,2920` (ground straps in violet) | matplotlib 3.10 | — | — | 2026-11-28 | — |
 | `designs/beta1/BF49_layout.{png,svg}`, `designs/gamma1/GF97_layout.{png,svg}` | `python3 tools/gds_preview.py designs/beta1/BF49.gds <out>`, `python3 tools/gds_preview.py designs/gamma1/GF97.gds <out>` | matplotlib 3.10 | — | — | 2026-11-28 | — |
-| `results/surgery_study.{txt,json}` | `OMP_NUM_THREADS=4 surgery_study 100000` (CZ model v4) | `d837044b0be6318f911a621d4a2c44c82fe8f4eb` (`scs-bot/lattice-surgery` with `main` 0629252 merged; clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T04:36:26Z | 1005 s |
+| `results/surgery_study.{txt,json}` | `OMP_NUM_THREADS=4 surgery_study 100000` (CZ model v4; sections 1 to 3 reproduce the `d837044` run byte for byte, sections 4 to 6 are new) | `c7728233d97bd6d44301339f3f5ea5e228671bdc` (`scs-bot/surgery-next`; clean tree, fresh build directory) | g++ 13.3.0 | 4 (informational) | 2026-11-28T10:53:28Z | 4342 s |
 | `results/cz_cache.json` | `qpuforge cz designs/alpha1-v11/alpha1_v11.json --cache results/cz_cache.json` from an empty cache (16 calibrations simulated); every review reuses it (0 simulated, 16 cached) | CZ model version 4 (`pulse.hpp` and `src/` as committed with this file) | g++ 13.3.0 | 2 | 2026-11-28T01:32:18Z | 259 s |
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 | `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `86bfdab97c68960fa308e82c6ca28d914abf1a47` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:28:50Z | 2671 s |
 | `results/decoder_sweeps.{json,txt}` | `decoder_sweeps` (`OMP_NUM_THREADS=4 ./build/decoder_sweeps`) | `5e69544f153985be9ae2b042b467f762f06f85d2` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:30:44Z | 57 s |
+| `results/flux_distortion_study.{txt,json}` | `flux_distortion_study` (`OMP_NUM_THREADS=2 ./build/flux_distortion_study`; pulse simulations only, no Monte Carlo; CZ model v4) | `a1fcda1d95b8428bac9372e0f5a6ff4a9c4de4f7` (clean tree) | g++ 13.3.0 | 2 (informational) | 2026-11-28T10:40:55Z | 976 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
-  The three reviews were regenerated from the clean tree `ae46662` (PR #28) with a build directory configured at that
-  commit: each review JSON says `source_commit: ae46662…`, `source_tree_dirty: false`. Its review and layout code is the
-  code of `56ba3e4`, where an earlier run of the same three reviews gave the same output except for the machine-dependent
-  fields. `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
-  `results/test_output.txt` was not regenerated for PR #28: it is `main`'s, made from `8de7512` (clean tree a0a5686, which
-  `main` has after #21 and #24).
+  The reviews, the GDS files and the characterisation rehearsal were regenerated from the clean tree
+  `0b2ea59` (`main` at 2e19180 merged into `scs-bot/fab-readiness`): each review JSON says `source_tree_dirty: false`.
+  The test log was made later, from `8de7512` (clean tree a0a5686, which `main` has after #21 and #24).
+  `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
+- **Source stamp.** The review and study programs write the commit they were built from into their JSON
+  (`provenance.source_commit`), and `provenance.source_tree_dirty`: `true` if tracked files differed from that commit
+  when the program was built (untracked files do not count). The stamp is taken by every build that brings a
+  program's dependencies up to date (`cmake/git_stamp.cmake`): `cmake --build build`, with or without
+  `--target <program>`, and `make` or `ninja` for the default target or for the program. It therefore describes the
+  tree the binary was built from, whenever its build directory was configured. The Makefile rules `<program>/fast`
+  are the exception: they skip the dependencies, so `make <program>/fast` links the program with the stamp of the last
+  ordinary build, even after compiling it from a newer commit. For recorded runs, commit, run `cmake --build build`
+  and then run the programs: the build directory does not have to be configured again. Build before the first run and
+  not between runs: a run rewrites tracked files (the committed outputs), and a build made after that records
+  `source_tree_dirty: true`. A binary that is not rebuilt after a commit keeps the stamp of the tree it was built
+  from. The stamp is `"unknown"` / `false` outside a git checkout, without git, and for a program compiled by hand.
+  The outputs in the table predate this: their stamp was taken when CMake configured the build directory, and a
+  directory configured at an earlier commit would have recorded that commit.
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
@@ -37,7 +50,8 @@ the commands below to reproduce them.
   - decoder study: 11 + rounds (union-find against exact; memory-X adds 7919), 300 + d (heralds), 401 (veto calibration), 403 (impact injection), 505 (burst ladders, with and without the veto), 601 (streaming union-find).
   - decoder sweeps: 77 (herald rules), 3 / 9 / 5 (veto windows: calibration, injection, severity runs), 3 / 505 (hold: calibration, ladder).
     Section 1 (fault enumeration) and the decode times are wall-clock measurements on four threads.
-  - surgery: frame Monte Carlo seed 1000 + 100 d + 10 k (+5 for Beta-1), k = 0 ZZ, 1 XX, 2 CNOT Z basis, 3 CNOT X basis; tableau check seed 77. The study reuses `results/cz_cache.json` (no new calibrations).
+  - surgery: frame Monte Carlo seed 1000 + 100 d + 10 k (+5 for Beta-1), k = 0 ZZ, 1 XX, 2 CNOT Z basis, 3 CNOT X basis; routing strips longer than 1: 3000 + 100 d + 10 k + strip length; tableau check seed 77; fab Monte Carlo seed 7. The study reuses `results/cz_cache.json` (no new calibrations).
+    The decode times of section 4 are wall-clock measurements on four threads; a test group and a compile ran on the same machine for about two minutes of this run, so they and the runtime are indicative only.
 - **Thread count does not change the results.** Since 0.4 the Pauli-frame Monte Carlo seeds every shot from
   (`seed`, shot index) and adds its partial sums in a fixed block order, and the trajectory emulator adds its sampled
   XEB in trajectory order (`docs/design/deterministic-mc.md`). Every Monte Carlo number in the 0.4 outputs above is
@@ -95,3 +109,5 @@ the commands below to reproduce them.
 - **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
 - **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `8de7512`
   (tree a0a5686, which `main` has after #21 and #24): 500 checks passed, 0 failed.
+  The `flux_predistortion` group (32 checks, `fluxline.hpp`) was added after this log; it has not been regenerated
+  for it.

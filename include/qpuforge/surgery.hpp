@@ -25,6 +25,7 @@
 #pragma once
 #include "qec.hpp"
 #include "presets.hpp"
+#include <limits>
 #include <set>
 
 namespace qpuforge {
@@ -124,6 +125,10 @@ struct SurgeryObservable {
     int expected{0};            // ... equals this in the noiseless circuit
 };
 
+// A qubit prepared at a phase boundary (strip or gap data, or a new seam face): its RESET (index among that qubit's
+// resets in the circuit, which compilation keeps), the phase it joins and the region of that phase it belongs to.
+struct SurgeryJoin { int qubit{-1}, reset{0}, phase{0}, region{0}; };
+
 struct SurgerySchedule {
     SurgeryLattice lat;
     std::vector<char> init_basis;   // per patch: 'Z' (|0>) or 'X' (|+>)
@@ -131,6 +136,11 @@ struct SurgerySchedule {
     std::vector<SurgeryPhase> phases;
     std::vector<char> final_basis;  // per patch: transversal readout basis (the last phase must keep the patches apart)
     std::string name{"surgery"};
+    // prepare_surgery: prepare each qubit that joins at a phase boundary (strip and gap data, new seam faces) just in
+    // time, when the rest of its region has finished the previous phase, instead of as soon as the program starts
+    // (surgery_detail::retime_joining). The circuit, its detectors and observables are the same either way; only the
+    // timing of the compiled program differs.
+    bool just_in_time{true};
 };
 
 struct SurgeryExperiment {
@@ -151,6 +161,7 @@ struct SurgeryExperiment {
     std::map<std::pair<int, int>, int> data_bit;              // (data qubit, phase index at whose start it was measured) -> bit;
                                                               // phase index = #phases for the final readout
     std::vector<std::vector<SurgeryFace>> phase_faces;        // faces active in each phase
+    std::vector<SurgeryJoin> joining;                         // qubits prepared at a phase boundary
 };
 
 namespace surgery_detail {
@@ -190,6 +201,8 @@ inline SurgeryExperiment build_surgery(const SurgerySchedule& Sd) {
     };
     int cb = 0;
     E.reference.clear();
+    struct JoinAt { int qubit, gate, phase, region; };
+    std::vector<JoinAt> join_reset;                 // each reset at a phase boundary: qubit, index in C.gates, phase, region
     auto newbit = [&](int ref) { E.reference.push_back(ref); return cb++; };
     std::vector<std::map<int, char>> cfg(static_cast<std::size_t>(P));
     for (int p = 0; p < P; ++p) {
@@ -251,6 +264,12 @@ inline SurgeryExperiment build_surgery(const SurgerySchedule& Sd) {
             for (int q : join) {
                 const char basis = cur.at(q);
                 if (basis == 'P') throw std::runtime_error("surgery: a patch data qubit cannot join after the first phase");
+                int reg = -1;
+                {
+                    const auto& st = L.sites[std::size_t(q)];
+                    for (int r = 0; r < int(ph.regions.size()) && reg < 0; ++r) if (ph.regions[std::size_t(r)].contains((st.x - 1) / 2, (st.y - 1) / 2)) reg = r;
+                }
+                join_reset.push_back({q, int(C.gates.size()), p, reg});
                 C.reset(q);
                 if (basis == 'X') C.h(q);
                 ds[std::size_t(q)] = {true, basis, t, -1, -1};
@@ -282,7 +301,14 @@ inline SurgeryExperiment build_surgery(const SurgerySchedule& Sd) {
             // face qubits of this phase: reset (those of the previous phase were reset after its last round)
             std::set<int> prevf;
             for (const auto& f : E.phase_faces[std::size_t(p - 1)]) prevf.insert(f.qubit);
-            for (const auto& f : E.phase_faces[std::size_t(p)]) if (!prevf.count(f.qubit)) C.reset(f.qubit);
+            for (const auto& f : E.phase_faces[std::size_t(p)]) {
+                if (prevf.count(f.qubit)) continue;
+                int reg = -1;
+                for (int r = 0; r < int(ph.regions.size()) && reg < 0; ++r)
+                    for (const auto& rf : region_faces(ph.regions[std::size_t(r)], L.at)) if (rf.qubit == f.qubit) { reg = r; break; }
+                join_reset.push_back({f.qubit, int(C.gates.size()), p, reg});
+                C.reset(f.qubit);
+            }
         }
         E.phase_first_round.push_back(g);
         const auto& faces = E.phase_faces[std::size_t(p)];
@@ -393,6 +419,18 @@ inline SurgeryExperiment build_surgery(const SurgerySchedule& Sd) {
         }
         E.detectors = std::move(dets); E.detector_type = std::move(ty); E.detector_label = std::move(lab); E.detector_round = std::move(rd);
     }
+    // the resets at phase boundaries, as (qubit, ordinal among that qubit's resets): the ordinal survives compilation
+    {
+        std::vector<int> nres(std::size_t(C.n), 0);
+        std::size_t k = 0;
+        for (int i = 0; i < int(C.gates.size()) && k < join_reset.size(); ++i) {
+            const auto& gt = C.gates[std::size_t(i)];
+            if (gt.op != Op::RESET) continue;
+            const int q = gt.q[0], ord = nres[std::size_t(q)]++;
+            if (i == join_reset[k].gate) { E.joining.push_back({q, ord, join_reset[k].phase, join_reset[k].region}); ++k; }
+        }
+        if (k != join_reset.size()) throw std::runtime_error("surgery: phase-boundary resets out of order");
+    }
     return E;
 }
 
@@ -442,7 +480,10 @@ inline void check_state(char s) { if (s != '0' && s != '1' && s != '+' && s != '
 struct SurgeryRounds { int pre{1}, merge{0}, post{1}; };   // merge = 0: d rounds; pre = 0: merge from the first round
 
 namespace surgery_detail {
-inline void check_gap(int gap) { if (gap < 1 || gap % 2 == 0) throw std::runtime_error("surgery: the gap (routing strip length) must be odd and >= 1"); }
+inline constexpr int kMaxGap = 999;   // longest routing strip (keeps every lattice coordinate far from int overflow)
+inline void check_gap(int gap) {
+    if (gap < 1 || gap > kMaxGap || gap % 2 == 0) throw std::runtime_error("surgery: the gap (routing strip length) must be odd, from 1 to " + std::to_string(kMaxGap));
+}
 } // namespace surgery_detail
 
 // Logical parity measurement between two patches A and B. type 'Z': Z_A Z_B (A above B, ZZ merge); 'X': X_A X_B
@@ -838,6 +879,105 @@ inline ChipDesign surgery_chip(const SurgeryLattice& L, const std::string& prese
     return D;
 }
 
+// ================================================================== timing of the qubits that join at a merge
+// ahead_*: the longest time by which a joining qubit is prepared (its reset has ended) before the rest of its region
+// has finished the previous phase, in compile()'s ASAP schedule and after retime_joining; moved: ops it delayed.
+struct SurgeryTiming { int joining{0}, moved{0}; double ahead_asap_ns{0}, ahead_ns{0}; };
+
+namespace surgery_detail {
+// compile()'s per-qubit ASAP schedule again, in program order, with a release time per op (no op starts before it):
+// an op starts when all its qubits are free and its release time has come; a virtual RZ sits at the start of its
+// qubit's next op. With every release time at or before the op's ASAP start this reproduces P exactly. Returns the
+// number of physical ops that start later than before.
+inline int asap_with_release(std::vector<ScheduledOp>& P, const std::vector<double>& release, std::size_t n_qubits) {
+    if (release.size() != P.size()) throw std::runtime_error("asap_with_release: one release time per op");
+    int moved = 0;
+    std::vector<double> ready(n_qubits, 0.0);
+    std::vector<std::vector<std::size_t>> rz(n_qubits);              // virtual RZs waiting for their qubit's next op
+    for (std::size_t i = 0; i < P.size(); ++i) {
+        auto& o = P[i];
+        for (int q : o.g.q) if (q < 0 || std::size_t(q) >= n_qubits) throw std::runtime_error("asap_with_release: op outside the program");
+        if (o.g.op == Op::RZ) { rz[std::size_t(o.g.q[0])].push_back(i); continue; }
+        double start = release[i];
+        for (int q : o.g.q) start = std::max(start, ready[std::size_t(q)]);
+        if (start > o.start) { const double dur = o.end - o.start; o.start = start; o.end = start + dur; ++moved; }
+        for (int q : o.g.q) {
+            for (std::size_t r : rz[std::size_t(q)]) P[r].start = P[r].end = o.start;
+            rz[std::size_t(q)].clear();
+            ready[std::size_t(q)] = o.end;
+        }
+    }
+    for (std::size_t q = 0; q < n_qubits; ++q) for (std::size_t r : rz[q]) P[r].start = P[r].end = ready[q];
+    return moved;
+}
+
+// Just-in-time preparation (SurgerySchedule::just_in_time), applied to compile()'s ASAP schedule through
+// CompileOptions::retime. In the ASAP schedule every qubit starts as soon as it is free, so a qubit that joins at a
+// merge is reset when the program starts, runs whatever ops it can with other qubits that are free (strip qubits
+// with each other, seam faces with patch data between their CZs) and then waits, prepared, until the patches have
+// finished the phases before the merge: one round for two patches (about 0.8 us with Beta-1 physics), the ZZ merge as
+// well for the CNOT's A-T region. Here each joining qubit's reset is released only when the other qubits of its new
+// region (patch data and faces, the region's own faces that carry on) have finished every op before the phase
+// boundary, so that it ends just as they finish, and the program is then scheduled as soon as possible again, in
+// program order, from those release times. Ops that the releases do not delay keep their times exactly; nothing
+// moves earlier; the order of ops on each qubit is kept. move = false only measures how far ahead the qubits are.
+inline SurgeryTiming retime_joining(std::vector<ScheduledOp>& P, const SurgeryExperiment& E, bool move) {
+    SurgeryTiming T; T.joining = int(E.joining.size());
+    const auto& L = E.sched.lat;
+    const std::size_t nq = std::size_t(E.circuit.n), none = std::numeric_limits<std::size_t>::max();
+    // the index in P of each joining reset
+    std::vector<std::vector<std::pair<int, std::size_t>>> want(nq);   // per qubit: (reset ordinal, join index)
+    for (std::size_t j = 0; j < E.joining.size(); ++j) {
+        const int q = E.joining[j].qubit;
+        if (q < 0 || std::size_t(q) >= nq) throw std::runtime_error("surgery: joining qubit outside the program");
+        want[std::size_t(q)].push_back({E.joining[j].reset, j});
+    }
+    std::vector<std::size_t> at(E.joining.size(), none);
+    {
+        std::vector<int> nres(nq, 0);
+        for (std::size_t i = 0; i < P.size(); ++i) {
+            for (int q : P[i].g.q) if (q < 0 || std::size_t(q) >= nq) throw std::runtime_error("surgery: compiled op outside the lattice");
+            if (P[i].g.op != Op::RESET) continue;
+            const std::size_t q = std::size_t(P[i].g.q[0]);
+            const int k = nres[q]++;
+            for (auto [r, j] : want[q]) if (r == k) at[j] = i;
+        }
+    }
+    for (std::size_t a : at) if (a == none) throw std::runtime_error("surgery: joining reset not found in the compiled program");
+    // release time of each joining reset: the region's other qubits have finished every op before the boundary
+    std::map<std::pair<int, int>, std::vector<std::size_t>> group;    // (phase, region) -> join indices
+    for (std::size_t j = 0; j < E.joining.size(); ++j) group[{E.joining[j].phase, E.joining[j].region}].push_back(j);
+    std::vector<double> release(P.size(), 0.0), done_of(E.joining.size(), 0.0);
+    for (const auto& [key, js] : group) {
+        if (key.first < 0 || key.first >= int(E.sched.phases.size()) || key.second < 0 || key.second >= int(E.sched.phases[std::size_t(key.first)].regions.size()))
+            throw std::runtime_error("surgery: joining qubit without a region");
+        const auto& R = E.sched.phases[std::size_t(key.first)].regions[std::size_t(key.second)];
+        std::vector<char> joins(nq, 0), other(nq, 0);
+        for (std::size_t j : js) joins[std::size_t(E.joining[j].qubit)] = 1;
+        for (int jj = R.j0; jj < R.j0 + R.h; ++jj)
+            for (int ii = R.i0; ii < R.i0 + R.w; ++ii) { const int q = L.data_qubit(ii, jj); if (q >= 0 && !joins[std::size_t(q)]) other[std::size_t(q)] = 1; }
+        for (const auto& f : region_faces(R, L.at)) if (f.qubit >= 0 && !joins[std::size_t(f.qubit)]) other[std::size_t(f.qubit)] = 1;
+        std::size_t b = none;                                         // the phase boundary: the first joining reset
+        for (std::size_t j : js) b = std::min(b, at[j]);
+        double done = 0;
+        for (std::size_t i = 0; i < b; ++i) {
+            bool mine = false;
+            for (int q : P[i].g.q) mine = mine || other[std::size_t(q)];
+            if (mine) done = std::max(done, P[i].end);
+        }
+        for (std::size_t j : js) {
+            const auto& o = P[at[j]];
+            release[at[j]] = done - (o.end - o.start);
+            done_of[j] = done;
+            T.ahead_asap_ns = std::max(T.ahead_asap_ns, done - o.end);
+        }
+    }
+    if (move) T.moved = asap_with_release(P, release, nq);
+    for (std::size_t j = 0; j < E.joining.size(); ++j) T.ahead_ns = std::max(T.ahead_ns, done_of[j] - P[at[j]].end);
+    return T;
+}
+} // namespace surgery_detail
+
 // ================================================================== decoding setup and frame Monte Carlo
 // One fault mechanism seen by every decoder of a setup: the decoded detectors it flips, the decoded observables it
 // flips (bit k: observable k of SurgerySetup::obs) and, when asked for, the detectors of the other Pauli type.
@@ -894,6 +1034,7 @@ struct SurgerySetup {
     std::vector<std::unique_ptr<MatchingDecoder>> decoder;
     std::vector<char> is_data;
     std::size_t n_faults{0};
+    SurgeryTiming timing;                     // how far ahead the joining qubits are prepared (just in time unless switched off)
     // joint decoding: one graph for all decoded observables, edges carrying an observable mask
     JointDEM jdem;
     std::unique_ptr<MatchingDecoder> joint;   // decode() returns the mask; DecodeMethod::UnionFind for joint union-find
@@ -1005,6 +1146,8 @@ inline SurgerySetup prepare_surgery(const ChipDesign& D, const ChipReport& R, co
     if (M.obs.empty()) throw std::runtime_error("prepare_surgery: no observable of the decoded type");
     if (int(D.qubits.size()) != E.circuit.n) throw std::runtime_error("prepare_surgery: chip does not match the lattice");
     CompileOptions co; co.layout = "trivial";
+    if (!E.joining.empty())
+        co.retime = [&](std::vector<ScheduledOp>& P) { M.timing = surgery_detail::retime_joining(P, E, E.sched.just_in_time); };
     M.prog = compile(E.circuit, chip_graph(D, R), co);
     if (M.prog.n_swaps) throw std::runtime_error("surgery circuit needed SWAPs: couplers do not match the lattice");
     std::map<int, std::vector<int>> partners;
@@ -1081,6 +1224,7 @@ struct SurgeryResult {
     // against the first decoder of the same run (run_surgery_decoders), on the same shots:
     long differ{0};                        // shots where the predictions differ
     long any_fixed{0}, any_broken{0};      // shots the first decoder gets wrong and this one right, and the reverse
+    std::vector<long> differ_with;         // per decoder k of the same run: shots where this one's prediction differs from k's
 };
 
 // Pauli-frame Monte Carlo of a surgery experiment, decoded with each of `modes` on the same shots. The noise sampling
@@ -1092,7 +1236,7 @@ inline std::vector<SurgeryResult> run_surgery_decoders(const SurgerySetup& M, lo
     const std::size_t no = M.obs.size(), nm = modes.size();
     if (nm == 0) throw std::runtime_error("run_surgery_decoders: no decoder");
     for (auto m : modes) if (m == SurgeryDecoder::Correlated && !M.other_uf) throw std::runtime_error("run_surgery_decoders: correlated decoding needs prepare_surgery(..., correlated = true)");
-    struct Tally { long fired{0}, leak_ev{0}; int max_def{0}; std::vector<long> err, any, differ, fixed, broken; std::vector<double> ns; };
+    struct Tally { long fired{0}, leak_ev{0}; int max_def{0}; std::vector<long> err, any, differ, fixed, broken, dw; std::vector<double> ns; };
     const long nblocks = shots > 0 ? (shots + kFrameBlock - 1) / kFrameBlock : 0;
     std::vector<Tally> part(static_cast<std::size_t>(nblocks));
     std::vector<std::vector<int>> obs_bits;
@@ -1112,6 +1256,7 @@ inline std::vector<SurgeryResult> run_surgery_decoders(const SurgerySetup& M, lo
         for (long b = 0; b < nblocks; ++b) {
             Tally& T_ = part[std::size_t(b)];
             T_.err.assign(nm * no, 0); T_.any.assign(nm, 0); T_.differ.assign(nm, 0); T_.fixed.assign(nm, 0); T_.broken.assign(nm, 0); T_.ns.assign(nm, 0.0);
+            T_.dw.assign(nm * nm, 0);
             const long s_end = std::min(shots, (b + 1) * kFrameBlock);
             for (long s = b * kFrameBlock; s < s_end; ++s) {
                 rng = Xoshiro256(frame_shot_seed(seed, std::uint64_t(s)));
@@ -1161,15 +1306,16 @@ inline std::vector<SurgeryResult> run_surgery_decoders(const SurgerySetup& M, lo
                     }
                     T_.ns[m] += std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
                     pred[m] = pr;
-                    const unsigned wrong = pr ^ truth;
+                }
+                const unsigned wrong0 = pred[0] ^ truth;
+                for (std::size_t m = 0; m < nm; ++m) {
+                    const unsigned wrong = pred[m] ^ truth;
                     for (std::size_t k = 0; k < no; ++k) if ((wrong >> k) & 1) ++T_.err[m * no + k];
                     if (wrong) ++T_.any[m];
-                    if (m > 0) {
-                        const unsigned wrong0 = pred[0] ^ truth;
-                        if (pr != pred[0]) ++T_.differ[m];
-                        if (wrong0 && !wrong) ++T_.fixed[m];
-                        if (!wrong0 && wrong) ++T_.broken[m];
-                    }
+                    if (pred[m] != pred[0]) ++T_.differ[m];
+                    if (wrong0 && !wrong) ++T_.fixed[m];
+                    if (!wrong0 && wrong) ++T_.broken[m];
+                    for (std::size_t k = 0; k < nm; ++k) if (pred[m] != pred[k]) ++T_.dw[m * nm + k];
                 }
             }
         }
@@ -1183,9 +1329,11 @@ inline std::vector<SurgeryResult> run_surgery_decoders(const SurgerySetup& M, lo
         r.decoder = modes[m];
         r.shots = shots; r.errors.assign(no, 0);
         double ns = 0;
+        r.differ_with.assign(nm, 0);
         for (const Tally& t : part) {
             r.any_errors += t.any[m]; r.differ += t.differ[m]; r.any_fixed += t.fixed[m]; r.any_broken += t.broken[m]; ns += t.ns[m];
             for (std::size_t k = 0; k < no; ++k) r.errors[k] += t.err[m * no + k];
+            for (std::size_t k = 0; k < nm; ++k) r.differ_with[k] += t.dw[m * nm + k];
         }
         r.decode_ns = ns / double(std::max(shots, 1L));
         r.max_defects = max_def;

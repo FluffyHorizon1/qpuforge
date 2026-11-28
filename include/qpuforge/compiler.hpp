@@ -62,9 +62,18 @@ struct Compiled {
     double duration_ns{0};
 };
 
+// An op of the per-qubit ASAP schedule that compile() builds: start and end time in ns. A virtual RZ has start == end
+// and sits at the start of the next physical op on its qubit.
+struct ScheduledOp { Gate g; double start{0}, end{0}; };
+
 struct CompileOptions {
     std::string layout{"auto"};          // auto | trivial | manual
     std::vector<int> manual_layout;
+    // Optional, empty by default (then nothing below applies): called with the ASAP schedule, every op in program order,
+    // before the schedule is cut into time slices. It may move ops later in time, keeping their durations, the order of
+    // the ops on each qubit and no overlap on a qubit; compile() checks this and throws otherwise. Lattice surgery uses
+    // it to prepare the qubits that join at a merge just in time (surgery.hpp).
+    std::function<void(std::vector<ScheduledOp>&)> retime;
 };
 
 namespace compile_detail {
@@ -253,8 +262,7 @@ inline Compiled compile(const Circuit& C, const ChipGraph& G, const CompileOptio
     // ---- ASAP schedule on per-qubit timelines, then cut into exact time slices.
     // Each qubit runs its ops back-to-back as soon as all qubits of the next op are free; a 500 ns readout on one
     // qubit therefore does not stall unrelated qubits. Virtual RZ rides along with the next physical op.
-    struct Placed { Gate g; double start, end; };
-    std::vector<Placed> placed;
+    std::vector<ScheduledOp> placed;
     std::vector<double> ready(std::size_t(G.n), 0.0);
     std::vector<std::vector<Gate>> pending_rz(std::size_t(G.n));
     auto duration_of = [&](const Gate& g) {
@@ -282,6 +290,23 @@ inline Compiled compile(const Circuit& C, const ChipGraph& G, const CompileOptio
     for (int q = 0; q < G.n; ++q) {
         for (auto& rz : pending_rz[std::size_t(q)]) placed.push_back({rz, ready[std::size_t(q)], ready[std::size_t(q)]});
         pending_rz[std::size_t(q)].clear();
+    }
+    if (opt.retime) {
+        const std::vector<ScheduledOp> asap = placed;
+        opt.retime(placed);
+        if (placed.size() != asap.size()) throw std::runtime_error("compile: retime changed the number of ops");
+        std::vector<double> free_at(std::size_t(G.n), 0.0);
+        for (std::size_t i = 0; i < placed.size(); ++i) {
+            const auto& a = asap[i];
+            const auto& b = placed[i];
+            if (b.g.op != a.g.op || b.g.q != a.g.q) throw std::runtime_error("compile: retime changed an op");
+            if (b.start < a.start - 1e-9 || std::abs((b.end - b.start) - (a.end - a.start)) > 1e-6)
+                throw std::runtime_error("compile: retime moved an op earlier or changed its duration");
+            for (int q : b.g.q) {
+                if (b.start < free_at[std::size_t(q)] - 1e-9) throw std::runtime_error("compile: retime made ops overlap on qubit " + std::to_string(q));
+                free_at[std::size_t(q)] = b.end;
+            }
+        }
     }
     std::vector<double> times;
     for (const auto& p : placed) { times.push_back(p.start); times.push_back(p.end); }

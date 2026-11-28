@@ -2421,7 +2421,7 @@ inline void branch_weights(const Rect& zone, double edge, const std::vector<doub
     for (std::size_t k = 0; k < w.size(); ++k) w[k] = w0[src[k]];
 }
 } // namespace detail
-inline const FluxGrid kFluxGrid{0.5};
+inline const FluxGrid kFluxGrid{0.5}, kFluxCrossGrid{1.0};
 // The margin of a grid solve's window around the line, the loop, the owner and the owner's whole etch: the other
 // apertures (bounded holes too, clipped by the window) move M_cm by less as the window grows. On AF-17 (1 um cells)
 // from 300 to 500 um: Q8 0.609 -> 0.601 pH, Q5 0.621 -> 0.615 pH, C5-1 0.2006 -> 0.2006 pH, FQ5 on Q2 0.077 -> 0.082 pH.
@@ -2867,8 +2867,6 @@ inline constexpr double kLineT1Margin = 10.0, kAssumedSquidAsymmetry = 0.1, kMax
 // The flux couplings of the representative lines are solved on the grid cell and on twice it; a gate cannot rest on a
 // mesh that is still moving: M_cm may change by at most kMaxFluxMeshChange_pH, M by kMaxFluxMeshChangeRel.
 inline constexpr double kMaxFluxMeshChange_pH = 0.05, kMaxFluxMeshChangeRel = 0.05;
-// The crosstalk solves (a line and a neighbour's SQUID: two clusters of etch, far apart) by the method of moments.
-inline const MeshOptions kFluxCrossMesh{2.5, 50.0, 2.0};
 inline double line_T1_us(double C_sigma_fF, double C_c_fF, double f_GHz, double Z0 = 50) {
     const double w = 2 * PI * f_GHz * 1e9;
     return C_c_fF != 0 ? C_sigma_fF * 1e-15 / (w * w * C_c_fF * 1e-15 * C_c_fF * 1e-15 * Z0) * 1e6 : 1e300;
@@ -3165,14 +3163,14 @@ inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const Ch
     return B;
 }
 // Crosstalk of the representative qubits' flux lines, kept apart from line_budget because of its cost: one
-// flux-coupling solve per victim, on the etch within kCrossLocal of the line and of the victim (two clusters). The
-// victims are the two coupled qubits nearest the line's pad and the qubit's couplers towards them.
+// flux-coupling solve per victim, on the grid `cross`, in a window that holds the line, the victim and the victim's whole
+// etch (margin kFluxMargin_um).
+// The victims are the two coupled qubits nearest the line's pad and the qubit's couplers towards them.
 //   Flux: the flux in the victim's SQUID loop as a fraction of the own loop's.
 //   Drive (through the flux lines): the common-mode mutual between the line and a neighbouring qubit, relative to that
 //     of the neighbour's own line. With XY lines: C_eff to each coupled neighbour at its f01 relative to its own.
-inline constexpr double kCrossLocal = 150.0;
 inline void line_budget_crosstalk(LineBudget& B, const ChipDesign& D, const ChipReport& R, const ChipLayout& L, const LayoutMetrics& m,
-                                  const MeshOptions& cross_mo = kFluxCrossMesh) {
+                                  const FluxGrid& cross = kFluxCrossGrid) {
     if (!B.solved) return;
     std::map<int, int> index;
     for (std::size_t i = 0; i < D.qubits.size(); ++i) index[D.qubits[i].id] = int(i);
@@ -3194,9 +3192,9 @@ inline void line_budget_crosstalk(LineBudget& B, const ChipDesign& D, const Chip
         for (const auto& p : nb) order.push_back(p.second);
         for (std::size_t k = 0; k < nb.size() && k < 2; ++k) {         // the two nearest: flux and (through the flux lines) drive
             const std::string qj = "Q" + std::to_string(nb[k].second);
-            B.cross.push_back({c->qubit, qj, flux_coupling(L, qj, line, cross_mo, 60, 0, kCrossLocal)});
+            B.cross.push_back({c->qubit, qj, flux_coupling(L, qj, line, cross, kFluxMargin_um)});
             for (const std::string& tag : {std::to_string(c->qubit) + "-" + std::to_string(nb[k].second), std::to_string(nb[k].second) + "-" + std::to_string(c->qubit)})
-                if (L.island("C" + tag) >= 0) B.cross.push_back({c->qubit, "C" + tag, flux_coupling(L, "C" + tag, line, cross_mo, 60, 0, kCrossLocal)});
+                if (L.island("C" + tag) >= 0) B.cross.push_back({c->qubit, "C" + tag, flux_coupling(L, "C" + tag, line, cross, kFluxMargin_um)});
         }
     }
     B.crosstalk_solved = true;

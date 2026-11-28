@@ -2736,7 +2736,7 @@ static void test_layout_presets() {
         CHECK(foot_on_island == 0 && span_over_qubit == 0, "%s straps: %d with a foot on island metal, %d over a qubit or a junction region", c.name, foot_on_island, span_over_qubit);
         CHECK(L.conn.bumps_ok(), "%s ground bumps: fewest on a plaquette %d, farthest SQUID ground from a bump %.0f um, signal bumps without one %d, rule violations %d", c.name,
               L.conn.min_plaquette_bumps, L.conn.max_squid_bump_dist_um, L.conn.signal_bumps_without_ground, L.conn.bump_rule_violations);
-        // control-line gate (windows on the coarse mesh, flux solves on kFluxGrid, crosstalk on kFluxCrossMesh): drive and flux-line T1 limits, drive
+        // control-line gate (windows on the coarse mesh, flux solves on kFluxGrid and kFluxCrossGrid): drive and flux-line T1 limits, drive
         // crosstalk, drive power, I(Phi0/2). AF-17 only: the solves cost minutes per chip, and BF-49 / GF-97 use the same
         // launcher and cells; their full budget runs in the smoke set (layout_gates_bf49, layout_gates_gf97) and the reviews.
         if (std::string(c.name) != "AF-17") { CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);

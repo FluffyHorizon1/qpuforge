@@ -5,19 +5,19 @@
 // gates also report, as a check and not a gate, M_cm by reciprocity with the island's own charge (flux_cm_by_charge, 1 um
 // cells) for the two qubits' own lines and the worst drive crosstalk; flux reports it for a qubit and a grid solve.
 //
-//   layout_gates gates <chip> <cells.json> [--cell UM] [--cross-mesh H] [--grid-margin F] [--window-mesh H] [--no-crosstalk] [--bump-sensitivity] [--gds <out.gds>]
+//   layout_gates gates <chip> <cells.json> [--cell UM] [--cross-cell UM] [--grid-margin F] [--window-mesh H] [--no-crosstalk] [--bump-sensitivity] [--gds <out.gds>]
 //   layout_gates flux  <chip> <cells.json> <owner> <line> [--cell UM | --moments H] [--grid-margin F] [--zone UM] [--margin UM] [--local UM] [--dump <window.json>]
 //
 // <chip> is a preset as the reviews use it: alpha1-v11 (AF-17, distance 3), beta1 (BF-49, distance 5) or gamma1
-// (GF-97, distance 7). Flux couplings are solved on a grid of square cells (--cell, default 0.5 um, kFluxGrid), on a
-// periodic grid that extends the window with film by --grid-margin of its larger side (default 0.1); the crosstalk
-// solves by the method of moments (--cross-mesh H, default 2.5 um, kFluxCrossMesh); flux --moments H solves by the
-// method of moments instead, on edge panels of H um. A capacitance mesh is given by its edge panel size H in um (largest panel 50 um, growth 1.6
+// (GF-97, distance 7). Flux couplings are solved on a grid of square cells (--cell, default 0.5 um, kFluxGrid; the
+// crosstalk solves --cross-cell, default 1 um, kFluxCrossGrid), on a periodic grid that extends the window with film by
+// --grid-margin of its larger side (default 0.1); flux --moments H solves by the method of moments instead,
+// on edge panels of H um. A capacitance mesh is given by its edge panel size H in um (largest panel 50 um, growth 1.6
 // below 2 um, 2.0 from 2 um): cells and control windows use 1.5 um, as the reviews do. --bump-sensitivity evaluates the budget again (no new solve)
 // with the bump inductance halved and doubled, and with all of a qubit's current and half of a neighbour's taken through
 // the bumps (quadrant fractions 1 and 0.5 instead of 0.75 and 0.25). flux: --margin sets the solve window's margin
-// around the line, the loop, the owner and the owner's whole etch (default 300 um, kFluxMargin_um, as line_budget),
-// --zone the branch rule's zone around the owner (default 40 um, kFluxZone_um; a grid solve
+// around the line, the loop, the owner and the owner's whole etch (default 300 um, kFluxMargin_um, as line_budget and
+// line_budget_crosstalk), --zone the branch rule's zone around the owner (default 40 um, kFluxZone_um; a grid solve
 // only), --local keeps only the etch within UM of the line and of the owner; --dump writes the solve's window and
 // result for tools/flux_check.py.
 // Exit status: 0 when every gate passes (gates) or the solve ran (flux); 1 when a gate fails or the solve did not
@@ -46,7 +46,7 @@ MeshOptions mesh_of(double h) { return MeshOptions{h, 50.0, h < 2 ? 1.6 : 2.0}; 
 int usage(const char* why) {
     std::fprintf(stderr,
                  "layout_gates: %s\n"
-                 "usage: layout_gates gates <chip> <cells.json> [--cell UM] [--cross-mesh H] [--grid-margin F] [--window-mesh H] [--no-crosstalk] [--bump-sensitivity] [--gds <out.gds>]\n"
+                 "usage: layout_gates gates <chip> <cells.json> [--cell UM] [--cross-cell UM] [--grid-margin F] [--window-mesh H] [--no-crosstalk] [--bump-sensitivity] [--gds <out.gds>]\n"
                  "       layout_gates flux  <chip> <cells.json> <owner> <line> [--cell UM | --moments H] [--grid-margin F] [--zone UM] [--margin UM] [--local UM] [--dump <window.json>]\n"
                  "  <chip>: alpha1-v11 | beta1 | gamma1 (the presets of the reviews); UM: grid cell in um; H: edge panel size in um\n",
                  why);
@@ -114,7 +114,7 @@ int main(int argc, char** argv) {
     try { C = cells_from_json(Json::parse(ss.str())); } catch (const std::exception& e) { std::fprintf(stderr, "layout_gates: %s: %s\n", a[2].c_str(), e.what()); return 2; }
     std::size_t first_opt = cmd == "flux" ? 5 : 3;
     if (cmd == "flux" && a.size() < 5) return usage("flux needs <owner> <line>");
-    double cell = kFluxGrid.cell_um, h_cross = kFluxCrossMesh.h_min, grid_margin = kFluxGrid.margin_frac, zone = kFluxZone_um, h_window = 1.5, margin = kFluxMargin_um,
+    double cell = kFluxGrid.cell_um, cross_cell = kFluxCrossGrid.cell_um, grid_margin = kFluxGrid.margin_frac, zone = kFluxZone_um, h_window = 1.5, margin = kFluxMargin_um,
            local = 0, moments = 0;
     bool crosstalk = true, bump_sensitivity = false;
     std::string gds, dump;
@@ -128,7 +128,7 @@ int main(int argc, char** argv) {
         if (a[i] == "--cell") { if (!num(cell, 0.1, 5)) return usage("--cell needs a size in um (0.1 .. 5)"); }
         else if (a[i] == "--zone" && cmd == "flux") { if (!num(zone, 1, 1e6)) return usage("--zone needs a size in um (1 .. 1e6)"); }
         else if (a[i] == "--grid-margin") { if (!num(grid_margin, 0.05, 1)) return usage("--grid-margin needs a fraction of the window (0.05 .. 1)"); }
-        else if (a[i] == "--cross-mesh" && cmd == "gates") { if (!num(h_cross)) return usage("--cross-mesh needs a size in um (0.2 .. 20)"); }
+        else if (a[i] == "--cross-cell" && cmd == "gates") { if (!num(cross_cell, 0.1, 5)) return usage("--cross-cell needs a size in um (0.1 .. 5)"); }
         else if (a[i] == "--moments" && cmd == "flux") { if (!num(moments)) return usage("--moments needs an edge panel size in um (0.2 .. 20)"); }
         else if (a[i] == "--window-mesh" && cmd == "gates") { if (!num(h_window)) return usage("--window-mesh needs a size in um (0.2 .. 20)"); }
         else if (a[i] == "--no-crosstalk" && cmd == "gates") crosstalk = false;
@@ -217,12 +217,12 @@ int main(int argc, char** argv) {
                 "(couplers parked at %.3f GHz)\n", 100 * ec, 100 * g, 100 * rel(m.C_qr_fF, T.C_qr_fF), P.park_gap_MHz, P.park_fc_GHz);
 
     t0 = Clock::now();
-    FluxGrid fg = kFluxGrid, fc{1.0};                       // fc: the reciprocity check
-    fg.cell_um = cell; fg.margin_frac = fc.margin_frac = grid_margin;
+    FluxGrid fg = kFluxGrid, fc = kFluxCrossGrid;
+    fg.cell_um = cell; fc.cell_um = cross_cell; fg.margin_frac = fc.margin_frac = grid_margin;
     LineBudget B = line_budget(D, R, L, m, P.park_fc_GHz, mesh_of(h_window), 50, fg);
     const double t_budget = since(t0);
     double t_cross = 0;
-    if (crosstalk) { t0 = Clock::now(); line_budget_crosstalk(B, D, R, L, m, mesh_of(h_cross)); t_cross = since(t0); }
+    if (crosstalk) { t0 = Clock::now(); line_budget_crosstalk(B, D, R, L, m, fc); t_cross = since(t0); }
     char solver[64];
     std::snprintf(solver, sizeof solver, "grid, %.2f um cells", cell);
     print_flux("measure qubit", "Q" + std::to_string(B.meas.qubit), "FQ" + std::to_string(B.meas.qubit), B.meas.flux, solver);

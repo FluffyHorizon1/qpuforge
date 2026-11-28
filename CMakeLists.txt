@@ -16,7 +16,7 @@ endif()
 # enough to change eps from 0.01200 to 0.01223 at 8 threads (see results/PROVENANCE.md).
 # Every target, including the fp_contract guard, must use this list (see tests/check_fp_contract_flags.cmake).
 set(QPUFORGE_COMPILE_OPTIONS -Wall -Wextra -O3 -ffp-contract=off)
-foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp decoder_study2:examples/decoder_study2.cpp surgery_study:examples/surgery_study.cpp flux_distortion_study:examples/flux_distortion_study.cpp test_fp_contract:tests/test_fp_contract.cpp)
+foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp layout_gates:tests/layout_gates.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp decoder_study2:examples/decoder_study2.cpp surgery_study:examples/surgery_study.cpp flux_distortion_study:examples/flux_distortion_study.cpp test_fp_contract:tests/test_fp_contract.cpp)
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)
   list(GET parts 1 src)

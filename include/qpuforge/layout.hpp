@@ -153,6 +153,106 @@ inline double rect_potential(const Rect& r, double x, double y) {
     return F(u2, v2) - F(u2, v1) - F(u1, v2) + F(u1, v1);
 }
 
+// Dense LU with partial pivoting, in place (row-major N x N), blocked by kLuBlock columns. Every element receives
+// exactly the operations of the unblocked right-looking elimination, in the same order: element (i, j) is reduced by one
+// subtraction l_ik u_kj for each k = 0, 1, ... in turn, with l_ik = a_ik / u_kk formed when column k is eliminated, and
+// the pivot of column k is chosen from the same values. The factors are therefore bit-identical to the unblocked
+// algorithm's (and independent of the thread count); the blocking only cuts the memory traffic, sweeping the trailing
+// matrix once per block of columns instead of once per column, in column chunks of kLuChunk that stay in cache.
+inline constexpr int kLuBlock = 64, kLuChunk = 256;
+inline void lu_factor(std::vector<double>& A, int N, std::vector<int>& piv) {
+    piv.assign(std::size_t(N), 0);
+    double* const a = A.data();
+    const std::size_t n = std::size_t(N);
+    for (int kb = 0; kb < N; kb += kLuBlock) {
+        const int ke = std::min(N, kb + kLuBlock);
+        // the panel: columns kb .. ke-1 of rows kb .. N-1, one column at a time; row swaps take the whole rows
+        for (int k = kb; k < ke; ++k) {
+            int p = k; double best = std::abs(a[std::size_t(k) * n + std::size_t(k)]);
+            for (int i = k + 1; i < N; ++i) { const double v = std::abs(a[std::size_t(i) * n + std::size_t(k)]); if (v > best) { best = v; p = i; } }
+            piv[std::size_t(k)] = p;
+            if (p != k) std::swap_ranges(a + std::size_t(k) * n, a + std::size_t(k + 1) * n, a + std::size_t(p) * n);
+            const double d = a[std::size_t(k) * n + std::size_t(k)];
+            if (d == 0) throw std::runtime_error("lu_factor: singular system");
+            const double* rowk = a + std::size_t(k) * n;
+#pragma omp parallel for schedule(static) if (N - k > 256)
+            for (int i = k + 1; i < N; ++i) {
+                double* rowi = a + std::size_t(i) * n;
+                const double f = rowi[k] / d;
+                rowi[k] = f;
+                if (f != 0) for (int j = k + 1; j < ke; ++j) rowi[j] -= f * rowk[j];
+            }
+        }
+        if (ke == N) break;
+        // the block row: columns ke .. N-1 of rows kb .. ke-1, the panel's eliminations in order (column chunks in parallel)
+#pragma omp parallel for schedule(static)
+        for (int j0 = ke; j0 < N; j0 += kLuChunk) {
+            const int j1 = std::min(N, j0 + kLuChunk);
+            for (int k = kb; k < ke; ++k) {
+                const double* rowk = a + std::size_t(k) * n;
+                for (int i = k + 1; i < ke; ++i) {
+                    double* rowi = a + std::size_t(i) * n;
+                    const double f = rowi[k];
+                    if (f != 0) for (int j = j0; j < j1; ++j) rowi[j] -= f * rowk[j];
+                }
+            }
+        }
+        // the trailing matrix: rows and columns ke .. N-1. Four columns of the panel are applied in one pass over a chunk
+        // (v -= f0 u0; v -= f1 u1; ... in order, as four passes would), unless one of their multipliers is zero: the
+        // unblocked elimination skips a zero multiplier, and subtracting the zero product could flip the sign of a zero.
+#pragma omp parallel for schedule(static)
+        for (int i = ke; i < N; ++i) {
+            double* rowi = a + std::size_t(i) * n;
+            for (int j0 = ke; j0 < N; j0 += kLuChunk) {
+                const int j1 = std::min(N, j0 + kLuChunk);
+                for (int k = kb; k < ke;) {
+                    if (k + 4 <= ke && rowi[k] != 0 && rowi[k + 1] != 0 && rowi[k + 2] != 0 && rowi[k + 3] != 0) {
+                        const double f0 = rowi[k], f1 = rowi[k + 1], f2 = rowi[k + 2], f3 = rowi[k + 3];
+                        const double* u0 = a + std::size_t(k) * n;
+                        const double *u1 = u0 + n, *u2 = u1 + n, *u3 = u2 + n;
+                        for (int j = j0; j < j1; ++j) {
+                            double v = rowi[j];
+                            v -= f0 * u0[j]; v -= f1 * u1[j]; v -= f2 * u2[j]; v -= f3 * u3[j];
+                            rowi[j] = v;
+                        }
+                        k += 4;
+                    } else {
+                        const double f = rowi[k];
+                        if (f != 0) { const double* uk = a + std::size_t(k) * n; for (int j = j0; j < j1; ++j) rowi[j] -= f * uk[j]; }
+                        ++k;
+                    }
+                }
+            }
+        }
+    }
+}
+// Forward and back substitution with the factors of lu_factor for K right-hand sides at once (B row-major N x K, in
+// place). Each right-hand side receives the operations of the one-vector substitution in the same order; the factors
+// are read once for all of them, and the right-hand sides are shared out between threads in fixed column ranges.
+inline void lu_solve(const std::vector<double>& A, int N, const std::vector<int>& piv, std::vector<double>& B, int K) {
+    const std::size_t n = std::size_t(N), kk = std::size_t(K);
+    for (int i = 0; i < N; ++i) {
+        const int p = piv[std::size_t(i)];
+        if (p != i) std::swap_ranges(B.begin() + std::ptrdiff_t(std::size_t(i) * kk), B.begin() + std::ptrdiff_t(std::size_t(i + 1) * kk), B.begin() + std::ptrdiff_t(std::size_t(p) * kk));
+    }
+    const int chunk = 8, chunks = (K + chunk - 1) / chunk;
+#pragma omp parallel for schedule(static) if (chunks > 1 && N > 256)
+    for (int c = 0; c < chunks; ++c) {
+        const std::size_t k0 = std::size_t(c) * std::size_t(chunk), k1 = std::min(kk, k0 + std::size_t(chunk));
+        for (std::size_t i = 0; i < n; ++i) {
+            double* bi = &B[i * kk];
+            const double* ai = &A[i * n];
+            for (std::size_t j = 0; j < i; ++j) { const double v = ai[j]; const double* bj = &B[j * kk]; for (std::size_t k = k0; k < k1; ++k) bi[k] -= v * bj[k]; }
+        }
+        for (std::size_t i = n; i-- > 0;) {
+            double* bi = &B[i * kk];
+            const double* ai = &A[i * n];
+            for (std::size_t j = i + 1; j < n; ++j) { const double v = ai[j]; const double* bj = &B[j * kk]; for (std::size_t k = k0; k < k1; ++k) bi[k] -= v * bj[k]; }
+            for (std::size_t k = k0; k < k1; ++k) bi[k] = bi[k] / ai[i];
+        }
+    }
+}
+
 struct CapacitanceMatrix {
     std::vector<std::string> names;
     int n{0};
@@ -208,38 +308,20 @@ inline CapacitanceMatrix extract_capacitance(const std::vector<Conductor>& conds
         const double x = P[std::size_t(i)].r.cx(), y = P[std::size_t(i)].r.cy();
         for (int j = 0; j < N; ++j) A[std::size_t(i) * N + j] = rect_potential(P[std::size_t(j)].r, x, y) / P[std::size_t(j)].r.area();
     }
-    // LU with partial pivoting (in place)
-    std::vector<int> piv(static_cast<std::size_t>(N));
-    for (int k = 0; k < N; ++k) {
-        int p = k; double best = std::abs(A[std::size_t(k) * N + k]);
-        for (int i = k + 1; i < N; ++i) { const double v = std::abs(A[std::size_t(i) * N + k]); if (v > best) { best = v; p = i; } }
-        piv[std::size_t(k)] = p;
-        if (p != k) for (int j = 0; j < N; ++j) std::swap(A[std::size_t(k) * N + j], A[std::size_t(p) * N + j]);
-        const double d = A[std::size_t(k) * N + k];
-        if (d == 0) throw std::runtime_error("extract_capacitance: singular system");
-        double* rowk = &A[std::size_t(k) * N];
-#pragma omp parallel for schedule(static) if (N - k > 256)
-        for (int i = k + 1; i < N; ++i) {
-            double* rowi = &A[std::size_t(i) * N];
-            const double f = rowi[k] / d;
-            rowi[k] = f;
-            if (f != 0) for (int j = k + 1; j < N; ++j) rowi[j] -= f * rowk[j];
-        }
-    }
+    std::vector<int> piv;
+    lu_factor(A, N, piv);
     const double eps_eff = 0.5 * (eps_r + 1);
     const double Kc = 1e6 / (4 * PI * phys::eps0 * eps_eff);     // phi = Kc * sum_j (I/A)_um * q_j
     CapacitanceMatrix C;
     C.n = K; C.panels = N;
     for (const auto& c : conds) C.names.push_back(c.name);
     std::vector<double> Cr(std::size_t(K) * K, 0.0);
-    std::vector<double> b(static_cast<std::size_t>(N));
+    std::vector<double> B(std::size_t(N) * std::size_t(K));          // one right-hand side per conductor (column k: conductor k at 1)
+    for (int i = 0; i < N; ++i) for (int k = 0; k < K; ++k) B[std::size_t(i) * K + std::size_t(k)] = P[std::size_t(i)].cond == k ? 1.0 : 0.0;
+    lu_solve(A, N, piv, B, K);
     for (int k = 0; k < K; ++k) {
-        for (int i = 0; i < N; ++i) b[std::size_t(i)] = P[std::size_t(i)].cond == k ? 1.0 : 0.0;
-        for (int i = 0; i < N; ++i) std::swap(b[std::size_t(i)], b[std::size_t(piv[std::size_t(i)])]);
-        for (int i = 0; i < N; ++i) { double s = b[std::size_t(i)]; for (int j = 0; j < i; ++j) s -= A[std::size_t(i) * N + j] * b[std::size_t(j)]; b[std::size_t(i)] = s; }
-        for (int i = N - 1; i >= 0; --i) { double s = b[std::size_t(i)]; for (int j = i + 1; j < N; ++j) s -= A[std::size_t(i) * N + j] * b[std::size_t(j)]; b[std::size_t(i)] = s / A[std::size_t(i) * N + i]; }
-        for (int i = 0; i < N; ++i) Cr[std::size_t(k) * K + std::size_t(P[std::size_t(i)].cond)] += b[std::size_t(i)] / Kc * 1e15;
-        if (sol) { sol->q_fF.emplace_back(std::size_t(N)); for (int i = 0; i < N; ++i) sol->q_fF.back()[std::size_t(i)] = b[std::size_t(i)] / Kc * 1e15; }
+        for (int i = 0; i < N; ++i) Cr[std::size_t(k) * K + std::size_t(P[std::size_t(i)].cond)] += B[std::size_t(i) * K + std::size_t(k)] / Kc * 1e15;
+        if (sol) { sol->q_fF.emplace_back(std::size_t(N)); for (int i = 0; i < N; ++i) sol->q_fF.back()[std::size_t(i)] = B[std::size_t(i) * K + std::size_t(k)] / Kc * 1e15; }
     }
     if (sol) sol->panels = P;
     double mx = 0, asym = 0;
@@ -2441,8 +2523,9 @@ inline std::pair<int, int> pair_ends(const std::string& s) {      // "C5-8" -> (
     return {std::stoi(s.substr(1, d - 1)), std::stoi(s.substr(d + 1))};
 }
 }
+// mo: the mesh of the control windows (capacitance); flux_mo: the mesh of the flux-coupling solves.
 inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const ChipLayout& L, const LayoutMetrics& m, double f_coupler_GHz,
-                              const MeshOptions& mo, double Z0 = 50) {
+                              const MeshOptions& mo, double Z0 = 50, const MeshOptions& flux_mo = kFluxMesh) {
     LineBudget B; B.f_coupler_GHz = f_coupler_GHz;
     // representative qubits
     Rect bb{1e300, 1e300, -1e300, -1e300};
@@ -2463,7 +2546,7 @@ inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const Ch
         if (c.qubit < 0) { B.note = "no qubit of one role"; return false; }
         c.win = control_window(L, c.qubit, mo);
         if (!c.win.ok) { B.note = c.win.note; return false; }
-        c.flux = flux_coupling(L, c.qubit, kFluxMesh);
+        c.flux = flux_coupling(L, c.qubit, flux_mo);
         if (!c.flux.ok) { B.note = c.flux.note; return false; }
         const std::string qn = "Q" + std::to_string(c.qubit), xn = "XY" + std::to_string(c.qubit);
         c.separate_xy = c.win.has(xn);
@@ -2482,7 +2565,7 @@ inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const Ch
     B.separate_xy = B.meas.separate_xy || B.data.separate_xy;
     // representative coupler: one of the measure qubit's
     for (const auto& c : D.couplings) if (c.a == B.meas.qubit || c.b == B.meas.qubit) { B.coupler = std::to_string(c.a) + "-" + std::to_string(c.b); break; }
-    if (!B.coupler.empty()) B.coupler_flux = flux_coupling(L, "C" + B.coupler, "FC" + B.coupler, kFluxMesh);
+    if (!B.coupler.empty()) B.coupler_flux = flux_coupling(L, "C" + B.coupler, "FC" + B.coupler, flux_mo);
     // C(n, target): a coupler or bus to one of its own two qubits from the cell metrics (the window may clip it), else from the window
     auto C_nt = [&](const std::string& n, const std::string& t) {
         if (n[0] != 'C' && n[0] != 'B') return -1.0;
@@ -2549,7 +2632,8 @@ inline LineBudget line_budget(const ChipDesign& D, const ChipReport& R, const Ch
 //   Drive (through the flux lines): the common-mode mutual between the line and a neighbouring qubit, relative to that
 //     of the neighbour's own line. With XY lines: C_eff to each coupled neighbour at its f01 relative to its own.
 inline constexpr double kCrossLocal = 150.0;
-inline void line_budget_crosstalk(LineBudget& B, const ChipDesign& D, const ChipReport& R, const ChipLayout& L, const LayoutMetrics& m) {
+inline void line_budget_crosstalk(LineBudget& B, const ChipDesign& D, const ChipReport& R, const ChipLayout& L, const LayoutMetrics& m,
+                                  const MeshOptions& cross_mo = kFluxCrossMesh) {
     if (!B.evaluated) return;
     std::map<int, int> index;
     for (std::size_t i = 0; i < D.qubits.size(); ++i) index[D.qubits[i].id] = int(i);
@@ -2591,7 +2675,7 @@ inline void line_budget_crosstalk(LineBudget& B, const ChipDesign& D, const Chip
                 x = self != 0 ? std::abs(there / self) : 1e300;
             }
             if (k < 2) {                                           // the two nearest: flux and (through the flux lines) drive
-                const FluxCoupling X = flux_coupling(L, qj, line, kFluxCrossMesh, 60, 0, kCrossLocal);
+                const FluxCoupling X = flux_coupling(L, qj, line, cross_mo, 60, 0, kCrossLocal);
                 flux_victim(qj, X);
                 if (!B.separate_xy) {                              // with the shared bump return on both sides, worst signs
                     const double mb = bump_return_pH(L, "SQ" + std::to_string(c->qubit)), mbj = bump_return_pH(L, "S" + qj);
@@ -2599,7 +2683,7 @@ inline void line_budget_crosstalk(LineBudget& B, const ChipDesign& D, const Chip
                     x = !X.ok || self <= 0 ? 1e300 : (X.M_cm_pH + kBumpNeighbourFraction * mb) / self;
                 }
                 for (const std::string& tag : {std::to_string(c->qubit) + "-" + std::to_string(j), std::to_string(j) + "-" + std::to_string(c->qubit)})
-                    if (L.island("C" + tag) >= 0) flux_victim("C" + tag, flux_coupling(L, "C" + tag, line, kFluxCrossMesh, 60, 0, kCrossLocal));
+                    if (L.island("C" + tag) >= 0) flux_victim("C" + tag, flux_coupling(L, "C" + tag, line, cross_mo, 60, 0, kCrossLocal));
             }
             if (x > B.max_drive_crosstalk) { B.max_drive_crosstalk = x; B.worst_crosstalk = (B.separate_xy ? "XY" : "FQ") + std::to_string(c->qubit) + " -> " + qj; }
         }

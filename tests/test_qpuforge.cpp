@@ -944,6 +944,59 @@ static void test_calibrated_noise_plumbing() {
 static void test_layout() {
     std::puts("[layout] MoM capacitance vs exact results, geometry checks, width/space DRC, GDSII round trip, chip assembly");
     using namespace layout;
+    {   // the blocked LU and the batched substitution reproduce the unblocked elimination bit for bit: a reference
+        // copy of the unblocked right-looking LU with partial pivoting and the one-vector substitution, on matrices that
+        // span several blocks, pivot often, and have exact zeros below the diagonal (the f == 0 branch)
+        auto reference = [](std::vector<double> A, int N, std::vector<double> b) {
+            std::vector<int> piv(static_cast<std::size_t>(N));
+            for (int k = 0; k < N; ++k) {
+                int p = k; double best = std::abs(A[std::size_t(k) * N + k]);
+                for (int i = k + 1; i < N; ++i) { const double v = std::abs(A[std::size_t(i) * N + k]); if (v > best) { best = v; p = i; } }
+                piv[std::size_t(k)] = p;
+                if (p != k) for (int j = 0; j < N; ++j) std::swap(A[std::size_t(k) * N + j], A[std::size_t(p) * N + j]);
+                const double d = A[std::size_t(k) * N + k];
+                for (int i = k + 1; i < N; ++i) {
+                    double* rowi = &A[std::size_t(i) * N];
+                    const double f = rowi[k] / d;
+                    rowi[k] = f;
+                    if (f != 0) for (int j = k + 1; j < N; ++j) rowi[j] -= f * A[std::size_t(k) * N + j];
+                }
+            }
+            for (int i = 0; i < N; ++i) std::swap(b[std::size_t(i)], b[std::size_t(piv[std::size_t(i)])]);
+            for (int i = 0; i < N; ++i) { double s = b[std::size_t(i)]; for (int j = 0; j < i; ++j) s -= A[std::size_t(i) * N + j] * b[std::size_t(j)]; b[std::size_t(i)] = s; }
+            for (int i = N - 1; i >= 0; --i) { double s = b[std::size_t(i)]; for (int j = i + 1; j < N; ++j) s -= A[std::size_t(i) * N + j] * b[std::size_t(j)]; b[std::size_t(i)] = s / A[std::size_t(i) * N + i]; }
+            return std::make_pair(A, b);
+        };
+        bool same = true; int pivots = 0;
+        for (const int N : {37, 300, 641}) {
+            std::vector<double> A(std::size_t(N) * N);
+            std::uint64_t x = 0x9e3779b97f4a7c15ull + std::uint64_t(N);
+            for (int i = 0; i < N; ++i)
+                for (int j = 0; j < N; ++j) {
+                    x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+                    const double r = double(x >> 11) / 9007199254740992.0 - 0.5;
+                    A[std::size_t(i) * N + j] = (i > j && (i + 3 * j) % 7 == 0) ? 0.0 : r + (i == j ? 0.3 : 0.0);   // weak diagonal: pivoting happens
+                }
+            const int K = 11;
+            std::vector<double> B(std::size_t(N) * K);
+            for (std::size_t i = 0; i < B.size(); ++i) B[i] = std::sin(0.37 * double(i)) + (i % K == 3 ? 1.0 : 0.0);
+            std::vector<double> F = A; std::vector<int> piv;
+            lu_factor(F, N, piv);
+            std::vector<double> X = B;
+            lu_solve(F, N, piv, X, K);
+            for (int k = 0; k < N; ++k) pivots += piv[std::size_t(k)] != k;
+            for (int k = 0; k < K; ++k) {
+                std::vector<double> b(static_cast<std::size_t>(N));
+                for (int i = 0; i < N; ++i) b[std::size_t(i)] = B[std::size_t(i) * K + k];
+                const auto [Fr, xr] = reference(A, N, b);
+                if (k == 0) same = same && std::memcmp(Fr.data(), F.data(), F.size() * sizeof(double)) == 0;
+                for (int i = 0; i < N; ++i) same = same && std::memcmp(&xr[std::size_t(i)], &X[std::size_t(i) * K + k], sizeof(double)) == 0;
+            }
+        }
+        std::printf("  blocked LU (block %d, chunk %d) and batched substitution against the unblocked reference: %s (%d row swaps)\n", kLuBlock, kLuChunk,
+                    same ? "bit-identical" : "DIFFERENT", pivots);
+        CHECK(same && pivots > 100, "blocked LU differs from the unblocked elimination (%d row swaps)", pivots);
+    }
     {   // unit square plate: C = 0.3667874 * 4 pi eps0 a (Read 1997)
         Conductor sq; sq.name = "plate"; sq.rects = {{0, 0, 1000, 1000}};
         const auto C = extract_capacitance({sq}, 1.0, MeshOptions{1.0, 100, 1.6});

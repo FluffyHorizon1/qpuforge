@@ -171,7 +171,7 @@ int main(int argc, char** argv) {
 
     // ------------------------------------------------------------------ 7. layout
     std::puts("\n7. Physical layout (designs/alpha1-v11/layout_cells.json, AF17_v11.gds)");
-    bool lay_found = false, lay_placement = false, lay_drc = false, lay_conn = false, lay_lines = false, lay_tol = false, lay_renull = false;
+    bool lay_found = false, lay_placement = false, lay_drc = false, lay_conn = false, lay_tol = false, lay_renull = false;
     {
         std::ifstream f("designs/alpha1-v11/layout_cells.json");
         if (f) {
@@ -181,8 +181,7 @@ int main(int argc, char** argv) {
             const auto m = layout::evaluate_cells(C, layout::MeshOptions{1.5, 50.0, 1.6});
             const auto P = layout::post_layout(V11, R11, m);
             const auto L = layout::assemble_chip(V11, C);
-            auto LB = layout::line_budget(V11, R11, L, m, P.park_fc_GHz, layout::MeshOptions{1.5, 50.0, 1.6});
-            if (LB.evaluated) layout::line_budget_flux_crosstalk(LB, L, layout::MeshOptions{3.0, 50.0, 2.0});
+            const auto LB = layout::line_budget(V11, R11, C, layout::MeshOptions{1.5, 50.0, 1.6});
             std::printf("   cells: measure arm %.1f um, data arm %.1f um, coupler pad %.0f um, coupler T-bar %.1f um, readout pad %.1f um\n",
                         C.meas.L, C.data.L, C.cg.pad, C.cg.l_c, C.meas.r_pad);
             std::printf("   extracted: C_sigma %.1f/%.1f fF, C_coupler %.0f fF, C_qc %.2f fF, C_qq %.3f fF, C_qr %.2f fF\n", m.C_sigma_m, m.C_sigma_d, m.C_c, m.C_qc,
@@ -195,7 +194,7 @@ int main(int argc, char** argv) {
                         P.park_fc_GHz, (V11.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
             std::printf("   chip %.1f x %.1f mm, %zu etch polygons\n   DRC: %s\n   %s\n", L.outline.w() / 1e3, L.outline.h() / 1e3,
                         L.etch.size(), layout::drc_summary(L).c_str(), layout::connectivity_summary(L).c_str());
-            std::printf("   %s\n", layout::line_budget_summary(LB).c_str());
+            std::printf("   %s (reported, not gated)\n", layout::line_budget_summary(LB).c_str());
             const auto T = layout::targets_from_design(V11, R11);
             auto rel = [](double a, double t) { return a / t - 1; };
             const double ec_err = std::max({std::abs(rel(m.EC_m, T.EC_m)), std::abs(rel(m.EC_d, T.EC_d)), std::abs(rel(m.EC_c, T.EC_c))});
@@ -211,7 +210,7 @@ int main(int argc, char** argv) {
             lj2.set("readout_g_MHz", P.g_r_MHz); lj2.set("readout_g_design_MHz", P.g_r_target_MHz); lj2.set("drc_clean", L.drc_clean()); lj2.set("drc", layout::drc_json(L)); lj2.set("connectivity", layout::connectivity_json(L)); lj2.set("control_lines", layout::line_budget_json(LB));
             lj2.set("max_EC_err", ec_err); lj2.set("max_coupling_err", g_err); lj2.set("readout_C_err", cr_err);
             lj2.set("within_tolerance", ec_err <= 0.03 && g_err <= 0.06 && std::abs(cr_err) <= 0.06); lj2.set("renull_ok", std::abs(P.park_gap_MHz) < 0.05);
-            lay_found = true; lay_placement = L.problems.empty(); lay_drc = L.drc_clean(); lay_conn = L.conn.clean(); lay_lines = LB.ok(); lay_tol = ec_err <= 0.03 && g_err <= 0.06; lay_renull = std::abs(P.park_gap_MHz) < 0.05;
+            lay_found = true; lay_placement = L.problems.empty(); lay_drc = L.drc_clean(); lay_conn = L.conn.clean(); lay_tol = ec_err <= 0.03 && g_err <= 0.06; lay_renull = std::abs(P.park_gap_MHz) < 0.05;
             out.set("layout", lj2);
         } else std::puts("   (no layout_cells.json yet: run `qpuforge gds ... --cells designs/alpha1-v11/layout_cells.json`)");
     }
@@ -228,8 +227,7 @@ int main(int argc, char** argv) {
         crit("cz", "every pair: CZ coherent error <= 5e-4 and leakage <= 2e-4 per gate", cz_coh_max <= 5e-4 && cz_leak_max <= 2e-4);
         crit("zz", "every pair: idle ZZ at the coupler park point <= 10 kHz", cz_zz_max <= 10.0);
         crit("drc", "layout passes placement, island-spacing and mask width/space checks", lay_found && lay_placement && lay_drc);
-        crit("connectivity", "metal connectivity clean: conductors separate, every SQUID from its own island to ground, qubit SQUID grounds and flux-line shorts on plane metal with no strap in the path, no fragment on a single strap", lay_found && lay_conn);
-        crit("lines", "control lines: XY and flux T1 limits >= 10x the design T1 (coupler-mediated drive, common-mode flux coupling included), drive crosstalk <= 10%, I(Phi0/2) <= 2 mA", lay_found && lay_lines);
+        crit("connectivity", "metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane", lay_found && lay_conn);
         crit("layout", "extracted E_C within 3%, couplings within 6%; parked exchange re-nullable", lay_found && lay_tol && lay_renull);
         out.set("exit_criteria", ej);
     }

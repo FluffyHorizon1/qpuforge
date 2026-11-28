@@ -309,6 +309,34 @@ struct UFCostModel {
     double clock_mhz{250};
     long empty{1}, cleared{2}, fixed{0};
     long per[UFOpCounts::kFields]{};
+    // The two designs of the note. Both: 250 MHz; a window without defects is one cycle (an OR over the syndrome
+    // register); the pre-decoder is combinational over the window and costs two cycles when it clears it.
+    //   serial_bram      one operation at a time on block-RAM tables (vertex table, edge table; true dual port, one read
+    //                    and one write per table per cycle, registered output: 2 cycles from address to data; pipeline
+    //                    depth 4). Independent accesses stream at one per cycle; a dependent access (a parent-pointer
+    //                    hop) waits the 2-cycle read. Per defect loaded 1; per edge visit 1; per find 1 plus 2 per hop;
+    //                    per border-edge update 2 (the minimum pass and the add pass); per growth step 8 (the pipeline
+    //                    drains twice: before the step length is known and before the merges); per union 2; per
+    //                    peeling step 1; per correction edge 1 (commit test and syndrome toggle); 12 fixed (three
+    //                    phases, each filling the pipeline).
+    //   parallel_growth  one cell per vertex (root register, parity, boundary bit) and per edge (growth counter and
+    //                    length), all in registers. A growth step is 5 cycles whatever the cluster sizes: border edges
+    //                    flagged (1), minimum remaining length over them in a comparator tree (2), add (1), fully grown
+    //                    edges found (1). A union is 2 cycles: the absorbed root is broadcast and every vertex cell
+    //                    compares and rewrites its root, so roots stay flat and a find is a register read (0). Loading
+    //                    and committing act on all cells at once (4 fixed). Peeling stays serial: 1 per step.
+    static UFCostModel serial_bram() {
+        UFCostModel m; m.name = "serial, block RAM"; m.fixed = 12;
+        const long per[UFOpCounts::kFields] = {1, 8, 1, 2, 1, 2, 2, 1, 1, 0, 0};
+        for (int i = 0; i < UFOpCounts::kFields; ++i) m.per[i] = per[i];
+        return m;
+    }
+    static UFCostModel parallel_growth() {
+        UFCostModel m; m.name = "parallel growth"; m.fixed = 4;
+        const long per[UFOpCounts::kFields] = {0, 5, 0, 0, 0, 0, 2, 1, 0, 0, 0};
+        for (int i = 0; i < UFOpCounts::kFields; ++i) m.per[i] = per[i];
+        return m;
+    }
     long cycles(const UFOpCounts& c, int cleared_state) const {
         if (cleared_state == 0) return empty;
         if (cleared_state == 1) return cleared;

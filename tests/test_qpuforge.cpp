@@ -1485,6 +1485,148 @@ static void test_designs_v04() {
     CHECK(shift_min > 0.5 && shift_max < 6.0, "tuned-anharmonicity correction outside the expected few MHz");
 }
 
+// ---------------------------------------------------------------- materials: forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md)
+#ifndef QPUFORGE_TEST_DATA
+#define QPUFORGE_TEST_DATA "tests/data"   // CMake passes the absolute path; this default works from the source root
+#endif
+static std::string test_data(const char* name) { return std::string(QPUFORGE_TEST_DATA) + "/" + name; }
+// a minimal sidecar around the members of `quantities`
+static std::string sidecar_text(const std::string& quantities, const std::string& schema = "\"forge.materials.v0\"") {
+    return "{\"schema\": " + schema + ", \"quantities\": {" + quantities + "}}";
+}
+// reading `text` must throw std::runtime_error with `needle` in the message
+static bool sidecar_rejected(const std::string& text, const char* needle) {
+    try {
+        materials_from_json(Json::parse(text));
+    } catch (const std::runtime_error& e) {
+        if (std::string(e.what()).find(needle) != std::string::npos) return true;
+        std::printf("  rejected, but with another message: %s\n", e.what());
+    }
+    return false;
+}
+static void test_materials() {
+    std::puts("[materials] forge.materials.v0 sidecar: atomforge's placeholder file changes nothing, values reach analyze(), loss tangent on request only, malformed files throw");
+    const ChipDesign A0 = alpha1_v11(3);
+    const std::string A0_json = json_text(design_to_json(A0));
+    // (a) the sidecar exactly as atomforge's writer emits it: materials_contract_json() at atomforge ee734f9, for the
+    //     synthetic Cu-Au search and fixed options of its tests/test_materials_contract.cpp. All three quantities are
+    //     null placeholders.
+    const auto P = load_materials(test_data("materials-contract-CuAu.json"));
+    CHECK(P.schema == "forge.materials.v0" && P.produced_by.tool == "atomforge" && P.produced_by.potential_or_method == "Zhou04-EAM" &&
+          P.produced_by.commit == "0123456789abcdef0123456789abcdef01234567" && P.produced_by.timestamp == "2026-11-26T12:00:00+00:00" &&
+          P.system == std::vector<std::string>({"Cu", "Au"}), "atomforge sidecar metadata");
+    bool placeholders = P.quantities.size() == 3;
+    for (const auto& q : P.quantities) placeholders = placeholders && q.placeholder && !q.value && q.status == "placeholder";
+    CHECK(placeholders && P.find("Q_dielectric") && P.find("loss_tangent") && P.find("junction_gap_ueV") &&
+          P.find("Q_dielectric")->unit == "dimensionless" && P.find("junction_gap_ueV")->unit == "ueV" &&
+          P.find("Q_dielectric")->maps_to == "ChipDesign.materials.Q_dielectric" && P.find("loss_tangent")->maps_to.empty(),
+          "atomforge sidecar: three null placeholders with their units and maps_to");
+    for (bool lt : {false, true}) {
+        ChipDesign A = A0;
+        const auto rep = apply_materials(P, A, MaterialsApplyOptions{lt});
+        CHECK(json_text(design_to_json(A)) == A0_json && A.Q_dielectric == A0.Q_dielectric && A.gap_ueV == A0.gap_ueV &&
+              rep.applied() == 0 && rep.skipped() == 3, "placeholder sidecar must leave alpha1_v11(3) unchanged (loss-tangent opt-in %d)", int(lt));
+    }
+    {   // the qpuforge defaults quoted beside the placeholders (3e6, 180 ueV) equal Alpha-1's own values: check on other values too
+        ChipDesign B = A0; B.Q_dielectric = 1.5e6; B.gap_ueV = 175;
+        apply_materials(P, B);
+        CHECK(B.Q_dielectric == 1.5e6 && B.gap_ueV == 175, "placeholder sidecar applied a reference default (Q %.6g, gap %.6g)", B.Q_dielectric, B.gap_ueV);
+    }
+    // (b) a sidecar with values (Q 1e6, gap 190 ueV) reaches the device model
+    const auto V = load_materials(test_data("materials-values.json"));
+    ChipDesign C = A0;
+    const auto rv = apply_materials(V, C);
+    CHECK(C.Q_dielectric == 1e6 && C.gap_ueV == 190 && rv.applied() == 2 && rv.skipped() == 1 && rv.lines.size() == 3 &&
+          rv.lines[0].applied && rv.lines[0].before == 3e6 && rv.lines[0].after == 1e6 && !rv.lines[1].applied &&
+          rv.lines[2].field == "materials.junction_gap_ueV" && rv.lines[2].after == 190, "values sidecar: fields and report");
+    {
+        ChipDesign C2 = C; C2.Q_dielectric = A0.Q_dielectric; C2.gap_ueV = A0.gap_ueV;
+        CHECK(json_text(design_to_json(C2)) == A0_json, "a sidecar may change Q_dielectric and gap_ueV only");
+    }
+    const auto R0 = analyze(A0), R1 = analyze(C);
+    const auto& q0 = R0.q[0]; const auto& q1 = R1.q[0];
+    const double T1_formula = 1e6 / (2 * PI * q1.f01 * 1e9 / C.Q_dielectric);     // G_diel = 2 pi f / Q
+    std::printf("  Q%d, Q 3e6 -> 1e6 and gap 180 -> 190 ueV: f01 %.4f -> %.4f GHz, T1_diel %.1f -> %.1f us (2 pi f / Q gives %.1f us), T1 %.1f -> %.1f us\n",
+                q1.id, q0.f01, q1.f01, q0.T1_diel_us, q1.T1_diel_us, T1_formula, q0.T1_us, q1.T1_us);
+    CHECK(std::abs(q1.T1_diel_us / T1_formula - 1) < 1e-12, "T1_diel %.6f us vs 2 pi f / Q %.6f us", q1.T1_diel_us, T1_formula);
+    CHECK(std::abs(q1.EJ / q0.EJ - 190.0 / 180.0) < 1e-12, "E_J must scale with the gap (Ambegaokar-Baratoff): ratio %.15f", q1.EJ / q0.EJ);
+    CHECK(std::abs(1 / q1.T1_us - (1 / q1.T1_diel_us + 1 / q1.T1_purcell_us)) < 1e-12 / q1.T1_us && q1.T1_us < q0.T1_us,
+          "T1 must combine the new dielectric rate with Purcell decay (%.3f vs %.3f us)", q1.T1_us, q0.T1_us);
+    {   // Q alone: the frequencies stay put, so every T1_diel scales exactly with Q
+        ChipDesign E = A0;
+        apply_materials(materials_from_json(Json::parse(sidecar_text(R"("Q_dielectric": {"value": 1.2e7, "unit": "dimensionless"})"))), E);
+        const auto RE = analyze(E);
+        double worst = 0; bool same_f = RE.q.size() == R0.q.size();
+        for (std::size_t i = 0; same_f && i < RE.q.size(); ++i) {
+            same_f = RE.q[i].f01 == R0.q[i].f01;
+            worst = std::max(worst, std::abs(RE.q[i].T1_diel_us / R0.q[i].T1_diel_us / 4.0 - 1));
+        }
+        CHECK(same_f && worst < 1e-12, "Q 3e6 -> 1.2e7: f01 unchanged %d, T1_diel ratio off 4 by %.2e", int(same_f), worst);
+    }
+    // (c) loss tangent: Q_dielectric = 1/tan(delta) on request only, and only while Q_dielectric is null
+    const auto L = load_materials(test_data("materials-loss-tangent.json"));     // Q_dielectric null, loss_tangent 2.5e-7
+    {
+        ChipDesign F = A0;
+        const auto rf = apply_materials(L, F);
+        CHECK(F.Q_dielectric == A0.Q_dielectric && rf.applied() == 0 && rf.lines.size() == 3 && rf.lines[1].quantity == "loss_tangent" && !rf.lines[1].applied,
+              "loss_tangent must not be applied without the opt-in");
+        ChipDesign G = A0;
+        const auto rg = apply_materials(L, G, MaterialsApplyOptions{true});
+        const auto RG = analyze(G);
+        const double T1_tan = 1e6 / (2 * PI * RG.q[0].f01 * 1e9 * 2.5e-7);            // G_diel = 2 pi f tan(delta)
+        std::printf("  loss_tangent 2.5e-7 with the opt-in: Q_dielectric %.6g, Q%d T1_diel %.1f us (2 pi f tan(delta) gives %.1f us)\n",
+                    G.Q_dielectric, RG.q[0].id, RG.q[0].T1_diel_us, T1_tan);
+        CHECK(G.Q_dielectric == 1.0 / 2.5e-7 && G.gap_ueV == A0.gap_ueV && rg.applied() == 1 && rg.lines[1].applied && rg.lines[1].after == G.Q_dielectric &&
+              rg.lines[1].note.find("1/loss_tangent") != std::string::npos, "opt-in: Q_dielectric = 1/loss_tangent, recorded in the report");
+        CHECK(std::abs(RG.q[0].T1_diel_us / T1_tan - 1) < 1e-12, "T1_diel from the loss tangent %.6f vs %.6f us", RG.q[0].T1_diel_us, T1_tan);
+        ChipDesign H = A0;    // a Q_dielectric with a value wins, opt-in or not
+        const auto rh = apply_materials(materials_from_json(Json::parse(sidecar_text(
+            R"("loss_tangent": {"value": 1e-6, "unit": "dimensionless"}, "Q_dielectric": {"value": 2e6, "unit": "dimensionless"})"))), H, MaterialsApplyOptions{true});
+        CHECK(H.Q_dielectric == 2e6 && rh.applied() == 1 && !rh.lines[0].applied, "a given Q_dielectric must win over loss_tangent (Q %.6g)", H.Q_dielectric);
+    }
+    // (d) malformed sidecars are rejected, each with its own message
+    const std::string q_ok = R"("Q_dielectric": {"value": 1e6, "unit": "dimensionless"})";
+    CHECK(sidecar_rejected(sidecar_text(q_ok, "\"forge.materials.v1\""), "schema must be \"forge.materials.v0\", got \"forge.materials.v1\"") &&
+          sidecar_rejected(R"({"quantities": {}})", "no schema member") && sidecar_rejected(sidecar_text(q_ok, "0"), "non-string") &&
+          sidecar_rejected("[]", "JSON object"), "a wrong or missing schema must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 1e6, "unit": "ppm"})"), "unit must be \"dimensionless\"") &&
+          sidecar_rejected(sidecar_text(R"("junction_gap_ueV": {"value": 0.19, "unit": "meV"})"), "unit must be \"ueV\"") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 1e6})"), "unit is missing"), "a wrong or missing unit must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 0, "unit": "dimensionless"})"), "positive finite") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": -3e6, "unit": "dimensionless"})"), "positive finite"), "a non-positive Q must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("junction_gap_ueV": {"value": -180, "unit": "ueV"})"), "positive finite") &&
+          sidecar_rejected(sidecar_text(R"("loss_tangent": {"value": 0, "unit": "dimensionless"})"), "positive finite") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": "3e6", "unit": "dimensionless"})"), "number or null") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": {"unit": "dimensionless"})"), "value is missing"), "a bad gap, loss tangent or value type must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("participation_ratio": {"value": 0.1, "unit": "dimensionless"})"), "unknown quantity 'participation_ratio'"),
+          "an unknown quantity must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("Rn_spread_pct": {"value": 0.5, "unit": "%"})"), "not part of forge.materials.v0") &&
+          sidecar_rejected(sidecar_text(R"("T_eff_mK": {"value": 35, "unit": "mK"})"), "not part of forge.materials.v0"),
+          "Rn_spread_pct and the environment fields are not contract quantities");
+    CHECK(sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 3e6, "unit": "dimensionless", "status": "placeholder"})"), "placeholder must have value null") &&
+          sidecar_rejected(R"({"schema": "forge.materials.v0", "placeholders": ["quantities.Q_dielectric"], "quantities": {"Q_dielectric": {"value": 3e6, "unit": "dimensionless"}}})",
+                           "placeholder must have value null"), "a placeholder that carries a number must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 1e6, "unit": "dimensionless", "maps_to": "ChipDesign.materials.junction_gap_ueV"})"), "maps_to") &&
+          sidecar_rejected(sidecar_text(R"("loss_tangent": {"value": 1e-6, "unit": "dimensionless", "maps_to": "ChipDesign.materials.Q_dielectric"})"), "maps_to"),
+          "a maps_to naming another field must throw (loss_tangent is converted, never copied)");
+    CHECK(sidecar_rejected(R"({"schema": "forge.materials.v0"})", "quantities must be an object") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": 3e6)"), "must be an object"), "a missing quantities block or a bare number must throw");
+    {   // file errors name the file; a hand-built sidecar with a bad value throws before the design is touched
+        bool missing = false, named = false, threw = false;
+        try { load_materials(temp_path("no_such_sidecar.json")); } catch (const std::runtime_error& e) { missing = std::string(e.what()).find("cannot open") != std::string::npos; }
+        const std::string chip = temp_path("chip_as_sidecar.json");
+        save_design(A0, chip);
+        try { load_materials(chip); } catch (const std::runtime_error& e) { named = std::string(e.what()).find(chip + ": materials sidecar: schema") == 0; }
+        std::remove(chip.c_str());
+        MaterialsSidecar bad = V;
+        for (auto& q : bad.quantities) if (q.name == "junction_gap_ueV") q.value = -1.0;
+        ChipDesign K = A0;
+        try { apply_materials(bad, K); } catch (const std::runtime_error&) { threw = true; }
+        CHECK(missing && named && threw && json_text(design_to_json(K)) == A0_json,
+              "file errors (missing %d, named %d); a failed apply must leave the design unchanged (threw %d)", int(missing), int(named), int(threw));
+    }
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -1517,6 +1659,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"bursts", test_bursts},
     {"characterisation", test_characterisation},
     {"designs_v04", test_designs_v04},
+    {"materials", test_materials},
 };
 
 // test_qpuforge            run every test

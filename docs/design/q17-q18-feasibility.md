@@ -1,6 +1,7 @@
 # Feasibility note: FEM cross-check (q17) and flux-pulse distortion (q18)
 
-Status: **proposal, no code.** Scope note for issues q17 (backlog19) and q18 (backlog20), i.e. the two Roadmap tooling items
+Status: **decided, implementation planned.** Decided by Finnian Bond, 2026-11-28 (relayed by Forge PM); see
+[Decisions](#decisions-finnian-bond-2026-11-28) and [Implementation plan](#implementation-plan). Scope note for issues q17 (backlog19) and q18 (backlog20), i.e. the two Roadmap tooling items
 in the README. Written against `main` at 7380b58 (0.4.0). Function names are used instead of line numbers.
 
 **Recommendation.** Do both as small PRs that leave every committed number unchanged until Finnian chooses to regenerate.
@@ -27,13 +28,17 @@ issue, participation ratios, hooks into `analyze()`, which uses one chip-wide `G
   finite-substrate image-series Green's function. This is cheap and guards regressions, but it uses the same engine, so it
   is a sensitivity check, not an independent one.
 
-Use both: the analytic side as the guard, Elmer first for capacitance (easier install), Palace later for participation.
+Use both: the analytic side as the guard. **Decided: support both Elmer and Palace from the start** for the
+capacitance cross-check (one exchange format, an importer per solver's native output); Palace also carries the later
+participation work.
 
 **Keeping CI free of heavy dependencies.**
 1. Exchange format = JSON like the materials sidecar: `qpuforge.fem_crosscheck.v0` with conductor names, Maxwell C in fF,
    solver and version, mesh and domain parameters, cell hash. A C++ reader and `compare_cells()` report deltas in C, E_C, g, α.
 2. The reference is produced offline and committed. An ordinary CTest compares the MoM with it at a stated tolerance.
    No `find_package`, no solver at build time.
+   **Decided:** the FEM-vs-model tolerance is *reported* first (per cell and per quantity, in the test log and the
+   review JSON) and not enforced; a pass/fail tolerance is fixed later, once stage-one agreement has been measured.
 3. The driver (`tools/fem_crosscheck.py`: conductor rectangles → gmsh → solver → JSON) runs only if the solver is present
    and otherwise returns CTest's skip code. A container job may run on `workflow_dispatch` or nightly, never as a required check.
 
@@ -52,7 +57,8 @@ domain-convergence run is needed. The MoM matrix includes the ground conductor a
 written down. C_Σ errors map ~1:1 onto E_C (1 % ≈ 2 MHz of α at E_C ≈ 0.22 GHz). Participation values depend on the assumed
 interface thickness and tanδ, so they are only as good as the materials inputs.
 
-**First step:** PRs 1–2, Elmer first, with the known-answer validation as acceptance. No claim about the real stack
+**First step (decided):** PR 1 with importers for both Elmer (`CapacitanceMatrix.dat`) and Palace (`terminal-C.csv`),
+deviation reported, not enforced; then PR 2 with the known-answer validation as acceptance. No claim about the real stack
 until stage-one agreement is shown.
 
 ## q18: flux-pulse distortion and predistortion
@@ -100,24 +106,45 @@ requirement on predistortion accuracy.
 1. The sensitivity table above as a test, from existing calibrations. No model code. Small.
 2. `FluxLine` (IIR, inverse filter), closed-form tests, not wired in. Small.
 3. Waveform-driven CZ path; an identity filter must reproduce `simulate_cz`. Medium.
-4. `err_distortion` in `CZCalibration`, a design-JSON `flux_line` block, default off, its own budget line. Extend the cz cache key
+4. `err_distortion` in `CZCalibration`, a design-JSON `flux_line` block, default off, its own budget line. **Decided:**
+   additive on top of `residual_ctrl_err` (not carved out of it), so Alpha-1 v1.1 and Beta-1 results are not regenerated. Extend the cz cache key
    only when enabled so existing entries and outputs stay valid. Medium.
 5. Predistortion study: fit-error and AWG sweeps, one review table, the accuracy the 1e-3 / 5e-4 budgets need. Medium.
 6. Later: measured line response in `qpuforge.characterisation.v0`; gate-to-gate tail history (circuit level).
 
-Multi-qubit spectator pulse simulation, the other half of the roadmap item, is separate and larger. I suggest splitting it out.
+Multi-qubit spectator pulse simulation, the other half of the roadmap item, is separate and larger. **Decided:** it gets its
+own issue ("Spectator multi-qubit simulation"), filed by Forge PM.
 
 **Risks.** No measured line response exists, so every number is an assumption until hardware, and a precise-looking table
 would mislead. `residual_ctrl_err` already covers distortion, drift, TLS and crosstalk, so a new term can double-count. The path
 stays deterministic (no Monte Carlo). Calibration runtime grows, and `CZModel::kVersion` must change if default behaviour does.
 
-**First step:** items 1–2. About a day, no behaviour change, and it shows whether items 3–5 are worth their cost.
+**First step (decided):** item 4 in its fast form (effective offset from the stored curvature, so no `simulate_cz`
+change), together with item 1's sensitivity table as its test; then items 2–3 if the fast path shows the full path is
+worth its cost.
 
-## Decisions for Finnian
+## Decisions (Finnian Bond, 2026-11-28)
 
-1. q17 solver: Elmer first, Palace later for participation, or Palace from the start?
-2. q17: is stage-one agreement under matching assumptions the right bar before any claim about the real stack? Tolerance on
-   E_C and g: report first, then fix?
-3. q18: should the distortion term be *additional* to `residual_ctrl_err` (default off, numbers unchanged) or *carved out* of it
-   (changes Alpha-1 v1.1 and Beta-1 results, so a regeneration)? Suggested: additional and off.
-4. q18: split spectator multi-qubit simulation into its own issue?
+Decided by Finnian Bond, 2026-11-28 (relayed by Forge PM). These replace the open questions of the proposal.
+
+1. **q17 solver:** support **both Elmer and Palace** from the start. Both write to the one `qpuforge.fem_crosscheck.v0`
+   format through an importer per solver; neither is a build dependency.
+2. **q17 tolerance:** stage-one agreement under matching assumptions remains the bar before any claim about the real
+   stack. The FEM-vs-model deviation on C, E_C and g is **reported first** and tightened into an enforced tolerance later.
+3. **q18 term:** **additive** on top of `residual_ctrl_err`, **off by default**. No carve-out, so no committed result is
+   regenerated; turning it on is a sensitivity study that double-counts by design.
+4. **Spectators:** multi-qubit spectator simulation gets **its own issue**.
+
+## Implementation plan
+
+Each item is a branch off `main` (or stacked where noted), opened as a PR by Forge PM after QA's CI. Every branch
+builds with 0 warnings under `-Werror` and passes `ctest -LE smoke` on g++ and clang. Nothing changes a committed number.
+
+| # | Branch | Scope | Acceptance |
+|---|---|---|---|
+| 1 | `feat/q18-flux-term-optin` (off `main`) | `FluxLineSpec` (`tunable_coupler.flux_line`: static offset + exponential tails), `flux_line_eps_eff`, `flux_distortion_err`, `CZCalibration::err_distortion` added to `err_ctrl` → `err_2q_ctrl` after `residual_ctrl_err`; `qpuforge cz` reports it when on; `docs/design/flux-line-distortion.md` | off: calibration JSON and `err_ctrl` bit-identical, no key written, cache key and `CZModel::kVersion` unchanged; on: additive, reaches the emulators' per-pair error; the sensitivity table above reproduced from `results/cz_cache.json` |
+| 2 | `feat/q17-fem-reference` (stacked on 1) | `fem.hpp`: `qpuforge.fem_crosscheck.v0` reader, importers for Elmer `CapacitanceMatrix.dat` (lumped → Maxwell) and Palace `terminal-C.csv`, `compare_cells()` reporting ΔC, ΔE_C, Δg per cell; small fixtures in `tests/data/fem/`; `DATA_CONTRACT.md` section | both importers give the same Maxwell matrix for the same fixture; deviations reported against the stated tolerance, never failing on it |
+| 3 | (later) known-answer driver | `tools/fem_crosscheck.py` (gmsh → Elmer or Palace → JSON), CTest skip code without a solver; CPW and coplanar-capacitor known answers | stage-one agreement under matching assumptions |
+| 4 | (later) committed references | the three cells, both stages, `PROVENANCE.md` rows, README measured deltas; then an enforced tolerance | Finnian's sign-off on the tolerance |
+| 5 | (later) q18 full path | `FluxLine` IIR + inverse filter, waveform-driven `simulate_cz` (identity filter reproduces it), predistortion study | identity filter bit-for-bit; one review table |
+| — | separate issue | spectator multi-qubit simulation | see the issue |

@@ -288,6 +288,10 @@ set(QPUFORGE_TESTS
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 # forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data
 list(APPEND QPUFORGE_TESTS "materials:unit")
+# q18 opt-in flux-line distortion term (docs/design/flux-line-distortion.md); reads a copy of results/cz_cache.json
+list(APPEND QPUFORGE_TESTS "flux_line:pulse")
+# q17 FEM reference cross-check scaffold (fem.hpp): Elmer / Palace importers; synthetic fixtures in tests/data/fem
+list(APPEND QPUFORGE_TESTS "fem:layout")
 foreach(t ${QPUFORGE_TESTS})
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)

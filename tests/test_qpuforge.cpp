@@ -2,6 +2,7 @@
 #include "qpuforge/qpuforge.hpp"
 #include "qpuforge/layout.hpp"
 #include "qpuforge/gds.hpp"
+#include "qpuforge/fem.hpp"
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -2466,6 +2467,203 @@ static void test_surgery_cnot() {
     }
 }
 
+// q18 (docs/design/flux-line-distortion.md): the opt-in flux-line distortion term. Off by default and then invisible
+// (no key written, the same bits); on, it is added on top of residual_ctrl_err and reaches err_2q_ctrl (what the
+// emulators read). No pulse simulation here: the Alpha-1 v1.1 calibrations come from a copy of results/cz_cache.json.
+static void test_flux_line() {
+    std::puts("[pulse] q18 flux-line distortion term: opt-in, additive to residual_ctrl_err, sensitivity table from the cz cache");
+    auto dump = [](const Json& j) { std::ostringstream os; j.dump(os); return os.str(); };
+    // design files: off by default, not written when off, round trip when on, malformed tails refused
+    {
+        CHECK(!alpha1_v11(3).flux_line.enabled && !alpha1(3).flux_line.enabled && !beta1(5).flux_line.enabled, "flux_line is off in every preset");
+        CHECK(!design_to_json(alpha1_v11(3))["tunable_coupler"].has("flux_line"), "flux_line not written when off");
+        auto D = alpha1_v11(3);
+        D.flux_line.enabled = true; D.flux_line.static_offset = 3e-4; D.flux_line.tails = {{2e-3, 15.0}, {-5e-4, 400.0}};
+        const auto B = design_from_json(Json::parse(dump(design_to_json(D))));
+        CHECK(B.flux_line.enabled && B.flux_line.static_offset == 3e-4 && B.flux_line.tails.size() == 2 &&
+              B.flux_line.tails[1].amplitude == -5e-4 && B.flux_line.tails[1].tau_ns == 400.0, "flux_line round trip");
+        const auto off = design_from_json(Json::parse(R"({"tunable_coupler": {"flux_line": {"enabled": false, "static_offset": 1e-3}}})"));
+        CHECK(!off.flux_line.enabled && !design_to_json(off)["tunable_coupler"].has("flux_line"), "enabled:false reads as off and is not written back");
+        bool threw = false;
+        try { design_from_json(Json::parse(R"({"tunable_coupler": {"flux_line": {"enabled": true, "tails": [{"amplitude": 1e-3, "tau_ns": 0}]}}})")); }
+        catch (const std::exception&) { threw = true; }
+        CHECK(threw, "a tail with tau_ns <= 0 is refused");
+    }
+    // effective error over the hold: closed forms
+    {
+        FluxLineSpec L; L.enabled = true; L.static_offset = -2e-4;
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 2e-4) < 1e-18, "static offset taken as is (magnitude)");
+        L.static_offset = 0; L.tails = {{1e-3, 1e6}};
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 1e-3) < 1e-7, "slow tail ~ its amplitude over the hold");
+        L.tails = {{1e-3, 0.5}};
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 1e-3 * 0.5 / 30) < 1e-12, "fast tail averages to a*tau/T");
+        L.tails = {{1e-3, 20.0}};
+        CHECK(std::abs(flux_line_eps_eff(L, 40) - 1e-3 * 0.5 * (1 - std::exp(-2.0))) < 1e-15, "a*(tau/T)(1-exp(-T/tau))");
+        L.static_offset = 1e-3 * 0.5 * (1 - std::exp(-2.0)); L.tails = {{-1e-3, 20.0}};
+        CHECK(flux_line_eps_eff(L, 40) < 1e-15, "a static offset cancels an opposite averaged tail");
+    }
+    // the sensitivity table of docs/design/q17-q18-feasibility.md, from the committed calibrations (16 pair classes)
+    const std::string cache_src = std::string(QPUFORGE_SOURCE_DIR) + "/results/cz_cache.json";
+    std::vector<CZCalibration> ents;
+    {
+        std::ifstream f(cache_src); std::stringstream ss; ss << f.rdbuf();
+        const Json j = Json::parse(ss.str());
+        for (const auto& kv : j["entries"].items()) ents.push_back(cz_coherent_from_json(kv.second));
+        CHECK(ents.size() == 16, "cz cache has the 16 Alpha-1 v1.1 pair classes (%zu)", ents.size());
+        for (double eps : {1e-4, 3e-4, 1e-3}) {
+            std::vector<double> e;
+            for (const auto& c : ents) e.push_back(flux_distortion_err(c.err_flux_quasistatic, c.pulse, eps));
+            std::sort(e.begin(), e.end());
+            const double med = 0.5 * (e[7] + e[8]), worst = e.back();
+            std::printf("  eps %.0e: median %.2e, worst pair %.2e (upper bound: both lines at the larger step)\n", eps, med, worst);
+            const double s = (eps / 1e-4) * (eps / 1e-4);
+            CHECK(std::abs(med / s - 4.82e-5) < 0.01e-5 && std::abs(worst / s - 9.78e-5) < 0.01e-5, "table at eps %.0e", eps);
+        }
+    }
+    // through calibrate_chip_cz (cached, no simulation): off = the same bits, on = additive and reaches err_2q_ctrl
+    {
+        const std::string cache = temp_path("flux_line_cz_cache.json");
+        std::filesystem::copy_file(cache_src, cache, std::filesystem::copy_options::overwrite_existing);
+        const auto D0 = load_design(std::string(QPUFORGE_SOURCE_DIR) + "/designs/alpha1-v11/alpha1_v11.json");
+        auto run = [&](const ChipDesign& D, ChipReport& R) { R = analyze(D); return calibrate_chip_cz(D, R, false, cache); };
+        ChipReport R0, Rz, Rd, Ron;
+        const auto c0 = run(D0, R0);
+        auto Dz = D0; Dz.flux_line.enabled = true;                               // on, zero error
+        auto Dd = D0; Dd.flux_line.enabled = false; Dd.flux_line.static_offset = 1e-3;   // configured but off
+        auto Don = D0; Don.flux_line.enabled = true; Don.flux_line.static_offset = 3e-4; Don.flux_line.tails = {{1e-3, 200.0}};
+        const auto cz = run(Dz, Rz), cd = run(Dd, Rd), con = run(Don, Ron);
+        CHECK(dump(cz_calibration_json(cd)) == dump(cz_calibration_json(c0)), "off (even with values set): calibration JSON byte-identical");
+        CHECK(dump(cz_calibration_json(c0)).find("err_distortion") == std::string::npos, "off: no err_distortion key");
+        bool same = c0.size() == cz.size() && c0.size() == con.size() && !c0.empty();
+        bool additive = same, pairs_ok = true, leak_same = true;
+        double worst = 0;
+        for (std::size_t i = 0; same && i < c0.size(); ++i) {
+            same = same && cz[i].err_ctrl == c0[i].err_ctrl && cz[i].err_total == c0[i].err_total && cz[i].err_distortion == 0.0;
+            const double d = con[i].err_distortion;
+            worst = std::max(worst, d);
+            additive = additive && d > 0 && con[i].err_residual == c0[i].err_residual && con[i].err_flux_quasistatic == c0[i].err_flux_quasistatic &&
+                       std::abs((con[i].err_ctrl - c0[i].err_ctrl) - d) < 1e-15 && std::abs((con[i].err_total - c0[i].err_total) - d) < 1e-15;
+            const double eps = flux_line_eps_eff(Don.flux_line, con[i].t_flat_ns);
+            additive = additive && con[i].flux_eps_eff == eps && eps > 3e-4 && eps < 1.3e-3;
+        }
+        for (std::size_t k = 0; k < R0.pairs.size(); ++k) {
+            const auto& p0 = R0.pairs[k]; const auto& p1 = Ron.pairs[k];
+            if (!p0.designed) continue;
+            pairs_ok = pairs_ok && p1.err_2q_ctrl > p0.err_2q_ctrl && Rz.pairs[k].err_2q_ctrl == p0.err_2q_ctrl;
+            leak_same = leak_same && p1.leak_2q == p0.leak_2q;
+        }
+        std::printf("  Alpha-1 v1.1, static 3e-4 + tail 1e-3 @ 200 ns: worst-pair err_distortion %.2e on top of residual %.1e\n",
+                    worst, D0.coupler.residual_ctrl_err);
+        CHECK(same, "enabled with zero error: err_ctrl / err_total bit-identical to off");
+        CHECK(additive, "on: err_distortion added on top of the unchanged terms (residual_ctrl_err not carved out)");
+        CHECK(pairs_ok && leak_same, "on: err_2q_ctrl (emulator input) grows, leak_2q unchanged; zero error leaves err_2q_ctrl alone");
+        const auto n0 = noise_model(D0, R0), n1 = noise_model(Don, Ron);
+        bool nm = !n0.err_2q_pair.empty();
+        for (const auto& [k, v] : n1.err_2q_pair) nm = nm && v > n0.err_2q_pair.at(k);
+        CHECK(nm, "on: the emulators' per-pair control error includes the term");
+        CHECK(dump(cz_calibration_json(con)).find("\"err_distortion\"") != std::string::npos, "on: err_distortion written to the calibration JSON");
+        std::error_code ec; std::filesystem::remove(cache, ec);
+    }
+}
+
+// q17 (docs/design/q17-q18-feasibility.md): FEM reference cross-check scaffold. Importers for Elmer and Palace
+// exports, the qpuforge.fem_crosscheck.v0 format, and the model-vs-reference deviation, which is reported against the
+// stated tolerance and never enforced. Fixtures in tests/data/fem are SYNTHETIC (no solver run); no solver is needed.
+static void test_fem() {
+    std::puts("[layout] q17 FEM cross-check scaffold: Elmer / Palace importers, fem_crosscheck.v0, reported deviation");
+    using namespace layout;
+    const std::string dir = std::string(QPUFORGE_TEST_DATA) + "/fem/";
+    auto slurp = [](const std::string& p) { std::ifstream f(p); std::stringstream ss; ss << f.rdbuf(); return ss.str(); };
+    auto dump = [](const Json& j) { std::ostringstream os; j.dump(os); return os.str(); };
+    const std::vector<std::string> names{"qa", "coupler", "bus", "qb"};
+    const auto E = fem::import_elmer(slurp(dir + "pair_elmer_CapacitanceMatrix.dat"), names, "synthetic");
+    const auto P = fem::import_palace(slurp(dir + "pair_palace_terminal-C.csv"), names, "synthetic");
+    const auto J = fem::load_reference(dir + "pair_reference.json");
+    {
+        double d = 0;
+        for (int i = 0; i < 4; ++i) for (int k = 0; k < 4; ++k) d = std::max({d, std::abs(E.at(i, k) - J.at(i, k)), std::abs(P.at(i, k) - J.at(i, k))});
+        std::printf("  Elmer (lumped, flipped) and Palace (Maxwell) fixtures vs the v0 JSON: max |dC| %.1e fF\n", d);
+        CHECK(d < 1e-10, "both importers give the committed Maxwell matrix (%.2e fF)", d);
+        CHECK(E.solver == "elmer" && P.solver == "palace" && J.solver == "palace" && J.cell == "pair" && J.mesh.has("note"), "solver / cell / provenance carried");
+        CHECK(E.at(0, 1) < 0 && E.at(0, 0) == J.at(0, 0) && E.asymmetry == 0, "Elmer lumped off-diagonals flipped to Maxwell, diagonal kept");
+        const auto R2 = fem::reference_from_json(Json::parse(dump(fem::reference_to_json(P))));
+        bool same = R2.names == P.names && R2.C_fF.size() == P.C_fF.size() && R2.solver == "palace";
+        for (std::size_t k = 0; same && k < P.C_fF.size(); ++k) same = std::abs(R2.C_fF[k] - P.C_fF[k]) <= 1e-9 * std::abs(P.C_fF[k]);
+        CHECK(same, "fem_crosscheck.v0 round trip");
+        // the Maxwell convention read as is: the same matrix written with negative off-diagonals
+        std::string mx;
+        for (int i = 0; i < 4; ++i) { for (int k = 0; k < 4; ++k) { char b[40]; std::snprintf(b, sizeof b, "%.9e ", J.at(i, k) * 1e-15); mx += b; } mx += "\n"; }
+        const auto Em = fem::import_elmer(mx, names, "", false);
+        CHECK(std::abs(Em.at(1, 3) - J.at(1, 3)) < 1e-9, "Elmer file in the Maxwell convention (lumped = false)");
+    }
+    // malformed inputs are refused with a message
+    {
+        auto refused = [](auto&& f) { try { f(); } catch (const std::exception&) { return true; } return false; };
+        CHECK(refused([&] { fem::import_elmer("1e-13 2e-15\n2e-15 1e-13\n", names); }), "Elmer: row length vs names");
+        CHECK(refused([&] { fem::import_elmer("1e-13 x\n2e-15 1e-13\n", {"a", "b"}); }), "Elmer: non-number");
+        CHECK(refused([&] { fem::import_elmer("1e-13 -2e-15\n-2e-15 1e-13\n", {"a", "b"}); }), "Elmer: Maxwell file read as lumped is caught");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n2, 1e-13, -1e-15\n1, -1e-15, 1e-13\n", {"a", "b"}); }), "Palace: terminal index order");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n1, 1e-13, -1e-15\n2, -1e-15\n", {"a", "b"}); }), "Palace: column count");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n1, 1e-13, -1e-15\n2, -1e-15, 1e-13\n", {"a", "a"}); }), "duplicate conductor name");
+        CHECK(refused([&] { fem::import_palace("i, C1, C2\n1, 1e-13, -1e-14\n2, -1e-15, 1e-13\n", {"a", "b"}); }), "asymmetry above 5 %%");
+        CHECK(refused([&] { fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v1"})")); }), "wrong schema");
+        CHECK(refused([&] { fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v0", "solver": {"name": "comsol"}, "conductors": ["a"], "maxwell_fF": [[1]]})")); }),
+              "unknown solver");
+        CHECK(refused([&] { fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v0", "solver": {"name": "elmer"}, "units": "pF", "conductors": ["a"], "maxwell_fF": [[1]]})")); }),
+              "units other than fF");
+        const auto ok = fem::reference_from_json(Json::parse(R"({"schema": "qpuforge.fem_crosscheck.v0", "solver": {"name": "elmer"}, "conductors": ["a", "b"], "maxwell_fF": [[10, -1], [-1.0001, 12]]})"));
+        CHECK(ok.asymmetry > 0 && ok.at(0, 1) == ok.at(1, 0), "small asymmetry kept as an indicator, matrix symmetrised");
+    }
+    // deviation: a model 1 % above the reference everywhere -> dC +1 %, dE_C and dG = 1/1.01 - 1; ground is model-only
+    {
+        CapacitanceMatrix M; M.n = 5; M.names = {"qa", "coupler", "bus", "qb", "ground"};
+        M.C_fF.assign(25, 0.0);
+        for (int i = 0; i < 4; ++i) for (int k = 0; k < 4; ++k) M.C_fF[std::size_t(i) * 5 + std::size_t(k)] = 1.01 * J.at(i, k);
+        for (int i = 0; i < 4; ++i) { M.C_fF[std::size_t(i) * 5 + 4] = M.C_fF[std::size_t(4) * 5 + std::size_t(i)] = -50; }
+        M.C_fF[24] = 400;
+        const auto c = fem::compare_fem(M, J);
+        std::printf("  %s\n", fem::comparison_summary(c).c_str());
+        const double r = 1 / 1.01 - 1;
+        CHECK(c.shared.size() == 4 && c.model_only == std::vector<std::string>{"ground"} && c.C.size() == 10 && c.EC.size() == 4 && c.G.size() == 6,
+              "shared conductors / ground dropped (0 V boundary = sub-matrix)");
+        CHECK(std::abs(c.max_rel_C - 0.01) < 1e-12 && std::abs(c.max_rel_EC - r) < 1e-12 && std::abs(c.max_rel_G - r) < 1e-12,
+              "deviations %.3e / %.3e / %.3e", c.max_rel_C, c.max_rel_EC, c.max_rel_G);
+        CHECK(c.within() && !c.tol.enforced, "1 %% is within the stated 2/2/5 %% tolerance, which is reported only");
+        fem::FemTolerance tight; tight.rel_C = tight.rel_EC = tight.rel_G = 0.005;
+        const auto t = fem::compare_fem(M, J, tight);
+        const Json tj = fem::comparison_json(t);
+        CHECK(!t.within() && !tj.get("within_tolerance", true) && !tj["tolerance"].get("enforced", true) &&
+              fem::comparison_summary(t).find("outside, reported only") != std::string::npos,
+              "outside a tighter tolerance: reported (JSON and summary), not a failure");
+        // E_C from the reference agrees with layout::triple_circuit on a 3x3 matrix (same convention)
+        std::array<double, 9> C3{}; for (int i = 0; i < 3; ++i) for (int k = 0; k < 3; ++k) C3[std::size_t(i) * 3 + std::size_t(k)] = J.at(i == 2 ? 3 : i, k == 2 ? 3 : k);
+        std::vector<double> sub(9); for (int k = 0; k < 9; ++k) sub[std::size_t(k)] = C3[std::size_t(k)];
+        std::vector<double> ec, g; fem::circuit_of(sub, 3, ec, g);
+        const auto tc = triple_circuit(C3);
+        CHECK(std::abs(ec[0] - tc.EC_m) < 1e-12 && std::abs(ec[1] - tc.EC_c) < 1e-12 && std::abs(g[1] - tc.G_mc) < 1e-12 && std::abs(g[2] - tc.G_md) < 1e-12,
+              "E_C / G convention of layout::triple_circuit");
+        bool threw = false;
+        try { auto Jx = J; Jx.names[1] = "nope"; fem::compare_fem(M, Jx); } catch (const std::exception&) { threw = true; }
+        CHECK(threw, "a reference conductor missing from the model cell is an error");
+    }
+    // end to end with a real MoM extraction (two pads in a ground cut-out): its own export, through Palace's CSV, is a
+    // zero deviation, and the ground conductor is dropped
+    {
+        Conductor a; a.name = "a"; a.rects = {{-150, -50, -50, 50}};
+        Conductor b; b.name = "b"; b.rects = {{50, -50, 150, 50}};
+        Conductor G; G.name = "ground"; G.ground = true; G.outline = {-300, -200, 300, 200}; G.holes = {{-200, -100, 200, 100}};
+        const auto M = extract_capacitance({a, b, G}, 11.45, MeshOptions{2.0, 40, 1.6});
+        std::string csv = "i, C[i][1] (F), C[i][2] (F)\n";
+        for (int i = 0; i < 2; ++i) { char l[128]; std::snprintf(l, sizeof l, "%d, %.12e, %.12e\n", i + 1, M.at(i, 0) * 1e-15, M.at(i, 1) * 1e-15); csv += l; }
+        auto ref = fem::import_palace(csv, {"a", "b"}); ref.cell = "two_pad";
+        const auto c = fem::compare_fem(M, ref);
+        std::printf("  MoM two-pad cell (%d panels, C_aa %.2f fF, C_ab %.3f fF) vs its own Palace-format export: %s\n", M.panels, M.at(0, 0), -M.at(0, 1),
+                    fem::comparison_summary(c).c_str());
+        CHECK(std::abs(c.max_rel_C) < 1e-9 && std::abs(c.max_rel_EC) < 1e-9 && std::abs(c.max_rel_G) < 1e-9 && c.model_only == std::vector<std::string>{"ground"},
+              "MoM vs its own export: zero deviation");
+    }
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -2507,6 +2705,8 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"streaming_uf", test_streaming_uf},
     {"surgery", test_surgery},
     {"surgery_cnot", test_surgery_cnot},
+    {"flux_line", test_flux_line},
+    {"fem", test_fem},
 };
 
 // test_qpuforge            run every test

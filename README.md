@@ -46,8 +46,12 @@ constant of 30–100 ns costs each CZ of the Alpha-1 v1.1 cycle 1.3e-3 when the 
 | Heralded leakage | `qec.hpp` | 3-state readout of the measure qubits (`HeraldSpec`: herald fidelity, false-herald rate); the decoder lowers the weights of the edges of the heralded qubit's round, with exact matching on the per-shot re-weighted graph (`decode_scaled`). `qpuforge qec --herald`. With the leakage-removing reset on Gamma-1 d = 7: -10% logical error at the chip's own leakage, -46% at 10x |
 | Impact veto | `qec.hpp` | Per-shot impact injection at a random time and place (`ImpactSpec`, deterministic per (seed, shot)), a sliding space-time window veto calibrated to a false-veto rate (`VetoSpec`, `calibrate_veto`), and the floor over the burst profile with the veto (`burst_floor_veto`). `qpuforge qec --bursts --veto` |
 | Linear-time setup | `qec.hpp` | Single-fault enumeration is linear in the number of rounds (per-qubit tails from each measurement cut): Gamma-1 d = 7 at 50 rounds in 1.4 s against 44 s for the 0.4 routine, identical output |
+| Derived herald weights | `qec.hpp` | `HeraldSpec::derived`, `qpuforge qec --herald --herald-weights derived`: the weights of the edges a herald points at come from the frame simulator's leakage model (one excitation followed through the circuit: where it started, what it did to each CZ partner, how long the removal scheme lets it last) instead of fixed factors. Gamma-1, 14 rounds, same syndromes, exact matching, failures without heralds / fixed factors / derived: d = 5 at the chip's leakage 225 / 226 / 207, d = 7 at 10x leakage 375 / 227 / 199. At d = 3 and the chip's leakage the fixed factors are worse than no heralds (1177 against 1111); the derived weights are not (1092) |
+| Data-qubit leakage herald | `qec.hpp` | `LeakageSpec::dqlr_transfer`, `qpuforge qec --leakage-removal lrr+dqlr --herald --dqlr-herald`: DQLR leaves a data qubit's leakage on its measure qubit, whose next 3-state readout heralds it. Measured result: negative. The heralds remove 36-59% of that scheme's failures at 10x leakage, but DQLR that dumps the leakage is better in every case tried (d = 7, data qubits leaking, 10x: 94 failures against 146), because a measure qubit leaked for a round costs more than the herald recovers. Off by default |
+| Decoder operation model | `unionfind.hpp`, `qec.hpp` | Operation counters in the union-find decoders (`UFOpCounts`; the plain decode pays nothing), `run_stream_profile`, and two stated hardware cost models at 250 MHz (`UFCostModel`). **A model, not hardware.** Gamma-1 d = 7, window 10 / commit 5, cycles per committed round (mean / 99.9th / max) against a round of 183 cycles: serial block-RAM design 142 / 2083 / 22157, with a backlog of up to 1205 rounds; parallel cluster growth 10.8 / 58 / 173, backlog at most 4.7 rounds. An isolated-pair pre-decoder clears 31% of those windows, does not shorten the tail and costs logical errors at d = 7 (85 -> 115 failures) |
 
-Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decoder_study.cpp`). Design notes:
+Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decoder_study.cpp`); for the last three rows
+[`results/decoder_study2.txt`](results/decoder_study2.txt) (`examples/decoder_study2.cpp`). Design notes:
 [`docs/design/`](docs/design/).
 
 ### Unreleased: lattice surgery
@@ -231,6 +235,14 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
 * Heralded leakage: matching on a re-weighted graph equals brute force on 300 random cases (to 9e-16); at d = 5 with
   stressed measure-qubit leakage, heralds cut failures from 928 to 694 (exact) and from 984 to 763 (union-find) on
   the same syndromes.
+* Derived herald weights: the leakage model's count of true heralds per shot matches the sampler to 0.1% (d = 5 test
+  chip), its 8-round look-back leaves at most 0.006 of a herald unexplained, and on the same syndromes the derived
+  weights give 685 failures against 694 for the fixed factors (exact) and 732 against 763 (union-find). One streaming
+  window over the whole shot reproduces the batch decoder with heralds exactly.
+* DQLR with heralding: sampler and model agree on the true heralds per shot (1.309 against 1.319); the heralds cut that
+  scheme's failures from 1541 to 988, and the plain DQLR on the same chip has 918.
+* Operation counters: counted and plain decoding agree on 3,000 syndromes, the pre-decoder's corrections clear every
+  syndrome, and the profile runner reproduces `run_memory_frame`'s failure count.
 * Impact veto: impacts without excess noise leave every shot unchanged; a calibrated threshold holds its false-veto
   rate on fresh data; the veto catches 69% of chip-wide impacts at d = 5 and removes most of their excess error.
 * Memory-X: noiseless runs are deterministic, the detector error model is graph-like, and every single fault is
@@ -305,8 +317,12 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
   1/f flux noise at the excursion point is added analytically (quasi-static). Spectator crossings use a Landau-Zener
   estimate, not a many-qubit pulse simulation.
 * Leakage is modelled at the frame level (flags, phase scrambling, transport, seepage, removal), not with 3-level
-  dynamics in the QEC circuits. Heralded leakage (3-state readout) covers the measure qubits only, and the decoder
-  uses fixed weight factors for heralded edges, not a posterior from the leakage model.
+  dynamics in the QEC circuits. Heralds come from the measure qubits' 3-state readout only; data-qubit leakage is seen
+  when it reaches a measure qubit (by transport, or by the DQLR transfer, which costs more than it gains). The derived
+  herald weights are first order in the leakage, treat each herald on its own, and add no leakage prior to shots
+  without heralds (`docs/design/derived-herald-weights.md`).
+* The FPGA figures for the streaming decoder are operation counts of the software decoder priced by two assumed
+  hardware models (`docs/design/streaming-union-find-fpga.md`). Nothing was synthesised or run on hardware.
 * **No layout in this repository is fabrication-ready.** All three chips are DRC- and connectivity-clean in the model;
   airbridges, EM and inductance are not verified, and no foundry DRC deck has been run. A review of the connectivity
   work found open electrical problems (shared ground bridge, flux lines that cannot tune the SQUIDs, coupler-dominated
@@ -351,10 +367,11 @@ See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on t
 1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
 2. Multi-qubit pulse simulation of spectator crossings; a net-zero (bipolar) CZ and a flux-line term in the calibration
    (the line model and its study are in `fluxline.hpp`).
-3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, routes with bends
-   and a router for more than three patches, a correlated decoder fast enough for real time, and a layout for the
-   patches and their routing region.
-4. Data-qubit leakage heralding, and herald weights derived from the leakage model.
+3. For the streaming union-find decoder: a synthesis of the parallel-growth design to test the timing assumptions of
+   its cost model, and its tail under bursts. For lattice surgery: routes with bends and a router for more than three
+   patches, a correlated decoder fast enough for real time, and a layout for the patches and their routing region.
+4. A herald of data-qubit leakage that does not leave a measure qubit leaked for a round (a second readout after the
+   DQLR pulse), and a leakage prior in the detector error model for shots without heralds.
 5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.
 

@@ -1,0 +1,313 @@
+Decoder study, part 2, Gamma-1 (GF-97): 100000 shots per point, 14-round memory-Z runs unless stated
+
+1. Herald weights derived from the leakage model (3-state readout of the measure qubits, fidelity 0.95, false-herald rate 1e-3;
+   leakage-removing reset; same syndromes; fixed = footprint rule, factor 0.4)
+   d=3, CZ leakage x1 : 0.016 leakage events and 0.13 heralds per shot (12% leaked); true heralds per shot 0.0149 sampled, 0.0152 from the model;
+       model: 997 (bit, edge) entries, at most 0.020 of a herald unexplained by the 8-round look-back, built in 0.01 s
+       exact     : failures of 100000: 1111 without heralds, 1177 fixed (+6%), 1092 derived (-2%); eps 8.019e-04 / 8.500e-04 / 7.880e-04
+       union-find: failures of 100000: 1143 without heralds, 1194 fixed (+4%), 1113 derived (-3%); eps 8.252e-04 / 8.625e-04 / 8.033e-04
+   d=3, CZ leakage x10: 0.161 leakage events and 0.26 heralds per shot (57% leaked); true heralds per shot 0.1489 sampled, 0.1490 from the model;
+       model: 885 (bit, edge) entries, at most 0.017 of a herald unexplained by the 8-round look-back, built in 0.01 s
+       exact     : failures of 100000: 1835 without heralds, 1609 fixed (-12%), 1521 derived (-17%); eps 1.334e-03 / 1.167e-03 / 1.102e-03
+       union-find: failures of 100000: 1951 without heralds, 1634 fixed (-16%), 1543 derived (-21%); eps 1.419e-03 / 1.185e-03 / 1.118e-03
+   d=5, CZ leakage x1 : 0.058 leakage events and 0.39 heralds per shot (14% leaked); true heralds per shot 0.0529 sampled, 0.0522 from the model;
+       model: 3760 (bit, edge) entries, at most 0.020 of a herald unexplained by the 8-round look-back, built in 0.07 s
+       exact     : failures of 100000: 225 without heralds, 226 fixed (+0%), 207 derived (-8%); eps 1.611e-04 / 1.618e-04 / 1.481e-04
+       union-find: failures of 100000: 244 without heralds, 247 fixed (+1%), 225 derived (-8%); eps 1.747e-04 / 1.768e-04 / 1.611e-04
+       example, round 7, Z-type measure qubit (bit 177): P(leaked at readout) 2.36e-04, so a herald is true with probability 0.183; 12 edges, the likeliest:
+           its measurement edge P(fault | leaked) 0.976: p 9.5e-03 -> 0.185, weight 4.65 -> 1.49 (fixed rule: 0.00)
+           another edge         P(fault | leaked) 0.245: p 4.1e-03 -> 0.049, weight 5.50 -> 2.98 (fixed rule: 2.20)
+           another edge         P(fault | leaked) 0.125: p 1.4e-03 -> 0.024, weight 6.54 -> 3.69 (fixed rule: 2.61)
+           another edge         P(fault | leaked) 0.078: p 2.1e-03 -> 0.016, weight 6.17 -> 4.10 (fixed rule: 2.47)
+           another edge         P(fault | leaked) 0.042: p 5.2e-04 -> 0.008, weight 7.56 -> 4.79 (fixed rule: 3.02)
+       example, round 7, X-type measure qubit (bit 183): P(leaked at readout) 2.10e-04, so a herald is true with probability 0.166; 19 edges, the likeliest:
+           another edge         P(fault | leaked) 0.387: p 3.8e-03 -> 0.068, weight 5.56 -> 2.62 (fixed rule: 2.23)
+           another edge         P(fault | leaked) 0.278: p 1.5e-03 -> 0.047, weight 6.52 -> 3.00 (fixed rule: 2.61)
+           another edge         P(fault | leaked) 0.170: p 1.4e-03 -> 0.029, weight 6.58 -> 3.49 (fixed rule: 2.63)
+           another edge         P(fault | leaked) 0.063: p 3.6e-03 -> 0.014, weight 5.63 -> 4.25 (fixed rule: 2.25)
+           another edge         P(fault | leaked) 0.014: p 9.4e-03 -> 0.012, weight 4.65 -> 4.43 (fixed rule: 4.65)
+   d=5, CZ leakage x10: 0.555 leakage events and 0.85 heralds per shot (61% leaked); true heralds per shot 0.5131 sampled, 0.5128 from the model;
+       model: 3385 (bit, edge) entries, at most 0.018 of a herald unexplained by the 8-round look-back, built in 0.07 s
+       exact     : failures of 100000: 603 without heralds, 416 fixed (-31%), 386 derived (-36%); eps 4.331e-04 / 2.983e-04 / 2.767e-04
+       union-find: failures of 100000: 638 without heralds, 445 fixed (-30%), 424 derived (-34%); eps 4.584e-04 / 3.192e-04 / 3.041e-04
+       example, round 7, Z-type measure qubit (bit 177): P(leaked at readout) 2.33e-03, so a herald is true with probability 0.689; 12 edges, the likeliest:
+           its measurement edge P(fault | leaked) 0.978: p 9.5e-03 -> 0.671, weight 4.65 -> 0.71 (applied) (fixed rule: 0.00)
+           another edge         P(fault | leaked) 0.248: p 4.1e-03 -> 0.173, weight 5.50 -> 1.56 (fixed rule: 2.20)
+           another edge         P(fault | leaked) 0.127: p 1.4e-03 -> 0.088, weight 6.54 -> 2.33 (fixed rule: 2.61)
+           another edge         P(fault | leaked) 0.078: p 2.1e-03 -> 0.056, weight 6.17 -> 2.83 (fixed rule: 2.47)
+           another edge         P(fault | leaked) 0.042: p 5.2e-04 -> 0.029, weight 7.56 -> 3.50 (fixed rule: 3.02)
+       example, round 7, X-type measure qubit (bit 183): P(leaked at readout) 2.07e-03, so a herald is true with probability 0.663; 16 edges, the likeliest:
+           another edge         P(fault | leaked) 0.388: p 3.8e-03 -> 0.259, weight 5.56 -> 1.05 (fixed rule: 2.23)
+           another edge         P(fault | leaked) 0.278: p 1.5e-03 -> 0.185, weight 6.52 -> 1.48 (fixed rule: 2.61)
+           another edge         P(fault | leaked) 0.169: p 1.4e-03 -> 0.113, weight 6.58 -> 2.06 (fixed rule: 2.63)
+           another edge         P(fault | leaked) 0.062: p 3.6e-03 -> 0.044, weight 5.63 -> 3.07 (fixed rule: 2.25)
+           another edge         P(fault | leaked) 0.013: p 9.4e-03 -> 0.018, weight 4.65 -> 4.02 (fixed rule: 4.65)
+   d=7, CZ leakage x1 : 0.121 leakage events and 0.79 heralds per shot (14% leaked); true heralds per shot 0.1106 sampled, 0.1109 from the model;
+       model: 8214 (bit, edge) entries, at most 0.020 of a herald unexplained by the 8-round look-back, built in 0.26 s
+       exact     : failures of 200000: 72 without heralds, 65 fixed (-10%), 65 derived (-10%); eps 2.572e-05 / 2.322e-05 / 2.322e-05
+       union-find: failures of 200000: 76 without heralds, 65 fixed (-14%), 65 derived (-14%); eps 2.715e-05 / 2.322e-05 / 2.322e-05
+   d=7, CZ leakage x10: 1.183 leakage events and 1.76 heralds per shot (62% leaked); true heralds per shot 1.0908 sampled, 1.0910 from the model;
+       model: 7442 (bit, edge) entries, at most 0.018 of a herald unexplained by the 8-round look-back, built in 0.27 s
+       exact     : failures of 200000: 375 without heralds, 227 fixed (-39%), 199 derived (-47%); eps 1.342e-04 / 8.116e-05 / 7.114e-05
+       union-find: failures of 200000: 380 without heralds, 235 fixed (-38%), 209 derived (-45%); eps 1.360e-04 / 8.402e-05 / 7.472e-05
+
+2. Data-qubit leakage heralding (derived weights; same syndromes within a scheme, different syndromes between schemes)
+   schemes: LRR = leakage-removing reset alone (Gamma-1); +DQLR = data-qubit leakage removal that dumps the leakage; +DQLR-herald = the
+   removal pulse leaves the leakage on the measure qubit, heralded by that qubit's next readout
+   d=5, Gamma-1 as designed (the measure qubit is the leaking partner of every CZ; data qubits leak by transport only)
+     x1  LRR         : round 738 ns, leaked data 4.6e-05 meas 9.7e-05, 0.39 heralds per shot (13% leaked; true 0.0522 sampled, 0.0522 model)
+         exact     : failures of 100000: 230 without heralds (eps 1.646e-04), 224 with (eps 1.603e-04): -3%
+         union-find: failures of 100000: 242 without heralds (eps 1.732e-04), 232 with (eps 1.661e-04): -4%
+     x1  +DQLR       : round 768 ns, leaked data 6.6e-06 meas 8.9e-05, 0.38 heralds per shot (13% leaked; true 0.0498 sampled, 0.0501 model)
+         exact     : failures of 100000: 267 without heralds (eps 1.912e-04), 257 with (eps 1.840e-04): -4%
+         union-find: failures of 100000: 286 without heralds (eps 2.048e-04), 277 with (eps 1.984e-04): -3%
+     x1  +DQLR-herald: round 768 ns, leaked data 7.6e-06 meas 1.0e-04, 0.39 heralds per shot (14% leaked; true 0.0532 sampled, 0.0535 model)
+         exact     : failures of 100000: 272 without heralds (eps 1.948e-04), 257 with (eps 1.840e-04): -6%
+         union-find: failures of 100000: 288 without heralds (eps 2.063e-04), 274 with (eps 1.962e-04): -5%
+     x10 LRR         : round 738 ns, leaked data 3.7e-04 meas 9.5e-04, 0.85 heralds per shot (60% leaked; true 0.5108 sampled, 0.5128 model)
+         exact     : failures of 100000: 594 without heralds (eps 4.266e-04), 418 with (eps 2.997e-04): -30%
+         union-find: failures of 100000: 631 without heralds (eps 4.534e-04), 437 with (eps 3.134e-04): -31%
+     x10 +DQLR       : round 768 ns, leaked data 5.3e-05 meas 8.9e-04, 0.83 heralds per shot (60% leaked; true 0.4976 sampled, 0.4956 model)
+         exact     : failures of 100000: 632 without heralds (eps 4.541e-04), 405 with (eps 2.904e-04): -36%
+         union-find: failures of 100000: 680 without heralds (eps 4.888e-04), 439 with (eps 3.149e-04): -35%
+     x10 +DQLR-herald: round 768 ns, leaked data 6.3e-05 meas 9.8e-04, 0.86 heralds per shot (61% leaked; true 0.5256 sampled, 0.5236 model)
+         exact     : failures of 100000: 676 without heralds (eps 4.859e-04), 434 with (eps 3.113e-04): -36%
+         union-find: failures of 100000: 714 without heralds (eps 5.134e-04), 466 with (eps 3.343e-04): -35%
+   d=5, stress: the data qubit is the leaking partner of every CZ
+     x1  LRR         : round 738 ns, leaked data 6.0e-04 meas 5.8e-05, 0.37 heralds per shot (8% leaked; true 0.0311 sampled, 0.0314 model)
+         exact     : failures of 100000: 302 without heralds (eps 2.163e-04), 282 with (eps 2.020e-04): -7%
+         union-find: failures of 100000: 304 without heralds (eps 2.178e-04), 294 with (eps 2.106e-04): -3%
+     x1  +DQLR       : round 768 ns, leaked data 8.7e-05 meas 6.0e-06, 0.34 heralds per shot (1% leaked; true 0.0036 sampled, 0.0037 model)
+         exact     : failures of 100000: 254 without heralds (eps 1.819e-04), 253 with (eps 1.811e-04): -0%
+         union-find: failures of 100000: 272 without heralds (eps 1.948e-04), 271 with (eps 1.941e-04): -0%
+     x1  +DQLR-herald: round 768 ns, leaked data 1.0e-04 meas 1.6e-04, 0.38 heralds per shot (13% leaked; true 0.0491 sampled, 0.0490 model)
+         exact     : failures of 100000: 314 without heralds (eps 2.249e-04), 281 with (eps 2.012e-04): -11%
+         union-find: failures of 100000: 332 without heralds (eps 2.379e-04), 298 with (eps 2.134e-04): -10%
+     x10 LRR         : round 738 ns, leaked data 5.9e-03 meas 5.7e-04, 0.64 heralds per shot (47% leaked; true 0.3030 sampled, 0.3049 model)
+         exact     : failures of 100000: 1734 without heralds (eps 1.259e-03), 1239 with (eps 8.953e-04): -29%
+         union-find: failures of 100000: 1712 without heralds (eps 1.243e-03), 1267 with (eps 9.158e-04): -26%
+     x10 +DQLR       : round 768 ns, leaked data 8.7e-04 meas 5.2e-05, 0.37 heralds per shot (9% leaked; true 0.0314 sampled, 0.0313 model)
+         exact     : failures of 100000: 458 without heralds (eps 3.285e-04), 458 with (eps 3.285e-04): +0%
+         union-find: failures of 100000: 484 without heralds (eps 3.473e-04), 483 with (eps 3.466e-04): -0%
+     x10 +DQLR-herald: round 768 ns, leaked data 1.0e-03 meas 1.6e-03, 0.82 heralds per shot (59% leaked; true 0.4811 sampled, 0.4784 model)
+         exact     : failures of 100000: 1124 without heralds (eps 8.114e-04), 609 with (eps 4.375e-04): -46%
+         union-find: failures of 100000: 1165 without heralds (eps 8.413e-04), 637 with (eps 4.577e-04): -45%
+   d=7, Gamma-1 as designed (the measure qubit is the leaking partner of every CZ; data qubits leak by transport only)
+     x1  LRR         : round 746 ns, leaked data 4.6e-05 meas 1.0e-04, 0.78 heralds per shot (14% leaked; true 0.1103 sampled, 0.1109 model)
+         exact     : failures of 100000: 38 without heralds (eps 2.715e-05), 31 with (eps 2.215e-05): -18%
+     x1  +DQLR       : round 776 ns, leaked data 7.3e-06 meas 9.4e-05, 0.78 heralds per shot (13% leaked; true 0.1047 sampled, 0.1064 model)
+         exact     : failures of 100000: 43 without heralds (eps 3.073e-05), 41 with (eps 2.930e-05): -5%
+     x1  +DQLR-herald: round 776 ns, leaked data 8.7e-06 meas 1.1e-04, 0.78 heralds per shot (14% leaked; true 0.1120 sampled, 0.1136 model)
+         exact     : failures of 100000: 52 without heralds (eps 3.716e-05), 46 with (eps 3.287e-05): -12%
+     x10 LRR         : round 746 ns, leaked data 4.1e-04 meas 1.0e-03, 1.76 heralds per shot (62% leaked; true 1.0871 sampled, 1.0910 model)
+         exact     : failures of 100000: 182 without heralds (eps 1.302e-04), 94 with (eps 6.720e-05): -48%
+     x10 +DQLR       : round 776 ns, leaked data 5.8e-05 meas 9.4e-04, 1.72 heralds per shot (61% leaked; true 1.0487 sampled, 1.0521 model)
+         exact     : failures of 100000: 137 without heralds (eps 9.798e-05), 70 with (eps 5.003e-05): -49%
+     x10 +DQLR-herald: round 776 ns, leaked data 7.0e-05 meas 1.0e-03, 1.78 heralds per shot (62% leaked; true 1.1103 sampled, 1.1140 model)
+         exact     : failures of 100000: 168 without heralds (eps 1.202e-04), 96 with (eps 6.863e-05): -43%
+   d=7, stress: the data qubit is the leaking partner of every CZ
+     x1  LRR         : round 746 ns, leaked data 6.4e-04 meas 6.4e-05, 0.74 heralds per shot (9% leaked; true 0.0672 sampled, 0.0682 model)
+         exact     : failures of 100000: 83 without heralds (eps 5.933e-05), 70 with (eps 5.003e-05): -16%
+     x1  +DQLR       : round 776 ns, leaked data 9.5e-05 meas 6.8e-06, 0.68 heralds per shot (1% leaked; true 0.0081 sampled, 0.0082 model)
+         exact     : failures of 100000: 45 without heralds (eps 3.216e-05), 45 with (eps 3.216e-05): +0%
+     x1  +DQLR-herald: round 776 ns, leaked data 1.1e-04 meas 1.7e-04, 0.77 heralds per shot (13% leaked; true 0.1028 sampled, 0.1040 model)
+         exact     : failures of 100000: 52 without heralds (eps 3.716e-05), 39 with (eps 2.787e-05): -25%
+     x10 LRR         : round 746 ns, leaked data 6.2e-03 meas 6.2e-04, 1.33 heralds per shot (49% leaked; true 0.6573 sampled, 0.6641 model)
+         exact     : failures of 100000: 851 without heralds (eps 6.127e-04), 545 with (eps 3.913e-04): -36%
+     x10 +DQLR       : round 776 ns, leaked data 9.4e-04 meas 5.8e-05, 0.74 heralds per shot (9% leaked; true 0.0699 sampled, 0.0704 model)
+         exact     : failures of 100000: 94 without heralds (eps 6.720e-05), 94 with (eps 6.720e-05): +0%
+     x10 +DQLR-herald: round 776 ns, leaked data 1.1e-03 meas 1.7e-03, 1.68 heralds per shot (60% leaked; true 1.0121 sampled, 1.0176 model)
+         exact     : failures of 100000: 356 without heralds (eps 2.551e-04), 146 with (eps 1.044e-04): -59%
+
+3. Operation counts of the streaming union-find decoder, 50 rounds, memory-Z, 50000 shots (seed 601: the syndromes of decoder_study section 5)
+   per window: mean / 99th percentile / 99.9th percentile / maximum. Hardware models (stated in docs/design/streaming-union-find-fpga.md), 250 MHz:
+     S  serial, block RAM: one table access per cycle, 2-cycle reads, pipeline depth 4
+     P  parallel growth: one cell per vertex and per edge, 5 cycles per growth step, 2 per union, serial peeling
+     +pre: an isolated-pair pre-decoder runs first (2 cycles when it clears the window)
+   latency: from the arrival of a window's last round to the end of its decode, windows decoded one after another. "one shot": the decoder is idle
+   when the shot starts. "continuous stream": 1024 shots (52224 rounds) end to end, the queue carried over; "last quarter": its final 256 shots
+   d=3: round 726.0 ns = 181.5 cycles
+     window  2 / commit  1 (8 vertices, 24 edges per window; 2500000 windows): 2613 failures, 2613 with the pre-decoder; windows without defects 87.0%;
+         the pre-decoder clears 5.0% of all windows (38.7% of those with defects)
+         counts per window: loads 0.19 / 2 / 3 / 6; growth_iters 0.16 / 2 / 3 / 8; edge_visits 1.28 / 18 / 42 / 203; edge_updates 1.16 / 16 / 33 / 97; finds 0.99 / 8 / 28 / 110;
+                            hops 0.16 / 2 / 7 / 57; unions 0.22 / 2 / 4 / 8; peel_steps 0.84 / 7 / 13 / 27; corrections 0.14 / 1 / 2 / 5; commits 0.07 / 1 / 2 / 5;
+         S     cycles per committed round: 10.1 / 98.0 / 210.0 / 748.0 (mean = 6% of the round; 0.220% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.06 / 1.2 / 4.4; continuous stream 0.06 / 1.2 / 4.4, its last quarter 0.06 / 1.2 / 2.8
+         P     cycles per committed round: 3.4 / 25.0 / 40.0 / 85.0 (mean = 2% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.02 / 0.2 / 0.5; continuous stream 0.02 / 0.2 / 0.5, its last quarter 0.02 / 0.2 / 0.4
+         S+pre cycles per committed round: 6.7 / 98.0 / 210.0 / 748.0 (mean = 4% of the round; 0.220% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.04 / 1.2 / 4.4; continuous stream 0.04 / 1.2 / 4.4, its last quarter 0.04 / 1.2 / 2.8
+         P+pre cycles per committed round: 2.7 / 25.0 / 40.0 / 85.0 (mean = 1% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.02 / 0.2 / 0.5; continuous stream 0.02 / 0.2 / 0.5, its last quarter 0.02 / 0.2 / 0.4
+     window  4 / commit  2 (16 vertices, 58 edges per window; 1250000 windows): 2147 failures, 2147 with the pre-decoder; windows without defects 76.0%;
+         the pre-decoder clears 12.2% of all windows (50.9% of those with defects)
+         counts per window: loads 0.42 / 3 / 5 / 8; growth_iters 0.33 / 3 / 4 / 8; edge_visits 4.28 / 45 / 103 / 329; edge_updates 3.82 / 39 / 80 / 206; finds 2.25 / 24 / 43 / 153;
+                            hops 0.43 / 5 / 16 / 89; unions 0.43 / 4 / 6 / 12; peel_steps 1.68 / 13 / 19 / 37; corrections 0.27 / 2 / 3 / 7; commits 0.14 / 1 / 2 / 5;
+         S     cycles per committed round: 12.1 / 105.0 / 202.5 / 569.5 (mean = 7% of the round; 0.200% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.14 / 2.3 / 8.7; continuous stream 0.14 / 2.3 / 8.7, its last quarter 0.14 / 2.3 / 5.7
+         P     cycles per committed round: 2.9 / 20.0 / 27.5 / 50.0 (mean = 2% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.03 / 0.3 / 0.6; continuous stream 0.03 / 0.3 / 0.6, its last quarter 0.03 / 0.3 / 0.5
+         S+pre cycles per committed round: 7.1 / 102.5 / 202.5 / 569.5 (mean = 4% of the round; 0.193% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.08 / 2.3 / 8.7; continuous stream 0.08 / 2.3 / 8.7, its last quarter 0.08 / 2.3 / 4.8
+         P+pre cycles per committed round: 2.0 / 17.5 / 27.5 / 50.0 (mean = 1% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.02 / 0.3 / 0.6; continuous stream 0.02 / 0.3 / 0.6, its last quarter 0.02 / 0.3 / 0.5
+     window  6 / commit  3 (24 vertices, 92 edges per window; 800000 windows): 2049 failures, 2049 with the pre-decoder; windows without defects 66.0%;
+         the pre-decoder clears 18.3% of all windows (53.8% of those with defects)
+         counts per window: loads 0.66 / 4 / 6 / 10; growth_iters 0.50 / 3 / 5 / 9; edge_visits 7.65 / 78 / 153 / 495; edge_updates 6.81 / 64 / 113 / 335; finds 3.61 / 30 / 61 / 202;
+                            hops 0.73 / 9 / 24 / 95; unions 0.65 / 5 / 8 / 14; peel_steps 2.54 / 16 / 25 / 47; corrections 0.41 / 2 / 3 / 6; commits 0.22 / 2 / 3 / 5;
+         S     cycles per committed round: 12.9 / 106.0 / 192.0 / 573.0 (mean = 7% of the round; 0.127% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.22 / 3.3 / 11.5; continuous stream 0.22 / 3.3 / 11.5, its last quarter 0.22 / 3.3 / 7.2
+         P     cycles per committed round: 2.7 / 15.3 / 22.3 / 41.3 (mean = 1% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.05 / 0.4 / 0.7; continuous stream 0.05 / 0.4 / 0.7, its last quarter 0.05 / 0.4 / 0.6
+         S+pre cycles per committed round: 7.4 / 99.7 / 190.3 / 573.0 (mean = 4% of the round; 0.118% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.13 / 3.3 / 11.5; continuous stream 0.13 / 3.3 / 11.5, its last quarter 0.13 / 3.3 / 6.8
+         P+pre cycles per committed round: 1.8 / 15.0 / 22.0 / 41.3 (mean = 1% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.03 / 0.4 / 0.7; continuous stream 0.03 / 0.4 / 0.7, its last quarter 0.03 / 0.4 / 0.6
+     window 10 / commit  5 (40 vertices, 160 edges per window; 500000 windows): 2043 failures, 2043 with the pre-decoder; windows without defects 51.7%;
+         the pre-decoder clears 26.1% of all windows (54.1% of those with defects)
+         counts per window: loads 1.08 / 5 / 7 / 15; growth_iters 0.80 / 4 / 6 / 10; edge_visits 14.15 / 111 / 213 / 729; edge_updates 12.60 / 93 / 167 / 511; finds 6.13 / 41 / 80 / 277;
+                            hops 1.27 / 14 / 35 / 115; unions 1.05 / 6 / 9 / 19; peel_steps 4.05 / 20 / 30 / 64; corrections 0.66 / 3 / 4 / 10; commits 0.35 / 2 / 3 / 7;
+         S     cycles per committed round: 13.6 / 87.0 / 158.4 / 492.8 (mean = 7% of the round; 0.050% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.39 / 4.6 / 21.5; continuous stream 0.39 / 4.6 / 21.5, its last quarter 0.39 / 4.6 / 13.7
+         P     cycles per committed round: 2.5 / 11.2 / 16.0 / 31.0 (mean = 1% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.07 / 0.4 / 0.9; continuous stream 0.07 / 0.4 / 0.9, its last quarter 0.07 / 0.4 / 0.8
+         S+pre cycles per committed round: 7.6 / 82.8 / 148.4 / 492.8 (mean = 4% of the round; 0.041% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.22 / 4.4 / 21.5; continuous stream 0.22 / 4.4 / 21.5, its last quarter 0.22 / 4.4 / 13.7
+         P+pre cycles per committed round: 1.6 / 10.4 / 15.0 / 31.0 (mean = 1% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.04 / 0.4 / 0.9; continuous stream 0.04 / 0.4 / 0.9, its last quarter 0.04 / 0.4 / 0.8
+     window 20 / commit 10 (80 vertices, 330 edges per window; 250000 windows): 2038 failures, 2038 with the pre-decoder; windows without defects 29.4%;
+         the pre-decoder clears 34.8% of all windows (49.3% of those with defects)
+         counts per window: loads 2.08 / 8 / 10 / 26; growth_iters 1.46 / 5 / 7 / 12; edge_visits 32.12 / 195 / 342 / 1087; edge_updates 28.68 / 165 / 279 / 753; finds 12.64 / 68 / 118 / 418;
+                            hops 2.68 / 24 / 51 / 192; unions 2.00 / 9 / 13 / 31; peel_steps 7.53 / 29 / 41 / 115; corrections 1.25 / 5 / 6 / 18; commits 0.70 / 3 / 5 / 10;
+         S     cycles per committed round: 14.1 / 74.1 / 123.5 / 370.0 (mean = 8% of the round; 0.010% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.85 / 7.7 / 23.9; continuous stream 0.85 / 7.7 / 23.9, its last quarter 0.85 / 7.7 / 23.9
+         P     cycles per committed round: 2.2 / 7.7 / 10.5 / 22.6 (mean = 1% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.12 / 0.6 / 1.2; continuous stream 0.12 / 0.6 / 1.2, its last quarter 0.12 / 0.6 / 1.2
+         S+pre cycles per committed round: 7.7 / 64.1 / 112.1 / 370.0 (mean = 4% of the round; 0.007% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.46 / 7.0 / 23.9; continuous stream 0.46 / 7.0 / 23.9, its last quarter 0.46 / 6.6 / 23.9
+         P+pre cycles per committed round: 1.3 / 7.0 / 9.6 / 22.6 (mean = 1% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.07 / 0.5 / 1.2; continuous stream 0.07 / 0.5 / 1.2, its last quarter 0.07 / 0.5 / 1.2
+   d=5: round 728.2 ns = 182.0 cycles
+     window  2 / commit  1 (24 vertices, 89 edges per window; 2500000 windows): 2428 failures, 2426 with the pre-decoder; windows without defects 64.3%;
+         the pre-decoder clears 15.0% of all windows (41.9% of those with defects)
+         counts per window: loads 0.64 / 4 / 6 / 9; growth_iters 0.57 / 7 / 9 / 19; edge_visits 9.77 / 217 / 351 / 1403; edge_updates 7.67 / 119 / 211 / 545; finds 4.56 / 74 / 122 / 659;
+                            hops 1.38 / 51 / 85 / 582; unions 0.76 / 8 / 11 / 22; peel_steps 2.84 / 25 / 34 / 67; corrections 0.45 / 3 / 3 / 6; commits 0.23 / 2 / 3 / 6;
+         S     cycles per committed round: 46.7 / 743.0 / 1146.0 / 3668.0 (mean = 26% of the round; 4.365% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 1.18 / 90.9 / 211.7; continuous stream 2.79 / 125.3 / 230.3, its last quarter 2.67 / 118.7 / 169.8
+         P     cycles per committed round: 9.2 / 80.0 / 100.0 / 179.0 (mean = 5% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.05 / 0.6 / 1.2; continuous stream 0.05 / 0.6 / 1.2, its last quarter 0.05 / 0.6 / 1.2
+         S+pre cycles per committed round: 32.3 / 743.0 / 1146.0 / 3668.0 (mean = 18% of the round; 3.718% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 1.06 / 88.7 / 209.8; continuous stream 2.42 / 119.3 / 225.8, its last quarter 2.31 / 113.9 / 162.0
+         P+pre cycles per committed round: 6.8 / 80.0 / 95.0 / 175.0 (mean = 4% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.04 / 0.5 / 1.2; continuous stream 0.04 / 0.5 / 1.2, its last quarter 0.04 / 0.5 / 1.2
+     window  4 / commit  2 (48 vertices, 213 edges per window; 1250000 windows): 600 failures, 619 with the pre-decoder; windows without defects 43.5%;
+         the pre-decoder clears 29.4% of all windows (52.0% of those with defects)
+         counts per window: loads 1.36 / 6 / 8 / 13; growth_iters 0.93 / 5 / 11 / 27; edge_visits 21.16 / 182 / 712 / 4391; edge_updates 18.55 / 152 / 448 / 1808; finds 8.41 / 60 / 228 / 1943;
+                            hops 1.95 / 19 / 165 / 1686; unions 1.24 / 7 / 15 / 34; peel_steps 4.82 / 25 / 48 / 107; corrections 0.82 / 3 / 5 / 9; commits 0.43 / 2 / 4 / 7;
+         S     cycles per committed round: 46.9 / 337.5 / 1163.0 / 6864.5 (mean = 26% of the round; 3.558% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.80 / 31.2 / 103.0; continuous stream 0.88 / 35.2 / 103.0, its last quarter 0.87 / 34.9 / 80.8
+         P     cycles per committed round: 7.3 / 33.0 / 67.0 / 153.0 (mean = 4% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.08 / 0.7 / 1.7; continuous stream 0.08 / 0.7 / 1.7, its last quarter 0.08 / 0.7 / 1.5
+         S+pre cycles per committed round: 26.3 / 317.0 / 1104.0 / 6011.0 (mean = 14% of the round; 2.614% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.53 / 29.5 / 110.0; continuous stream 0.59 / 34.0 / 110.0, its last quarter 0.57 / 32.7 / 74.1
+         P+pre cycles per committed round: 4.5 / 32.5 / 65.0 / 144.5 (mean = 2% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.05 / 0.7 / 1.6; continuous stream 0.05 / 0.7 / 1.6, its last quarter 0.05 / 0.7 / 1.5
+     window  6 / commit  3 (72 vertices, 337 edges per window; 800000 windows): 429 failures, 453 with the pre-decoder; windows without defects 28.3%;
+         the pre-decoder clears 37.1% of all windows (51.7% of those with defects)
+         counts per window: loads 2.13 / 8 / 10 / 18; growth_iters 1.38 / 6 / 12 / 27; edge_visits 38.23 / 298 / 1058 / 6145; edge_updates 33.76 / 245 / 662 / 2518; finds 13.76 / 88 / 328 / 2980;
+                            hops 3.22 / 35 / 240 / 2784; unions 1.85 / 10 / 18 / 43; peel_steps 7.14 / 32 / 57 / 140; corrections 1.25 / 4 / 6 / 11; commits 0.67 / 3 / 5 / 10;
+         S     cycles per committed round: 51.7 / 343.0 / 1096.3 / 6726.0 (mean = 28% of the round; 3.522% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 1.22 / 40.3 / 146.0; continuous stream 1.38 / 55.2 / 146.0, its last quarter 1.33 / 48.6 / 128.6
+         P     cycles per committed round: 6.8 / 28.0 / 50.7 / 117.3 (mean = 4% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.11 / 0.9 / 1.9; continuous stream 0.11 / 0.9 / 1.9, its last quarter 0.11 / 0.8 / 1.8
+         S+pre cycles per committed round: 28.0 / 314.3 / 1071.7 / 7142.3 (mean = 15% of the round; 2.332% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.74 / 35.6 / 126.8; continuous stream 0.84 / 46.6 / 126.8, its last quarter 0.80 / 42.5 / 100.9
+         P+pre cycles per committed round: 4.0 / 26.0 / 49.7 / 130.3 (mean = 2% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.07 / 0.8 / 2.1; continuous stream 0.07 / 0.8 / 2.1, its last quarter 0.07 / 0.8 / 1.8
+     window 10 / commit  5 (120 vertices, 585 edges per window; 500000 windows): 400 failures, 416 with the pre-decoder; windows without defects 13.9%;
+         the pre-decoder clears 40.1% of all windows (46.6% of those with defects)
+         counts per window: loads 3.49 / 10 / 14 / 28; growth_iters 2.12 / 8 / 14 / 34; edge_visits 73.34 / 516 / 1378 / 10860; edge_updates 65.15 / 408 / 889 / 4150; finds 24.17 / 140 / 426 / 5439;
+                            hops 5.67 / 67 / 326 / 5133; unions 2.95 / 13 / 22 / 64; peel_steps 11.18 / 43 / 70 / 193; corrections 2.00 / 6 / 8 / 16; commits 1.06 / 4 / 6 / 10;
+         S     cycles per committed round: 57.3 / 349.0 / 879.6 / 7098.4 (mean = 31% of the round; 3.816% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 2.09 / 51.8 / 260.6; continuous stream 2.41 / 85.0 / 260.6, its last quarter 2.26 / 62.1 / 173.5
+         P     cycles per committed round: 6.2 / 22.6 / 37.0 / 99.0 (mean = 3% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.17 / 1.0 / 2.7; continuous stream 0.17 / 1.0 / 2.7, its last quarter 0.17 / 1.0 / 1.9
+         S+pre cycles per committed round: 29.9 / 313.2 / 812.4 / 7098.4 (mean = 16% of the round; 2.379% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 1.17 / 45.2 / 247.8; continuous stream 1.37 / 70.4 / 247.8, its last quarter 1.25 / 50.3 / 139.2
+         P+pre cycles per committed round: 3.6 / 21.0 / 34.4 / 99.0 (mean = 2% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.10 / 1.0 / 2.7; continuous stream 0.10 / 1.0 / 2.7, its last quarter 0.10 / 0.9 / 1.8
+     window 20 / commit 10 (240 vertices, 1205 edges per window; 250000 windows): 392 failures, 407 with the pre-decoder; windows without defects 3.2%;
+         the pre-decoder clears 31.5% of all windows (32.5% of those with defects)
+         counts per window: loads 6.74 / 17 / 21 / 41; growth_iters 3.63 / 12 / 18 / 40; edge_visits 175.06 / 965 / 2087 / 15214; edge_updates 156.52 / 756 / 1384 / 6766; finds 52.36 / 252 / 649 / 6930;
+                            hops 12.19 / 139 / 468 / 6356; unions 5.58 / 19 / 30 / 85; peel_steps 20.61 / 64 / 98 / 261; corrections 3.80 / 9 / 12 / 23; commits 2.13 / 6 / 8 / 17;
+         S     cycles per committed round: 64.2 / 318.8 / 667.1 / 4918.7 (mean = 35% of the round; 4.037% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 4.57 / 71.9 / 535.3; continuous stream 5.17 / 125.0 / 535.3, its last quarter 4.90 / 96.8 / 231.9
+         P     cycles per committed round: 5.3 / 16.3 / 24.7 / 63.5 (mean = 3% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.30 / 1.4 / 4.1; continuous stream 0.30 / 1.4 / 4.1, its last quarter 0.30 / 1.4 / 2.7
+         S+pre cycles per committed round: 31.7 / 270.7 / 586.1 / 4863.0 (mean = 17% of the round; 2.267% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 2.28 / 59.6 / 517.6; continuous stream 2.60 / 97.3 / 517.6, its last quarter 2.40 / 73.7 / 180.8
+         P+pre cycles per committed round: 3.1 / 14.4 / 22.6 / 61.7 (mean = 2% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.17 / 1.3 / 3.4; continuous stream 0.17 / 1.3 / 3.4, its last quarter 0.17 / 1.2 / 2.4
+   d=7: round 730.4 ns = 182.6 cycles
+     window  2 / commit  1 (48 vertices, 194 edges per window; 2500000 windows): 2189 failures, 2180 with the pre-decoder; windows without defects 41.0%;
+         the pre-decoder clears 23.4% of all windows (39.7% of those with defects)
+         counts per window: loads 1.32 / 6 / 8 / 13; growth_iters 1.12 / 8 / 12 / 34; edge_visits 24.97 / 339 / 711 / 5482; edge_updates 19.59 / 212 / 407 / 1579; finds 10.47 / 102 / 259 / 2777;
+                            hops 3.57 / 70 / 197 / 2587; unions 1.55 / 10 / 17 / 39; peel_steps 5.68 / 32 / 52 / 127; corrections 0.91 / 4 / 5 / 11; commits 0.47 / 3 / 4 / 8;
+         S     cycles per committed round: 106.8 / 1146.0 / 2019.0 / 8542.0 (mean = 58% of the round; 13.504% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 3.45 / 152.0 / 418.5; continuous stream 20.28 / 363.4 / 679.5, its last quarter 18.46 / 275.8 / 324.7
+         P     cycles per committed round: 16.9 / 96.0 / 130.0 / 245.0 (mean = 9% of the round; 0.003% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.09 / 0.8 / 2.4; continuous stream 0.09 / 0.8 / 2.4, its last quarter 0.09 / 0.8 / 1.8
+         S+pre cycles per committed round: 72.3 / 1083.0 / 2038.0 / 8129.0 (mean = 40% of the round; 8.741% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 2.93 / 146.1 / 411.4; continuous stream 13.21 / 306.1 / 599.6, its last quarter 11.94 / 234.9 / 294.3
+         P+pre cycles per committed round: 12.2 / 90.0 / 129.0 / 245.0 (mean = 7% of the round; 0.002% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.07 / 0.8 / 2.2; continuous stream 0.07 / 0.8 / 2.2, its last quarter 0.07 / 0.8 / 1.9
+     window  4 / commit  2 (96 vertices, 464 edges per window; 1250000 windows): 284 failures, 317 with the pre-decoder; windows without defects 18.8%;
+         the pre-decoder clears 37.0% of all windows (45.5% of those with defects)
+         counts per window: loads 2.82 / 9 / 12 / 18; growth_iters 1.74 / 8 / 16 / 47; edge_visits 56.59 / 431 / 1712 / 16544; edge_updates 48.96 / 344 / 981 / 4703; finds 19.99 / 121 / 600 / 8742;
+                            hops 5.40 / 57 / 484 / 8398; unions 2.44 / 12 / 25 / 69; peel_steps 9.26 / 39 / 78 / 229; corrections 1.66 / 5 / 7 / 13; commits 0.86 / 4 / 5 / 9;
+         S     cycles per committed round: 112.9 / 739.0 / 2714.5 / 26128.0 (mean = 62% of the round; 15.738% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 3.28 / 162.6 / 520.6; continuous stream 9.56 / 333.8 / 596.9, its last quarter 9.97 / 374.8 / 596.9
+         P     cycles per committed round: 13.0 / 52.0 / 102.5 / 303.0 (mean = 7% of the round; 0.017% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.14 / 1.1 / 3.5; continuous stream 0.14 / 1.1 / 3.5, its last quarter 0.14 / 1.1 / 3.5
+         S+pre cycles per committed round: 63.0 / 683.0 / 3185.0 / 26008.5 (mean = 35% of the round; 7.657% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 2.26 / 186.9 / 453.6; continuous stream 6.28 / 285.0 / 468.1, its last quarter 6.14 / 295.2 / 468.1
+         P+pre cycles per committed round: 7.9 / 49.0 / 107.5 / 297.5 (mean = 4% of the round; 0.025% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.09 / 1.2 / 3.3; continuous stream 0.09 / 1.2 / 3.3, its last quarter 0.09 / 1.2 / 3.3
+     window  6 / commit  3 (144 vertices, 734 edges per window; 800000 windows): 125 failures, 159 with the pre-decoder; windows without defects 7.9%;
+         the pre-decoder clears 37.8% of all windows (41.1% of those with defects)
+         counts per window: loads 4.41 / 12 / 15 / 23; growth_iters 2.48 / 9 / 17 / 52; edge_visits 101.53 / 652 / 2222 / 24641; edge_updates 89.76 / 513 / 1317 / 8001; finds 32.46 / 173 / 724 / 12975;
+                            hops 8.11 / 87 / 580 / 12594; unions 3.59 / 15 / 28 / 88; peel_steps 13.56 / 49 / 90 / 305; corrections 2.52 / 7 / 9 / 17; commits 1.34 / 5 / 7 / 12;
+         S     cycles per committed round: 125.4 / 715.3 / 2288.7 / 26054.3 (mean = 69% of the round; 18.479% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 4.45 / 160.4 / 654.3; continuous stream 12.91 / 474.8 / 803.6, its last quarter 15.39 / 620.0 / 803.6
+         P     cycles per committed round: 11.9 / 42.0 / 76.3 / 240.0 (mean = 7% of the round; 0.002% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.20 / 1.3 / 3.9; continuous stream 0.20 / 1.3 / 3.9, its last quarter 0.20 / 1.3 / 3.9
+         S+pre cycles per committed round: 66.8 / 641.3 / 2603.3 / 32545.0 (mean = 37% of the round; 7.570% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 2.76 / 223.9 / 1009.3; continuous stream 9.01 / 530.9 / 1009.3, its last quarter 9.84 / 671.4 / 1009.3
+         P+pre cycles per committed round: 7.1 / 38.3 / 78.3 / 272.7 (mean = 4% of the round; 0.006% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.12 / 1.3 / 4.5; continuous stream 0.12 / 1.3 / 4.5, its last quarter 0.12 / 1.3 / 4.5
+     window 10 / commit  5 (240 vertices, 1274 edges per window; 500000 windows): 85 failures, 115 with the pre-decoder; windows without defects 2.2%;
+         the pre-decoder clears 30.5% of all windows (31.1% of those with defects)
+         counts per window: loads 7.21 / 17 / 21 / 31; growth_iters 3.63 / 12 / 20 / 61; edge_visits 196.30 / 1052 / 3313 / 35356; edge_updates 175.14 / 820 / 1959 / 11719; finds 57.54 / 271 / 1119 / 17455;
+                            hops 14.02 / 152 / 919 / 16774; unions 5.68 / 20 / 36 / 118; peel_steps 21.15 / 67 / 117 / 388; corrections 4.03 / 10 / 12 / 21; commits 2.14 / 6 / 8 / 14;
+         S     cycles per committed round: 142.1 / 691.0 / 2083.4 / 22157.4 (mean = 78% of the round; 23.118% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 7.37 / 189.5 / 927.1; continuous stream 27.31 / 874.3 / 1204.6, its last quarter 28.44 / 804.3 / 890.3
+         P     cycles per committed round: 10.8 / 33.6 / 57.8 / 173.2 (mean = 6% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.30 / 1.6 / 4.7; continuous stream 0.30 / 1.6 / 4.7, its last quarter 0.30 / 1.6 / 4.7
+         S+pre cycles per committed round: 71.6 / 592.6 / 2346.4 / 29040.2 (mean = 39% of the round; 8.057% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 3.85 / 262.1 / 1158.5; continuous stream 12.61 / 712.8 / 1158.5, its last quarter 11.76 / 631.5 / 829.0
+         P+pre cycles per committed round: 6.3 / 29.6 / 59.6 / 194.0 (mean = 3% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.17 / 1.7 / 5.3; continuous stream 0.17 / 1.7 / 5.3, its last quarter 0.17 / 1.7 / 4.7
+     window 20 / commit 10 (480 vertices, 2624 edges per window; 250000 windows): 80 failures, 103 with the pre-decoder; windows without defects 0.2%;
+         the pre-decoder clears 15.2% of all windows (15.2% of those with defects)
+         counts per window: loads 13.91 / 28 / 34 / 49; growth_iters 5.81 / 16 / 26 / 61; edge_visits 465.50 / 1956 / 5712 / 38625; edge_updates 419.01 / 1550 / 3411 / 17510; finds 124.54 / 503 / 1900 / 17149;
+                            hops 29.33 / 302 / 1582 / 16330; unions 10.68 / 31 / 53 / 140; peel_steps 39.21 / 103 / 171 / 450; corrections 7.65 / 16 / 19 / 31; commits 4.29 / 10 / 12 / 20;
+         S     cycles per committed round: 161.2 / 634.5 / 1789.7 / 12163.4 (mean = 88% of the round; 30.396% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 14.61 / 223.7 / 1039.6; continuous stream 61.95 / 1130.0 / 1337.5, its last quarter 50.27 / 728.2 / 861.9
+         P     cycles per committed round: 9.3 / 24.5 / 40.0 / 102.9 (mean = 5% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.52 / 2.4 / 7.6; continuous stream 0.52 / 2.4 / 7.6, its last quarter 0.51 / 2.4 / 5.6
+         S+pre cycles per committed round: 77.3 / 509.1 / 2489.0 / 21633.2 (mean = 42% of the round; 8.466% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 6.70 / 318.7 / 1626.4; continuous stream 19.06 / 965.2 / 1626.4, its last quarter 18.35 / 1230.3 / 1626.4
+         P+pre cycles per committed round: 5.4 / 20.8 / 44.2 / 127.8 (mean = 3% of the round; 0.000% of windows over their budget)
+               latency in rounds, mean / 99.9th / max: one shot 0.30 / 2.7 / 7.7; continuous stream 0.30 / 2.7 / 7.7, its last quarter 0.30 / 2.6 / 7.0
+
+study complete in 4870 s

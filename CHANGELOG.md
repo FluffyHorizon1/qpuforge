@@ -34,7 +34,9 @@ two and three d = 5 patches with their routing region. `surgery_study` sections 
 The next decoding items of Phase Gamma: herald weights derived from the leakage model instead of fixed factors,
 heralding of data-qubit leakage through DQLR (measured, and found to cost more than it recovers), and an
 operation-count model of the streaming union-find decoder with two stated hardware cost models. The hardware part is a
-model: nothing was synthesised or run on an FPGA. Study: `examples/decoder_study2.cpp` ->
+model: nothing was synthesised or run on an FPGA. At d = 7 and ten times Gamma-1's leakage the derived weights give 199
+failures in 200,000 shots against 227 for the fixed factors and 375 without heralds; a serial block-RAM decoder at
+250 MHz keeps up on average and falls up to 1205 rounds behind in its tail, and parallel cluster growth stays within 4.7. Study: `examples/decoder_study2.cpp` ->
 `results/decoder_study2.{txt,json}`.
 
 A strict command line: each command accepts only its own options, and an unknown, misspelt or repeated option, a

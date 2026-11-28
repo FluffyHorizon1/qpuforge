@@ -139,11 +139,19 @@ the review does not use; what is still open is named in each item:
   `../../docs/design/heralded-leakage.md`): three-state readout heralds a leaked measure qubit and the matching is
   re-weighted. At d = 7 with the leakage-removing reset and exact matching, heralds lower the logical error by 10 % at
   the chip's own CZ leakage and by 46 % at ten times that (`../../results/decoder_study.txt` §3).
+  Weights derived from the leakage model (`--herald-weights derived`, `../../docs/design/derived-herald-weights.md`)
+  replace the fixed factors: at d = 7 and ten times the leakage they give 199 failures in 200,000 shots against 227
+  for the fixed factors and 375 without heralds (`../../results/decoder_study2.txt` §1). Heralding data-qubit leakage
+  by leaving it on the measure qubit after DQLR was modelled and does not pay (§2 of the same file).
 - **Real-time decoding.** In software, union-find (`qpuforge qec --decoder uf`) gives 0.98–1.10× the logical error of
   exact matching at d = 3 to 7. Its sliding-window version (`--decoder uf-stream`) comes within 1.16× of batch
   union-find with a 10-round window committing 5, and takes 1.5–1.8 µs per committed round at d = 7, against a round of
   0.73 µs in that 50-round run (`../../results/decoder_study.txt` §2, §5). §3 gives the exact-matching reference. Open:
   a decoder under 1 µs per round on an FPGA, and a faster, pipelined window scheme.
+  An operation-count model with two stated hardware cost models (`../../docs/design/streaming-union-find-fpga.md`,
+  `../../results/decoder_study2.txt` §3; a model, nothing synthesised) puts a serial block-RAM design at 250 MHz at
+  78 % of the round on average for a 10-round window but up to 1205 rounds behind in its tail, and a design that grows
+  all clusters of a window in parallel at 6 % of the round and at most 4.7 rounds behind.
 - **Impact veto.** Implemented in software (`qpuforge qec --bursts --veto`, `../../docs/design/impact-veto.md`): at
   d = 7 a 3-round × radius-2 window catches 90–95 % of impacts and removes 98–99.5 % of the failures in impacted
   shots. Shot-by-shot discard leaves the floor of §4 at 3.7e-08 per round; holding the chip for 7 recovery times (T1

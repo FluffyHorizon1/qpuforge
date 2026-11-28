@@ -12,9 +12,13 @@
 //   4. the shots of 2 decoded again with one joint decoder for all observables (matching and union-find) and with the
 //      two-pass correlated decoder: per-observable error, any observable wrong, decode time
 //   5. routing: the same operations between patches joined through a routing strip of length 3, 5 and 7 (Beta-1
-//      physics): noiseless check, logical error, rounds, duration and qubit footprint against the strip length
+//      physics): noiseless check, logical error, rounds, duration and qubit footprint against the strip length, also for
+//      the logical that crosses the strip (X_A X_B through a ZZ merge on |++>, Z_A Z_B through an XX merge on |00>);
+//      and the merge outcome against the crossing logical as the number of merged rounds changes (5c)
 //   6. chip account for two or three d = 5 patches and their routing region (qubits, couplers, feedlines, lines,
-//      frequency collisions, fabrication yield)
+//      frequency collisions, fabrication yield on every lattice)
+// Qubits that join at a merge (strip and gap data, new seam faces) are prepared just in time (SurgerySchedule::
+// just_in_time): the program is otherwise scheduled as soon as possible, as in the memory experiments.
 #include "qpuforge/qpuforge.hpp"
 #include "review_io.hpp"
 #include <cstdarg>
@@ -35,8 +39,8 @@ static void out(const char* fmt, ...) {
 struct Point {
     std::string chip, op, input; int d{0}, gap{1}; char basis{'Z'}; std::uint64_t seed{0}; SurgeryResult r; std::size_t faults{0};
     std::vector<SurgeryResult> dec;      // every decoder on the same shots (dec[0] = r)
-    int qubits{0}, data{0}, couplers{0}, other_detectors{0}, joint_edges{0}, mixed_edges{0}, correlated_pairs{0};
-    double minority_p{0};
+    int qubits{0}, data{0}, couplers{0}, other_detectors{0}, joint_edges{0}, mixed_edges{0}, correlated_pairs{0}, joining{0};
+    double minority_p{0}, ahead_asap{0};   // ahead_asap: how early the joining qubits would be ready if prepared as soon as possible
 };
 static const std::vector<SurgeryDecoder> kDecoders = {SurgeryDecoder::Separate, SurgeryDecoder::Joint, SurgeryDecoder::SeparateUF, SurgeryDecoder::JointUF,
                                                       SurgeryDecoder::Correlated};
@@ -52,8 +56,18 @@ static Json decoder_json(const SurgeryResult& q) {
     j.set("observables", o);
     j.set("any_wrong", q.p_any); j.set("any_wrong_sem", q.p_any_sem); j.set("any_wrong_errors", double(q.any_errors));
     j.set("differs_from_separate_matching", double(q.differ)); j.set("any_wrong_fixed", double(q.any_fixed)); j.set("any_wrong_broken", double(q.any_broken));
+    Json dw = Json::array();
+    for (long v : q.differ_with) dw.push(double(v));
+    j.set("differs_from", dw);   // per decoder of the point, in the order of "decoders"
     j.set("decode_ns_per_shot", q.decode_ns);
     return j;
+}
+// the shot-independent figures of a point (also compared by tools/check_reproducibility.py)
+static void point_json(Json& j, const Point& p) {
+    j.set("qubits", p.qubits); j.set("data_qubits", p.data); j.set("couplers", p.couplers);
+    j.set("other_type_detectors", p.other_detectors); j.set("joint_edges", p.joint_edges); j.set("joint_mixed_edges", p.mixed_edges);
+    j.set("joint_minority_p", p.minority_p); j.set("correlated_edge_pairs", p.correlated_pairs);
+    j.set("joining_qubits", p.joining); j.set("joining_ahead_asap_ns", p.ahead_asap);
 }
 
 int main(int argc, char** argv) {
@@ -65,7 +79,8 @@ int main(int argc, char** argv) {
     const std::vector<int> dists = opt.smoke ? std::vector<int>{3} : std::vector<int>{3, 5};
     out("qpuforge lattice-surgery study: logical ZZ / XX measurement and CNOT (surgery.hpp)\n");
     out("schedule: 1 round of separate patches, d rounds merged (ZZ, XX; the CNOT has a ZZ and then an XX merge of d rounds each), 1 round after the split,\n");
-    out("transversal preparation and readout; CZ-based syndrome extraction with the memory experiments' schedule\n\n");
+    out("transversal preparation and readout; CZ-based syndrome extraction with the memory experiments' schedule (as soon as possible), except that the\n");
+    out("qubits that join at a merge (gap and strip data, new seam faces) are prepared just in time, when the rest of their region has finished the phase before\n\n");
 
     // ---------------------------------------------------------------- 1. noiseless check
     Json jcheck = Json::array();
@@ -135,6 +150,7 @@ int main(int argc, char** argv) {
         for (const auto& st : E.sched.lat.sites) p.data += st.data;
         p.other_detectors = int(M.other_detectors.size()); p.joint_edges = int(M.jdem.edges.size()); p.mixed_edges = M.jdem.mixed_edges;
         p.minority_p = M.jdem.minority_p; p.correlated_pairs = M.correlated_pairs;
+        p.joining = M.timing.joining; p.ahead_asap = M.timing.ahead_asap_ns;
     };
     for (const std::string chip : {"alpha1_v11", "beta1"}) {
         for (int d : dists) {
@@ -154,6 +170,12 @@ int main(int argc, char** argv) {
                 pts.push_back(p);
             }
         }
+    }
+    {
+        double ahead = 0; int jmin = 1 << 30, jmax = 0;
+        for (const auto& p : pts) { ahead = std::max(ahead, p.ahead_asap); jmin = std::min(jmin, p.joining); jmax = std::max(jmax, p.joining); }
+        out("\n   just in time: %d-%d qubits per operation join at a merge; prepared as soon as possible they would be ready up to %.2f us before the rest of their region\n",
+            jmin, jmax, ahead / 1e3);
     }
     // distance scaling
     if (dists.size() > 1) {
@@ -184,25 +206,26 @@ int main(int argc, char** argv) {
     out("                        mechanisms with that correction lowered to their conditional probability\n");
     out("   differs / fixed / broken: shots whose prediction differs from separate matching; shots with some observable wrong under separate matching and none\n");
     out("   under this decoder, and the reverse. decode: mean wall time per shot on one thread (informational, not reproducible)\n");
-    long joint_differs = 0, shots_total = 0;
+    long joint_differs = 0, uf_differs = 0, shots_total = 0;
     double t_ratio_lo = 1e300, t_ratio_hi = 0, corr_lo = 1e300, corr_hi = 0, uf_lo = 1e300, uf_hi = 0;
     for (const auto& p : pts) {
-        out("\n   %s physics, d = %d, %s: %d %c-type detectors + %d of the other type; joint graph %d edges, %d with mixed masks (minority p %.1e); %d correlated edge pairs\n",
+        out("\n   %s physics, d = %d, %s: %d %c-type detectors + %d of the other type; joint graph %d edges, %d with mixed masks (minority p %.1e); %d correlated edge pairs;\n"
+            "     joint and separate union-find differ in %ld shots\n",
             p.chip == "beta1" ? "Beta-1" : "Alpha-1 v1.1", p.d, op_label(p.op, p.input).c_str(), p.r.n_detectors, p.basis, p.other_detectors, p.joint_edges, p.mixed_edges, p.minority_p,
-            p.correlated_pairs);
+            p.correlated_pairs, p.dec[3].differ_with[2]);
         out("     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us\n");
         for (const auto& q : p.dec) {
             std::string obs;
             for (std::size_t k = 0; k < q.names.size(); ++k) { char b[64]; std::snprintf(b, sizeof b, "%s%s %.5f", k ? ", " : "", q.names[k].c_str(), q.p[k]); obs += b; }
             out("     %-26s  %-51s  %.5f+-%.5f  %7ld  %6ld  %6ld  %9.2f\n", surgery_decoder_name(q.decoder), obs.c_str(), q.p_any, q.p_any_sem, q.differ, q.any_fixed, q.any_broken, q.decode_ns / 1e3);
         }
-        joint_differs += p.dec[1].differ; shots_total += p.r.shots;
+        joint_differs += p.dec[1].differ; uf_differs += p.dec[3].differ_with[2]; shots_total += p.r.shots;
         const double tr = p.dec[0].decode_ns / std::max(p.dec[1].decode_ns, 1e-9), cr = p.dec[4].p_any / std::max(p.dec[1].p_any, 1e-12), ur = p.dec[3].p_any / std::max(p.dec[1].p_any, 1e-12);
         t_ratio_lo = std::min(t_ratio_lo, tr); t_ratio_hi = std::max(t_ratio_hi, tr);
         corr_lo = std::min(corr_lo, cr); corr_hi = std::max(corr_hi, cr); uf_lo = std::min(uf_lo, ur); uf_hi = std::max(uf_hi, ur);
     }
-    out("\n   summary over the %zu points (%ld shots): joint matching differs from separate matching in %ld shots; separate / joint decode time %.1f-%.1fx;\n", pts.size(), shots_total,
-        joint_differs, t_ratio_lo, t_ratio_hi);
+    out("\n   summary over the %zu points (%ld shots): joint matching differs from separate matching in %ld shots, joint from separate union-find in %ld;\n"
+        "   separate / joint decode time %.1f-%.1fx;\n", pts.size(), shots_total, joint_differs, uf_differs, t_ratio_lo, t_ratio_hi);
     out("   any wrong, joint union-find / joint matching %.2f-%.2f; correlated / joint matching %.2f-%.2f\n", uf_lo, uf_hi, corr_lo, corr_hi);
 
     // ---------------------------------------------------------------- 5. routing strips
@@ -244,28 +267,35 @@ int main(int argc, char** argv) {
     out("   %d experiments, %d failed\n", rchecked, rfailed);
     failed += rfailed;
 
-    out("\n5b. Logical error per operation against the strip length, Beta-1 physics, %ld shots per point (strip 1: the points of section 2)\n", opt.shots);
-    out("   errors with joint matching; the last column is any observable wrong with the correlated decoder on the same shots\n");
+    out("\n5b. Logical error per operation against the strip length, Beta-1 physics, %ld shots per point (strip 1 of the first four operations: the points of section 2)\n", opt.shots);
+    out("   errors with joint matching; correlated: any observable wrong with the correlated decoder on the same shots. ZZ on |++> and XX on |00> decode the logical\n");
+    out("   that crosses the strip (X_A X_B through a ZZ merge, Z_A Z_B through an XX merge), which includes every strip qubit of its column or row at the split.\n");
+    out("   joint graph: edges, edges with mixed observable masks, their minority probability; UF j/s: shots where joint and separate union-find differ\n");
+    std::vector<Job> rjobs = jobs;
+    rjobs.push_back({"zz", "++", 'X', 4, "X_A X_B"});
+    rjobs.push_back({"xx", "00", 'Z', 5, "Z_A Z_B"});
     std::vector<Point> rpts;
     for (int d : dists) {
         out("\n   d = %d\n", d);
-        out("   operation     strip  qubits  (data)  couplers  rounds  dur_us  detectors  defects   logical error per observable                                       any wrong          correlated\n");
-        for (const auto& jb : jobs)
+        out("   operation     strip  qubits  (data)  couplers  rounds  dur_us  detectors  defects   logical error per observable                                       any wrong          correlated          joint graph          UF j/s\n");
+        for (const auto& jb : rjobs)
             for (int gap : gaps) {
                 Point p;
-                if (gap == 1) { for (const auto& q : pts) if (q.chip == "beta1" && q.d == d && q.op == jb.op && q.input == jb.in) p = q; }
-                else run_point("beta1", jb, d, gap, std::uint64_t(3000 + 100 * d + 10 * jb.kind + gap), p);
+                bool have = false;
+                if (gap == 1) for (const auto& q : pts) if (q.chip == "beta1" && q.d == d && q.op == jb.op && q.input == jb.in) { p = q; have = true; }
+                if (!have) run_point("beta1", jb, d, gap, std::uint64_t(3000 + 100 * d + 10 * jb.kind + gap), p);
                 const auto& q = p.dec[1];
                 std::string obs;
                 for (std::size_t k = 0; k < q.names.size(); ++k) { char b[96]; std::snprintf(b, sizeof b, "%s%s %.5f+-%.5f", k ? ", " : "", q.names[k].c_str(), q.p[k], q.p_sem[k]); obs += b; }
-                out("   %-12s  %5d  %6d  %6d  %8d  %6d  %6.2f  %9d  %7.2f   %-66s %.5f+-%.5f  %.5f+-%.5f\n", op_label(jb.op, jb.in).c_str(), gap, p.qubits, p.data, p.couplers, q.rounds,
-                    q.total_ns / 1e3, q.n_detectors, q.mean_defects, obs.c_str(), q.p_any, q.p_any_sem, p.dec[4].p_any, p.dec[4].p_any_sem);
+                out("   %-12s  %5d  %6d  %6d  %8d  %6d  %6.2f  %9d  %7.2f   %-66s %.5f+-%.5f  %.5f+-%.5f  %5d %3d %8.1e  %6ld\n", op_label(jb.op, jb.in).c_str(), gap, p.qubits, p.data, p.couplers,
+                    q.rounds, q.total_ns / 1e3, q.n_detectors, q.mean_defects, obs.c_str(), q.p_any, q.p_any_sem, p.dec[4].p_any, p.dec[4].p_any_sem, p.joint_edges, p.mixed_edges,
+                    p.minority_p, p.dec[3].differ_with[2]);
                 rpts.push_back(p);
             }
     }
     out("\n   any observable wrong, relative to adjacent patches (joint matching):\n");
     for (int d : dists)
-        for (const auto& jb : jobs) {
+        for (const auto& jb : rjobs) {
             std::string line;
             double base = 0;
             for (const auto& p : rpts) if (p.d == d && p.op == jb.op && p.input == jb.in) {
@@ -274,6 +304,40 @@ int main(int argc, char** argv) {
             }
             out("     d = %d, %-12s%s\n", d, op_label(jb.op, jb.in).c_str(), line.c_str());
         }
+
+    // ---------------------------------------------------------------- 5c. merged rounds: merge outcome against the crossing logical
+    const int gap5 = opt.smoke ? 3 : 5;
+    out("\n5c. Merged rounds through a strip of %d, Beta-1 physics, joint matching, %ld shots per point (d merged rounds: the points of 5b)\n", gap5, opt.shots);
+    out("   more merged rounds protect the merge outcome (m_ZZ, decided by a majority over the rounds) and expose the logical that crosses the strip (X_A X_B, carried\n");
+    out("   by the strip's data through every round) for longer\n");
+    out("   operation     d  rounds  dur_us  logical error per observable                                       any wrong\n");
+    Json jmr = Json::array();
+    {
+        for (int d : dists)
+            for (const Job& jb : {rjobs[0], rjobs[4]})
+                for (int extra : {0, 2, 4}) {
+                    const int R = d + extra;
+                    SurgeryResult q; std::uint64_t seed = 0;
+                    if (extra == 0) {
+                        for (const auto& p : rpts) if (p.d == d && p.op == jb.op && p.input == jb.in && p.gap == gap5) { q = p.dec[1]; seed = p.seed; }
+                    } else {
+                        SurgeryRounds rr; rr.merge = R;
+                        const auto E = surgery_experiment(jb.op, d, jb.in, 0, rr, gap5);
+                        const auto& [D, Rp] = chip_of("beta1", jb.op, d, gap5, E.sched.lat);
+                        const auto M = prepare_surgery(D, Rp, noise_model(D, Rp), E, jb.basis);
+                        seed = std::uint64_t(5000 + 100 * d + 10 * jb.kind + R);
+                        q = run_surgery_frame(M, opt.shots, seed, SurgeryDecoder::Joint);
+                    }
+                    std::string obs;
+                    for (std::size_t k = 0; k < q.names.size(); ++k) { char b[96]; std::snprintf(b, sizeof b, "%s%s %.5f+-%.5f", k ? ", " : "", q.names[k].c_str(), q.p[k], q.p_sem[k]); obs += b; }
+                    out("   %-12s %2d  %6d  %6.2f  %-66s %.5f+-%.5f\n", op_label(jb.op, jb.in).c_str(), d, R, q.total_ns / 1e3, obs.c_str(), q.p_any, q.p_any_sem);
+                    Json j = Json::object();
+                    j.set("op", jb.op); j.set("inputs", jb.in); j.set("d", d); j.set("strip", gap5); j.set("merged_rounds", R); j.set("seed", double(seed));
+                    j.set("rounds", q.rounds); j.set("duration_ns", q.total_ns);
+                    j.set("decoder", decoder_json(q));
+                    jmr.push(j);
+                }
+    }
 
     // ---------------------------------------------------------------- 6. chip account
     const int dc = dists.back();
@@ -318,23 +382,36 @@ int main(int argc, char** argv) {
         const auto& [D, R] = chip_of("beta1", l.op, dc, l.gap, E.sched.lat);
         jchip.push(account(l.name, D, R, l.gap));
     }
-    out("\n   fabrication Monte Carlo (junction spread 0.5 %% after trimming and 2 %% as fabricated; %d samples, seed 7; static collision rules):\n", opt.smoke ? 10 : 100);
+    const int fab_n = opt.smoke ? 10 : 100;
+    out("\n   fabrication Monte Carlo on every lattice (junction spread 0.5 %% after trimming and 2 %% as fabricated; %d samples each, seed 7; static collision rules):\n", fab_n);
     Json jfab = Json::array();
-    for (const auto& l : lays) {
-        if (!((l.op == "zz" && l.gap <= 3) || (l.op == "cnot" && l.gap == 1))) continue;
-        const auto E = surgery_experiment(l.op, dc, "00", 0, {}, l.gap);
-        const auto& [D0, R0] = chip_of("beta1", l.op, dc, l.gap, E.sched.lat);
-        (void)R0;
-        for (double spread : {0.5, 2.0}) {
-            ChipDesign D = D0; D.Rn_spread_pct = spread;
-            const auto F = fab_monte_carlo(D, opt.smoke ? 10 : 100, 7);
+    {
+        // every chip is built above; the Monte Carlo of each (lattice, spread) is independent and runs on its own thread
+        struct FabJob { const Lay* l; const ChipDesign* D; double spread; FabResult F; };
+        std::vector<FabJob> fj;
+        for (const auto& l : lays) {
+            const auto E = surgery_experiment(l.op, dc, l.op == "xx" ? "++" : "00", 0, {}, l.gap);
+            const auto& c = chip_of("beta1", l.op, dc, l.gap, E.sched.lat);
+            for (double spread : {0.5, 2.0}) fj.push_back({&l, &c.first, spread, {}});
+        }
+#pragma omp parallel for schedule(dynamic, 1)
+        for (long k = 0; k < long(fj.size()); ++k) {
+            ChipDesign D = *fj[std::size_t(k)].D; D.Rn_spread_pct = fj[std::size_t(k)].spread;
+            fj[std::size_t(k)].F = fab_monte_carlo(D, fab_n, 7);
+        }
+        int lo = 1 << 30, hi = -1, lo2 = 1 << 30, hi2 = -1;
+        for (const auto& f : fj) {
+            const auto& F = f.F;
             double fs = 0; for (double v : F.f01_sigma_MHz) fs += v;
-            out("   %-36s  spread %.1f %%: collision-free %3d/%d, frequency scatter %.0f MHz rms\n", l.name.c_str(), spread, F.collision_free, F.samples, fs / std::max(F.samples, 1));
+            out("   %-36s  spread %.1f %%: collision-free %3d/%d, frequency scatter %.0f MHz rms\n", f.l->name.c_str(), f.spread, F.collision_free, F.samples, fs / std::max(F.samples, 1));
+            (f.spread < 1 ? lo : lo2) = std::min(f.spread < 1 ? lo : lo2, F.collision_free);
+            (f.spread < 1 ? hi : hi2) = std::max(f.spread < 1 ? hi : hi2, F.collision_free);
             Json j = Json::object();
-            j.set("lattice", l.name); j.set("d", dc); j.set("strip", l.gap); j.set("spread_pct", spread); j.set("samples", F.samples); j.set("collision_free", F.collision_free);
+            j.set("lattice", f.l->name); j.set("d", dc); j.set("strip", f.l->gap); j.set("spread_pct", f.spread); j.set("samples", F.samples); j.set("collision_free", F.collision_free);
             j.set("f01_scatter_MHz", fs / std::max(F.samples, 1));
             jfab.push(j);
         }
+        out("   collision-free, over the %zu lattices: %d-%d of %d at 0.5 %%, %d-%d of %d at 2 %%\n", lays.size(), lo, hi, fab_n, lo2, hi2, fab_n);
     }
     const double runtime = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start).count();
     out("\nruntime %.0f s\n", runtime);
@@ -342,9 +419,9 @@ int main(int argc, char** argv) {
 
     Json J = Json::object();
     J.set("schema", "qpuforge-surgery-study");
-    J.set("provenance", review::provenance(opt, "frame Monte Carlo seed 1000 + 100 d + 10 k (+5 for Beta-1), k = 0 ZZ, 1 XX, 2 CNOT Z, 3 CNOT X; tableau check seed 77; routing strips: 3000 + 100 d + 10 k + strip length; fabrication Monte Carlo seed 7"));
+    J.set("provenance", review::provenance(opt, "frame Monte Carlo seed 1000 + 100 d + 10 k (+5 for Beta-1), k = 0 ZZ, 1 XX, 2 CNOT Z, 3 CNOT X; tableau check seed 77; routing strips: 3000 + 100 d + 10 k + strip length, k = 4 ZZ |++>, 5 XX |00>; merged rounds: 5000 + 100 d + 10 k + rounds; fabrication Monte Carlo seed 7"));
     J.set("shots", double(opt.shots));
-    J.set("schedule", "1 separate round, d merged rounds per merge, 1 round after the split");
+    J.set("schedule", "1 separate round, d merged rounds per merge, 1 round after the split; qubits joining at a merge prepared just in time");
     J.set("noiseless_check", jcheck);
     J.set("noiseless_check_failed", failed);
     Json jr = Json::array();
@@ -362,8 +439,7 @@ int main(int argc, char** argv) {
         }
         j.set("observables", o);
         j.set("any_wrong", p.r.p_any); j.set("any_wrong_sem", p.r.p_any_sem); j.set("any_wrong_errors", double(p.r.any_errors));
-        j.set("other_type_detectors", p.other_detectors); j.set("joint_edges", p.joint_edges); j.set("joint_mixed_edges", p.mixed_edges);
-        j.set("joint_minority_p", p.minority_p); j.set("correlated_edge_pairs", p.correlated_pairs);
+        point_json(j, p);
         Json jd = Json::array();
         for (const auto& q : p.dec) jd.push(decoder_json(q));
         j.set("decoders", jd);
@@ -374,7 +450,7 @@ int main(int argc, char** argv) {
     for (const auto& p : rpts) {
         Json j = Json::object();
         j.set("chip", p.chip); j.set("op", p.op); j.set("inputs", p.input); j.set("d", p.d); j.set("strip", p.gap); j.set("decoded_basis", std::string(1, p.basis));
-        j.set("seed", double(p.seed)); j.set("qubits", p.qubits); j.set("data_qubits", p.data); j.set("couplers", p.couplers);
+        j.set("seed", double(p.seed)); point_json(j, p);
         j.set("rounds", p.r.rounds); j.set("duration_ns", p.r.total_ns); j.set("detectors", p.r.n_detectors); j.set("fault_mechanisms", double(p.faults));
         j.set("hyperedge_faults", p.dec[1].hyperedge_faults); j.set("hyperedge_p", p.dec[1].hyperedge_p);
         j.set("detection_rate", p.r.detection_rate); j.set("mean_defects", p.r.mean_defects); j.set("max_defects", p.r.max_defects);
@@ -385,6 +461,7 @@ int main(int argc, char** argv) {
     }
     J.set("routing", jrt);
     J.set("routing_noiseless_check", jrcheck);
+    J.set("merged_rounds", jmr);
     J.set("routing_noiseless_check_failed", rfailed);
     J.set("chip_account", jchip);
     J.set("chip_account_fab_yield", jfab);

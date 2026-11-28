@@ -40,7 +40,9 @@
     "results/test_output.txt",
     "results/cz_cache.json",
     "results/flux_distortion_study.json",
-    "results/flux_distortion_study.txt"
+    "results/flux_distortion_study.txt",
+    "results/surgery_study.json",
+    "results/surgery_study.txt"
   ],
   "gds": [
     {
@@ -97,6 +99,8 @@
     "designs/gamma1/GF97.gds",
     "results/design_study.csv",
     "results/design_study.txt",
-    "results/cz_cache.json"
+    "results/cz_cache.json",
+    "results/surgery_study.json",
+    "results/surgery_study.txt"
   ]
 }

@@ -3,7 +3,8 @@
 
     python3 tools/check_reproducibility.py policy                       size limits + provenance coverage (no build needed)
     python3 tools/check_reproducibility.py regen --tier fast --build B  regenerate the cheap deterministic outputs, diff
-    python3 tools/check_reproducibility.py regen --tier full --build B  also rerun the three review programs (~30 min)
+    python3 tools/check_reproducibility.py regen --tier full --build B  also rerun the three review programs (~30 min) and
+                                                                        the lattice-surgery study in smoke mode (~5 min)
     python3 tools/check_reproducibility.py compare ROOT_A ROOT_B        diff the committed outputs of two checkouts
 
 Run from the repository root. B is a built tree (Release, any compiler, any OMP_NUM_THREADS). Comparison is bit-for-bit
@@ -247,11 +248,61 @@ def regen(root, build, tier):
                     ok &= compare_files(f'{d}/{x}', os.path.join(root, d, x), os.path.join(od, x))
                 if gds_out:
                     ok &= compare_files(f'{d}/{gds_out}', os.path.join(root, d, gds_out), os.path.join(od, gds_out))
+            od = os.path.join(tmp, 'surgery_study')
+            os.makedirs(od)
+            with open(os.path.join(od, 'stdout.txt'), 'wb') as out:
+                ok &= run([os.path.join(build, 'surgery_study'), '--smoke', '--out', od], root, out=out)
+            ok &= compare_surgery_points(os.path.join(root, 'results/surgery_study.json'), os.path.join(od, 'surgery_study.json'))
     finally:
         if os.environ.get('KEEP_REPRO_DIR'):
             print('kept', tmp)
         else:
             shutil.rmtree(tmp, ignore_errors=True)
+    return ok
+
+
+# The lattice-surgery study at its committed 100000 shots takes over an hour (results/PROVENANCE.md has the command).
+# The full tier runs it in smoke mode (d = 3, 200 shots) and compares, point by point, everything the shot count does not
+# change: the noiseless checks, and for each Monte Carlo point present in both runs its circuit, schedule and
+# detector-error-model figures. Logical errors and decode times are left out.
+SURGERY_POINT_FIELDS = ('rounds', 'duration_ns', 'detectors', 'fault_mechanisms', 'hyperedge_faults', 'hyperedge_p', 'undetectable_logical',
+                        'decoded_basis', 'seed', 'qubits', 'data_qubits', 'couplers', 'other_type_detectors', 'joint_edges', 'joint_mixed_edges',
+                        'joint_minority_p', 'correlated_edge_pairs', 'joining_qubits', 'joining_ahead_asap_ns')
+
+
+def compare_surgery_points(committed, fresh):
+    with open(committed) as f:
+        a = json.load(f)
+    with open(fresh) as f:
+        b = json.load(f)
+    ok = True
+    n = 0
+    def key(e, *fields):
+        return tuple(str(e.get(k, '')) for k in fields)
+    for section, fields in (('noiseless_check', ('op', 'd', 'inputs', 'readout')),
+                            ('routing_noiseless_check', ('op', 'd', 'strip', 'inputs', 'readout')),
+                            ('runs', ('chip', 'op', 'inputs', 'd')),
+                            ('routing', ('chip', 'op', 'inputs', 'd', 'strip'))):
+        ca = {key(e, *fields): e for e in a.get(section, [])}
+        common = 0
+        for e in b.get(section, []):
+            k = key(e, *fields)
+            if k not in ca:
+                continue
+            common += 1
+            ref = ca[k]
+            names = [x for x in e if x not in ('observables', 'decoders', 'any_wrong', 'any_wrong_sem', 'any_wrong_errors', 'detection_rate',
+                                                'mean_defects', 'max_defects')] if section.endswith('check') else SURGERY_POINT_FIELDS
+            for f in names:
+                if f in ref or f in e:
+                    if ref.get(f) != e.get(f):
+                        print(f"  FAIL results/surgery_study.json {section} {'/'.join(k)}: {f} {ref.get(f)} committed, {e.get(f)} regenerated")
+                        ok = False
+        if common == 0:
+            print(f"  FAIL results/surgery_study.json {section}: no point in common with the smoke run")
+            ok = False
+        n += common
+    print(f"  {'OK  ' if ok else 'FAIL'} results/surgery_study.json (smoke run, {n} points compared on shot-independent fields)")
     return ok
 
 

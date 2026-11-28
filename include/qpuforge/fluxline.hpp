@@ -170,7 +170,8 @@ inline std::vector<double> flux_line_output(const FluxChannel& ch, const FluxAwg
                                             const std::vector<double>& edges) {
     if (edges.size() < 2) return {};
     for (std::size_t i = 1; i < edges.size(); ++i) if (edges[i] < edges[i - 1]) throw std::invalid_argument("flux_line_output: edges must ascend");
-    for (std::size_t i = 1; i < train.size(); ++i) if (train[i].t0 < train[i - 1].end()) throw std::invalid_argument("flux_line_output: pulses overlap or are out of order");
+    // pulses that follow one another without a gap may overlap by rounding: allow 1e-9 ns
+    for (std::size_t i = 1; i < train.size(); ++i) if (train[i].t0 < train[i - 1].end() - 1e-9) throw std::invalid_argument("flux_line_output: pulses overlap or are out of order");
     std::vector<double> out(edges.size() - 1, 0.0);
     if (train.empty()) return out;
     const double Ts = awg.period(), delay = ch.line.delay_ns;

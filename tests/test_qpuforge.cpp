@@ -717,8 +717,10 @@ static void test_flux_predistortion() {
         for (int k = 0; k <= 2400; ++k) e.push_back(k * 1.0);
         const FluxPulse p1{10.0, 1.0, 7, 26}, p2{60.0, -0.7, 7, 21};
         const auto y1 = flux_line_output(ch, awg, {p1}, e), y2 = flux_line_output(ch, awg, {p2}, e), y12 = flux_line_output(ch, awg, {p1, p2}, e);
+        const FluxPulse p3{p1.end(), 0.5, 7, 21};        // starts where p1 ends: back to back, as the CZ gates of a measure qubit
+        const auto y3 = flux_line_output(ch, awg, {p3}, e), y13 = flux_line_output(ch, awg, {p1, p3}, e);
         double area = 0, sup = 0;
-        for (std::size_t i = 0; i < y1.size(); ++i) { area += y1[i]; sup = std::max(sup, std::abs(y12[i] - y1[i] - y2[i])); }
+        for (std::size_t i = 0; i < y1.size(); ++i) { area += y1[i]; sup = std::max({sup, std::abs(y12[i] - y1[i] - y2[i]), std::abs(y13[i] - y1[i] - y3[i])}); }
         FluxChannel late = ch; late.line.delay_ns = 0.37;
         std::vector<double> es = e;
         for (auto& t : es) t += 0.37;
@@ -729,7 +731,7 @@ static void test_flux_predistortion() {
                     area, 26.0 + 7.0, y1[30], y1[70], sup, dd);
         CHECK(std::abs(area - 33.0) < 1e-9, "area through the line %.12f", area);
         CHECK(y1[30] > 1.005 && y1[30] < 1.02 && y1[70] < -0.002 && y1[70] > -0.02, "overshoot on the flat top and undershoot after the pulse: %.5f, %.5f", y1[30], y1[70]);
-        CHECK(sup < 1e-13, "superposition violated by %.2e", sup);
+        CHECK(sup < 1e-13, "superposition violated by %.2e (pulses apart, and back to back)", sup);
         CHECK(dd < 1e-12, "delay is not a pure shift: %.2e", dd);
         bool threw = false;
         try { (void)flux_line_output(ch, awg, {p1, FluxPulse{30.0, 1.0, 7, 26}}, e); } catch (const std::invalid_argument&) { threw = true; }

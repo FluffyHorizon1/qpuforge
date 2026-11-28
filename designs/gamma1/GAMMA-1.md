@@ -135,8 +135,14 @@ the review does not use; what is still open is named in each item:
 - **Logical operations.** Lattice surgery is simulated (`surgery.hpp`, `qpuforge surgery`,
   `../../docs/design/lattice-surgery.md`): logical ZZ and XX measurement between two patches and the three-patch CNOT,
   at d = 3 and 5 (`../../results/surgery_study.txt`). With Beta-1 physics (also Gamma-1's) at d = 5 the ZZ outcome is
-  wrong in 0.14 % of measurements and a CNOT on |00⟩ gets some output wrong in 0.71 % of runs. Open: a chip layout for
-  the patches and their routing region, real-time feed-forward of the corrections, a joint decoder for all observables.
+  wrong in 0.14 % of measurements and a CNOT on |00⟩ gets some output wrong in 0.71 % of runs. A joint decoder for all
+  observables gives the same predictions as separate decoders in 1.9–3.4× less decode time; a two-pass correlated
+  decoder lowers the CNOT's 0.71 % to 0.42 % but takes 184 µs per shot against 15 µs, so it is not a real-time
+  candidate. Operations through a straight routing strip take the same number of rounds; with strips of 7 the CNOT is
+  wrong in 1.82 % of runs. Two adjacent d = 5 patches need 109 qubits and 432 lines, the three patches of a CNOT 169
+  to 289 qubits; the 8-frequency plan and the 16 CZ calibrations of this chip cover them without a frequency
+  collision. Open: a layout and control-line routing for the patches and their routing region (only the qubit and line
+  count exists), routes with bends, real-time feed-forward of the corrections.
 - **Leakage-aware decoding.** Implemented (`HeraldSpec`, `qpuforge qec --herald`,
   `../../docs/design/heralded-leakage.md`): three-state readout heralds a leaked measure qubit and the matching is
   re-weighted. At d = 7 with the leakage-removing reset and exact matching, heralds lower the logical error by 10 % at

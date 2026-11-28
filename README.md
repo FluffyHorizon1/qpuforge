@@ -44,6 +44,9 @@ Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decod
 | Layer | Module | What it does |
 |---|---|---|
 | Lattice surgery | `surgery.hpp` | Several surface-code patches on one lattice with merge and split schedules: logical ZZ and XX measurement between two patches and the three-patch logical CNOT, with detectors and observables across the merge and split boundaries, Pauli-frame corrections, a stabiliser-tableau check of the noiseless circuit, one exact matching decoder per observable and the memory experiments' noise model. With Beta-1 physics the ZZ outcome is wrong in 0.74 % of measurements at d = 3 and 0.14 % at d = 5; a CNOT on \|00⟩ gets some output wrong in 2.7 % and 0.71 % of runs (`results/surgery_study.txt`, [design note](docs/design/lattice-surgery.md)) |
+| Joint and correlated decoding | `surgery.hpp` | One decoder pass for all observables of an operation: exact matching or union-find on one graph whose edges carry an observable mask (`SurgeryDecoder::Joint`, `JointUF`; `qpuforge surgery --decoder joint`). On 1,600,000 shots it gives the same prediction as the separate decoders in every shot, in 1.9–3.4× less decode time. A two-pass correlated decoder (`Correlated`) uses the detectors of both Pauli types: at d = 5 with Beta-1 physics it lowers the CNOT's "some output wrong" from 0.71 % to 0.42 %, at 12 times the decode time of joint matching (184 µs per shot against 15 µs), so it is an offline reference, not a real-time candidate |
+| Routing strips | `surgery.hpp` | ZZ, XX and the CNOT between patches that are not adjacent, through a straight routing strip of chosen length that is merged with both patches and read out at the split (`gap`; `qpuforge surgery --gap 3`). The strip adds no rounds and 2d qubits per row. The error of the merge outcome grows about linearly with the strip: at d = 5 with Beta-1 physics the ZZ outcome is wrong in 0.14 % of measurements for adjacent patches and 0.45 % through a strip of 7, and a CNOT on \|00⟩ gets some output wrong in 0.71 % and 1.82 % of runs |
+| Chip account | `surgery_study` | Two d = 5 patches need 109 qubits, 188 couplers, 13 feedlines and 432 lines when adjacent and 169 qubits with a strip of 7; the three patches of a CNOT need 169 to 289 qubits. The 8-frequency plan and the 16 CZ calibrations of Beta-1 cover every lattice without a frequency collision. No layout or mask |
 
 ### What's new in v0.4
 
@@ -101,6 +104,7 @@ qpuforge new chip.json --preset beta1                       # Beta-1 (distance 5
 qpuforge new chip.json --preset gamma1                      # Gamma-1 (distance 7, 97 qubits)
 qpuforge qec chip.json --basis both --rounds 14 --cache results/cz_cache.json   # memory in the Z and the X basis
 qpuforge surgery --op cnot --d 3,5 --input 00 --cache results/cz_cache.json     # lattice surgery (also --op zz, --op xx)
+qpuforge surgery --op zz --d 3 --gap 3 --decoder all --cache results/cz_cache.json   # through a routing strip, every decoder
 qpuforge qec chip.json --bursts --cache results/cz_cache.json                   # + logical-error floor from impacts
 qpuforge synth-chip chip.json data.json --seed 3 --cache results/cz_cache.json  # virtual chip -> characterisation file
 qpuforge hwgate chip.json data.json --phase alpha --out report.json             # hardware gate from measured data
@@ -227,6 +231,10 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
   reproduces the memory experiment shot for shot, with and without leakage, and its chip equals Beta-1 at d = 3. The
   d = 3 detector error models have no undetectable logical faults, and every single fault is corrected except a few
   coherent-ZZ crosstalk terms that straddle two rounds (total probability at most 2.1e-7).
+  The joint decoder's graph agrees with the per-observable graphs pair by pair, and on the same shots it reproduces
+  the separate decoders. Through routing strips (lengths 3 and 5) the tableau checks pass for ZZ, XX and the CNOT,
+  including the reference-qubit process check; removing the strip's closing detectors or a strip qubit from a logical
+  is caught.
 * Materials sidecar (`forge.materials.v0`, `materials.hpp`, [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md)): the
   placeholder file exactly as atomforge writes it leaves Alpha-1 v1.1 unchanged. Sidecar values of Q_dielectric and the
   junction gap reach `analyze()`: T1_diel matches 2πf/Q to 1e-12 and E_J scales with the gap. The loss tangent becomes
@@ -315,8 +323,9 @@ See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on t
 
 1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
 2. Multi-qubit pulse simulation of spectator crossings; flux-pulse distortion and predistortion model.
-3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, a joint
-   multi-observable decoder and routing between patches.
+3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, routes with bends
+   and a router for more than three patches, a correlated decoder fast enough for real time, and a layout for the
+   patches and their routing region.
 4. Data-qubit leakage heralding, and herald weights derived from the leakage model.
 5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.

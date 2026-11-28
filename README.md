@@ -129,6 +129,7 @@ qpuforge analyze chip.json                                  # device report + de
 qpuforge analyze chip.json --materials sidecar.json         # apply an atomforge forge.materials.v0 sidecar first (add --loss-tangent to use Q = 1/tanδ)
 qpuforge qec chip.json --materials sidecar.json             # --materials works on run, budget, fab, qec, cz, synth-chip, hwgate too
 qpuforge materials apply chip.json sidecar.json --out chip2.json   # save the applied values, with a materials_source block
+qpuforge analyze designs/alpha1-v11/alpha1_v11.json --materials designs/alpha1-v11/materials-alpha1-v11-handwritten.json   # hand-written sidecar (assumed values)
 qpuforge layout chip.json chip.svg                          # floor-plan
 qpuforge run chip.json examples/ghz5.qasm --traj 400        # emulate a circuit (mid-circuit measure/reset supported)
 qpuforge run chip.json xeb:10                               # also ghz:N qft:N bv:N

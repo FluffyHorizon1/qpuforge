@@ -277,6 +277,12 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
   `MaterialsApplyResult` and `materials_detail::sha256_hex` / `read_file`. The `materials` group has 34 checks (5 new),
   509 in all; CLI guards `cli_materials_apply*` and new `cli_exit_status` / `cli_help_command` lines.
 - The `layout` / `gds` refusal of `--materials` now points at `qpuforge materials apply`.
+- `designs/alpha1-v11/materials-alpha1-v11-handwritten.json` (decision D5, first half): the first sidecar with values,
+  written by hand. `Q_dielectric` 3e6 and `junction_gap_ueV` 180 are the values Alpha-1 v1.1 already assumes, each with
+  `provenance: "assumed"` and a `reason`; no number in it is presented as sourced, computed or measured, and
+  `loss_tangent` is null. Applying it changes no Alpha-1 v1.1 number; it exercises the reader, the provenance checks and
+  `materials apply --out` on a real design now, before the DFT bridge writes sidecars. Two `materials` checks (36 in the
+  group, 511 in all) and the `cli_materials_alpha1_handwritten` guard.
 
 ### Fixed
 - CLI: each command accepts only the options it reads. An unknown or misspelt option (`--shot 1000`, `-grid`, or another

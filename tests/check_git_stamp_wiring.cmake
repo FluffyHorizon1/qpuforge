@@ -13,7 +13,8 @@
 #   nothing changed                              the same; nothing is compiled or linked
 #   a tracked file modified                      the same commit, dirty
 # A stamp taken when CMake configures (the old behaviour) fails at the first commit. A program that CMakeLists.txt
-# does not link with the stamp library prints "unknown" and fails there too.
+# does not link with the stamp library prints "unknown" and fails there too. The builds must also run the git that
+# the copy was configured with (GIT_EXECUTABLE has to reach cmake/git_stamp.cmake).
 # No network, and nothing outside WORK_DIR/git_stamp_wiring_test is written. Without git only the first build runs,
 # and the "git_stamp_wiring: skipped" line makes CTest report the test as skipped (SKIP_REGULAR_EXPRESSION in
 # CMakeLists.txt).
@@ -61,11 +62,15 @@ file(COPY "${SOURCE_DIR}/examples/git_stamp.hpp" DESTINATION "${src}/examples" N
 file(GLOB sources RELATIVE "${SOURCE_DIR}"
      "${SOURCE_DIR}/src/*.cpp" "${SOURCE_DIR}/tests/*.cpp" "${SOURCE_DIR}/examples/*.cpp")
 set(programs "")
+set(control "")   # a program that has nothing to do with the stamp
 foreach(source IN LISTS sources)
   set(stamped FALSE)
   if(source MATCHES "^examples/([^/]+)\\.cpp$")
     set(name "${CMAKE_MATCH_1}")
     includes_git_stamp("${SOURCE_DIR}/${source}" stamped)
+    if(NOT stamped)
+      set(control "${name}")
+    endif()
   endif()
   if(stamped)
     list(APPEND programs "${name}")
@@ -78,12 +83,12 @@ int main() {
 }
 ")
   else()
-    file(WRITE "${src}/${source}" "// Stand-in for ${source}, written by tests/check_git_stamp_wiring.cmake. Not built.
+    file(WRITE "${src}/${source}" "// Stand-in for ${source}, written by tests/check_git_stamp_wiring.cmake.
 int main() { return 0; }
 ")
   endif()
 endforeach()
-if(NOT programs)
+if("${programs}" STREQUAL "")
   give_up("no examples/*.cpp in ${SOURCE_DIR} includes git_stamp.hpp: there is nothing to check")
 endif()
 list(LENGTH programs count)
@@ -91,17 +96,34 @@ string(REPLACE ";" " " names "${programs}")
 message(STATUS "programs that include git_stamp.hpp: ${names}")
 file(WRITE "${src}/notes.txt" "one\n")   # the tracked file that the later steps change; no target reads it
 
+# The git of the copy. CMakeLists.txt must hand the git that CMake has when it configures (GIT_EXECUTABLE) on to
+# cmake/git_stamp.cmake, which looks for git on PATH only if that file is gone. To tell which git the builds run, the
+# copy is configured with a git of its own where a shell script can be one: it notes each call in ${work}/git-calls
+# and then runs the git of this test.
+set(git_of_the_copy "${git}")
+set(git_calls "")
+if(git AND CMAKE_HOST_UNIX AND NOT "${work}${git}" MATCHES "'")
+  file(WRITE "${work}/script/git" "#!/bin/sh\necho called >> '${work}/git-calls'\nexec '${git}' \"$@\"\n")
+  file(COPY "${work}/script/git" DESTINATION "${work}/noting" FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+  execute_process(COMMAND "${work}/noting/git" --version RESULT_VARIABLE rc OUTPUT_QUIET ERROR_QUIET)
+  if("${rc}" STREQUAL "0")
+    set(git_of_the_copy "${work}/noting/git")
+    set(git_calls "${work}/git-calls")
+  endif()
+endif()
+
 set(configure "${CMAKE_COMMAND}" -S "${src}" -B "${bld}" -G "${GENERATOR}" "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
 if(MAKE_PROGRAM)
   list(APPEND configure "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
 endif()
 if(git)
-  list(APPEND configure "-DGIT_EXECUTABLE=${git}")   # the copy is given the git that this test uses
+  list(APPEND configure "-DGIT_EXECUTABLE=${git_of_the_copy}")
 endif()
 execute_process(COMMAND ${configure} RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE out)
 if(NOT "${rc}" STREQUAL "0")
   give_up("CMake could not configure the copy of the build description (${rc}). If CMakeLists.txt now names a source outside src/, tests/ and examples/, this script has to write a stand-in for it." "${out}")
 endif()
+file(REMOVE "${work}/git-calls")   # CMake asked that git for its version; only the calls of the builds count
 
 # make and ninja compare file times, so what the next build writes must be newer than what the last one made. This
 # waits until the file system gives a later time: at once on most, a second or two where times are whole seconds.
@@ -139,7 +161,7 @@ function(build_and_expect what commit dirty)
       string(APPEND wrong "${name} printed: ${printed}\n")
     endif()
   endforeach()
-  if(wrong)
+  if(NOT "${wrong}" STREQUAL "")
     check_failed("${what}: every program must print the stamp \"${commit} ${dirty}\", but" "${wrong}The build printed:\n${out}")
   else()
     message(STATUS "ok: ${what}: ${count} programs with the stamp ${commit} / ${dirty}")
@@ -149,15 +171,32 @@ function(build_and_expect what commit dirty)
 endfunction()
 
 build_and_expect("no repository" unknown false)
-# Ninja and the Makefile generators say what they compile and link. If the first build shows that this generator
-# does, the later builds are also checked for what they compiled and linked.
-set(build_is_reported FALSE)
-if(build_out MATCHES "Building CXX object" AND build_out MATCHES "Linking CXX executable")
-  set(build_is_reported TRUE)
+# What the later builds compile and link is checked too, if it can be. The generator must say it, as Ninja and the
+# Makefile generators do. And a source that has not changed must be left alone in this build tree, whatever the stamp
+# does: to see that, a program that has nothing to do with the stamp is built twice. (Ninja 1.11.1 with gcc 13
+# compiles every source again on every build if a path has an apostrophe in it.)
+set(cost_not_checked "")   # the reason, if it cannot be
+if(NOT build_out MATCHES "Building CXX object" OR NOT build_out MATCHES "Linking CXX executable")
+  set(cost_not_checked "${GENERATOR} does not say what it compiles and links as Ninja and make do")
+elseif(NOT "${control}" STREQUAL "")
+  foreach(build first second)
+    execute_process(COMMAND "${CMAKE_COMMAND}" --build "${bld}" --target "${control}"
+                    RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE out)
+  endforeach()
+  if("${rc}" STREQUAL "0" AND out MATCHES "Building CXX object")
+    set(cost_not_checked "every build here compiles ${control} again, a source that has not changed")
+  endif()
 endif()
 if(NOT git)
   skip_without_git("git_stamp_wiring: skipped, git not found (the builds that need a repository were not run)")
   return()
+endif()
+if("${git_calls}" STREQUAL "")
+  message(STATUS "not checked: which git the build runs (no shell script could stand in for git here)")
+elseif(EXISTS "${git_calls}")
+  message(STATUS "ok: the build ran the git that the copy was configured with")
+else()
+  check_failed("the build did not run the git that the copy was configured with: CMakeLists.txt must pass GIT_EXECUTABLE on to cmake/git_stamp.cmake")
 endif()
 
 git_in("${src}" init -q)
@@ -176,7 +215,7 @@ if("${second}" STREQUAL "${first}")
   give_up("the second commit has the hash of the first")
 endif()
 build_and_expect("second commit, built again" "${second}" false)
-if(build_ok AND build_is_reported)
+if(build_ok AND "${cost_not_checked}" STREQUAL "")
   string(REGEX MATCHALL "Building CXX object [^\n]*" compiled "${build_out}")
   set(more "")
   foreach(line IN LISTS compiled)
@@ -184,7 +223,7 @@ if(build_ok AND build_is_reported)
       string(APPEND more "${line}\n")
     endif()
   endforeach()
-  if(more)
+  if(NOT "${more}" STREQUAL "")
     check_failed("a new commit must cost one small compile (git_stamp.cpp) and a relink of each program, but the build also compiled" "${more}")
   else()
     message(STATUS "ok: only the stamp was compiled")
@@ -192,15 +231,15 @@ if(build_ok AND build_is_reported)
 endif()
 
 build_and_expect("nothing changed, built again" "${second}" false)
-if(build_ok AND build_is_reported)
+if(build_ok AND "${cost_not_checked}" STREQUAL "")
   if(build_out MATCHES "Building CXX object|Linking CXX")
     check_failed("a build with nothing new must not compile or link anything, but it printed:" "${build_out}")
   else()
     message(STATUS "ok: nothing was compiled or linked")
   endif()
 endif()
-if(NOT build_is_reported)
-  message(STATUS "not checked: what a rebuild compiles and links (${GENERATOR} does not say it as Ninja and make do)")
+if(NOT "${cost_not_checked}" STREQUAL "")
+  message(STATUS "not checked: what a rebuild compiles and links (${cost_not_checked})")
 endif()
 
 file(APPEND "${src}/notes.txt" "three\n")

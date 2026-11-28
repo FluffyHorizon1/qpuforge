@@ -67,3 +67,4 @@ Testing/
 .DS_Store
 Thumbs.db
 !tests/compare_thread_digests.cmake
+!tests/check_cli_exit_status.cmake

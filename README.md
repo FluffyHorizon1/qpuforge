@@ -105,7 +105,7 @@ qpuforge qec chip.json --bursts --cache results/cz_cache.json                   
 qpuforge synth-chip chip.json data.json --seed 3 --cache results/cz_cache.json  # virtual chip -> characterisation file
 qpuforge hwgate chip.json data.json --phase alpha --out report.json             # hardware gate from measured data
 qpuforge cz chip.json --cache results/cz_cache.json --out cal.json      # pulse-level CZ calibration of every pair
-qpuforge qec chip.json --leakage-removal lrr|lrr+dqlr|none --cache results/cz_cache.json
+qpuforge qec chip.json --leakage-removal lrr|dqlr|lrr+dqlr|none --cache results/cz_cache.json
 qpuforge gds chip.json chip.gds --cells cells.json [--synthesize]       # layout synthesis + DRC + GDSII
 qpuforge new chip.json --surface 3 --arch tunable           # any surface-code chip
 qpuforge new chip.json --grid 3x3 --arch tunable --g-MHz 4  # grid / line / ring chips
@@ -121,12 +121,15 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 ```
 
 `new` options: `--grid RxC | --line N | --ring N | --surface D`, `--f-hi/--f-lo` (GHz), `--alpha`, `--g-MHz`, `--arch fixed|tunable`,
-`--Q`, `--plan 2|4|8`, `--stagger-MHz`, `--feedlines`, `--kappa-MHz`, `--chi-MHz`, `--purcell`, `--readout-ns`, `--reset-ns`,
-`--reset-err`, `--active-reset`, `--err2q`, `--residual-zz-kHz`. Designs are plain JSON, so you can edit any qubit or coupler by hand.
+`--Q`, `--plan 2|4|8`, `--stagger-MHz`, `--name`, `--feedlines`, `--kappa-MHz`, `--chi-MHz`, `--purcell`, `--readout-ns`,
+`--reset-ns`, `--reset-err`, `--active-reset`, `--err2q`, `--residual-zz-kHz`; a `--preset` design takes only `--distance`.
+Designs are plain JSON, so you can edit any qubit or coupler by hand.
 
-Exit status: 0 done; 1 usage error (no or unknown command, too few arguments); 2 error while running (also `gds`: layout not
-DRC-clean); 3 `hwgate`: gate not passed, and `surgery`: the noiseless tableau check of detectors and observables failed (the
-message says `FAILED`; no logical error rates are meaningful then).
+Unknown options are errors: each command accepts only the options its usage lists (`qpuforge` without arguments), and an
+unknown, misspelt or repeated option, a missing value or a malformed number stops it before it reads any file. Exit
+status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC-clean), 3 `hwgate`: gate not passed, and
+`surgery`: the noiseless tableau check of detectors and observables failed (the output says `FAILED`; its logical error
+rates would not mean anything).
 
 ## Physics and emulation model
 

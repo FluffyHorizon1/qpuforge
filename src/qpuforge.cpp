@@ -28,7 +28,7 @@ static void usage() {
         "  qpuforge budget <chip.json> <circuit> [--traj N]  error budget by noise source\n"
         "  qpuforge fab <chip.json> [--samples N] [--seed S] fabrication Monte Carlo (junction spread)\n"
         "  qpuforge qec <chip.json> [--rounds 2,4,6,8,10] [--shots N] [--basis Z|X|both] [--statevector N]\n"
-        "                [--off SRC,..] [--decoder exact|uf|legacy|greedy] [--bursts] [--burst-rate Hz] [--burst-tau-ms T]\n"
+        "                [--off SRC,..] [--decoder exact|uf|uf-stream|legacy|greedy] [--window R --commit R] [--bursts] [--burst-rate Hz] [--burst-tau-ms T]\n"
         "                [--burst-t1-us T] [--burst-tphi-us T] [--herald] [--herald-fidelity F] [--herald-false P]\n"
         "                [--herald-factor X] [--herald-rule footprint|detector] [--veto] [--veto-window R] [--veto-radius L]\n"
         "                [--veto-false P] [--impact-p P] [--burst-radius L]\n"
@@ -409,10 +409,13 @@ static int cmd_qec(int argc, char** argv) {
         if (dsel == "legacy") fro.method = DecodeMethod::Legacy;
         else if (dsel == "greedy") fro.method = DecodeMethod::Greedy;
         else if (dsel == "uf" || dsel == "union-find") fro.method = DecodeMethod::UnionFind;
-        else if (dsel != "exact") throw std::runtime_error("--decoder must be exact, uf, legacy or greedy");
+        else if (dsel == "uf-stream") fro.method = DecodeMethod::UnionFind;   // the streaming decoder is built per setup below
+        else if (dsel != "exact") throw std::runtime_error("--decoder must be exact, uf, uf-stream, legacy or greedy");
         if (dsel != "exact")
             std::printf("decoder: %s\n", dsel == "legacy" ? "pre-v0.4 behaviour (exact up to 22 defects, greedy beyond)"
-                                         : dsel == "greedy" ? "greedy matching" : "weighted union-find (real-time candidate; not exact)");
+                                         : dsel == "greedy" ? "greedy matching"
+                                         : dsel == "uf" ? "weighted union-find (real-time candidate; not exact)"
+                                                        : "streaming union-find (sliding window over rounds; not exact)");
     }
     const bool herald = has_flag(argc, argv, "--herald");
     if (herald) {
@@ -436,7 +439,14 @@ static int cmd_qec(int argc, char** argv) {
         std::vector<MemoryResult> all;
         for (int r : rounds) {
             const auto M = prepare_memory(D, R, nm, r, basis);
-            const auto res = run_memory_frame(M, shots, seed + unsigned(r) + (basis == 'X' ? 7919u : 0u), fro);
+            FrameRunOptions fr = fro;
+            std::unique_ptr<StreamingUnionFind> stream;
+            if (arg(argc, argv, "--decoder", "exact") == "uf-stream") {
+                stream = std::make_unique<StreamingUnionFind>(int(M.exp.detectors.size()), M.dem.edges, M.exp.detector_round,
+                                                              std::stoi(arg(argc, argv, "--window", "6")), std::stoi(arg(argc, argv, "--commit", "3")));
+                fr.stream = stream.get();
+            }
+            const auto res = run_memory_frame(M, shots, seed + unsigned(r) + (basis == 'X' ? 7919u : 0u), fr);
             all.push_back(res);
             std::printf("  %5d   %8.0f   %8.4f    %.5f +- %.5f   %.5f   %8.1f (%d)   %10.1f", r, res.round_ns, res.detection_rate, res.p_logical, res.p_logical_sem,
                         res.eps_per_round, res.mean_defects, res.max_defects, res.decode_us_per_shot);

@@ -43,7 +43,7 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
   guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
-- 366 validation checks in all (346 on `main` before the decoding work, plus 20 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
+- 367 validation checks in all (346 on `main` before the decoding work, plus 21 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
   `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
 
@@ -101,11 +101,12 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - `presets.hpp`: `alpha1_with_coupling(d, g_GHz)`. `device.hpp`: `ChipDesign::cz_flux_noise` (design JSON
   `gates.cz_flux_noise`).
 - Tests: eleven new groups (`matching`, `fault_enumeration`, `memory_bases`, `bursts`, `characterisation`,
-  `designs_v04`, and the serialisation groups `json`, `gds`, `json_rfc`, `json_depth`, `gds_write`), 319 checks in all
-  (186 in 0.3.0), and a third review smoke test. Outside the validation checks: the `determinism` (1, 2, 3, 4 and 8
-  threads in one process) and `determinism_env` (separate processes under `OMP_NUM_THREADS` = 1, 2, 4, 8) guards, the
-  `fp_contract` and `fp_contract_flags` build-flag guards, and the `cli_version`, `cli_version_short` and `cli_usage`
-  CLI guards.
+  `designs_v04`, and the serialisation groups `json`, `gds`, `json_rfc`, `json_depth`, `gds_write`), checks of the
+  opt-in flux term and the 4 MHz direct coupling in `coupler_and_flux`, and the tuned-anharmonicity |11⟩–|20⟩ test in
+  `transmon`: 321 checks in all (186 in 0.3.0), and a third review smoke test. Outside the validation checks: the
+  `determinism` (1, 2, 3, 4 and 8 threads in one process) and `determinism_env` (separate processes under
+  `OMP_NUM_THREADS` = 1, 2, 4, 8) guards, the `fp_contract` and `fp_contract_flags` build-flag guards, and the
+  `cli_version`, `cli_version_short` and `cli_usage` CLI guards.
 
 ### API changes
 - **`MatchingDecoder::decode(defects, DecodeScratch&, DecodeMethod = Auto)`** replaces
@@ -137,8 +138,11 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - `Json::parse` rejects input that is not RFC 8259 JSON (see Fixed).
 
 ### Changed
-- All review outputs were regenerated from the integrated code with CZ model version 2, the exact decoder and the
-  thread-count-independent Monte Carlo (`results/PROVENANCE.md`).
+- Every review output except the historical Alpha-1 v1.0 review (`results/alpha1_review.*`: pre-PR #2 model, not
+  regenerated), and `results/design_study.*` and `results/test_output.txt`, were regenerated from `802ceb7` with CZ
+  model version 2, the exact decoder and the thread-count-independent Monte Carlo (`results/PROVENANCE.md`).
+- Build: every target is compiled with `-ffp-contract=off` (`QPUFORGE_COMPILE_OPTIONS`), so `-march` / FMA choices no
+  longer change results; `fp_contract` and `fp_contract_flags` check it.
 - The Beta and Gamma reviews report both memory bases, the largest per-pair CZ leakage, and the mask-level DRC counts.
 - The Beta gate adds a 100-round detection-rate stability criterion and an extraction criterion for the layout.
 - Review smoke runs shorten the long experiments (setup time is quadratic in the number of rounds).
@@ -193,7 +197,7 @@ GDSII output, and the Alpha-1 v1.1 (AF-17) and Beta-1 (BF-49) designs. See the R
 - CLI (PR #2): `qpuforge analyze` prints two new pair columns, `flux_e` (CZ flux-noise error) and `c_GHz` (coupler
   park frequency).
 - `docs/WHITEPAPER.md` (PR #2): "Transmon anharmonicity and the Alpha-1 processor", with the AF17 layout figures
-  `docs/af17-*.png`.
+  `docs/af17-*.png` (an earlier drawing that does not match `AF17_v11.gds`).
 - Tests (PR #2): new `coupler_and_flux` CTest group (label `physics`).
 
 ### API changes

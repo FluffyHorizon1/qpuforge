@@ -166,16 +166,19 @@ tests the software, not the chip.
 ```
 qpuforge synth-chip designs/alpha1-v11/alpha1_v11.json virtual.json --seed 3 --shots 20000 --cache results/cz_cache.json
 qpuforge hwgate     designs/alpha1-v11/alpha1_v11.json virtual.json --shots 20000 --cache results/cz_cache.json
+# hidden error source: the same virtual chip with an 8 us dephasing process during its memory runs
+qpuforge synth-chip designs/alpha1-v11/alpha1_v11.json hidden.json --seed 3 --shots 20000 --cache results/cz_cache.json --hidden-dephasing-us 8
+qpuforge hwgate     designs/alpha1-v11/alpha1_v11.json hidden.json --shots 20000 --cache results/cz_cache.json
 ```
 
 Result of the rehearsal (virtual chip, seed 3; 20,000 shots per memory run):
 
 - **All ten criteria were evaluated and met.** The virtual chip has one qubit on a defect, with a T1 of 22 µs against a
   median of 67 µs. The report shows it as the worst value beside the median.
-- **Model versus measurement agrees.** The model with the "measured" parameters gives 0.523 % (Z) and 0.499 % (X) per
-  round. The virtual chip gave 0.492 % and 0.498 %: ratios 0.94 and 1.00.
+- **Model versus measurement agrees.** The model with the "measured" parameters gives 0.533 % (Z) and 0.469 % (X) per
+  round. The virtual chip gave 0.521 % and 0.491 %: ratios 0.98 and 1.05.
 - **A hidden error source fails the gate, as it should.** With an 8 µs dephasing process acting during the memory runs
-  and absent from the reported T2 (`--hidden-dephasing-us 8`), the measured error rises to 3.4 % and 4.2 %, the ratios to
-  6.5 and 8.5, and two criteria fail: the logical error and model versus measurement.
+  and absent from the reported T2 (`synth-chip --hidden-dephasing-us 8`), the measured error rises to 3.5 % (Z) and
+  4.0 % (X), the ratios to 6.6 and 8.4, and two criteria fail: the logical error and model versus measurement.
 
 The example files are `example_characterisation_synthetic.json` and `example_gate_report_synthetic.json` in this folder.

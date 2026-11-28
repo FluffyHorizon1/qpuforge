@@ -39,8 +39,8 @@ target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERS
 # (It used to be two compile definitions computed when CMake configured the build directory: a directory configured at
 # one commit and rebuilt after later commits kept writing the old commit into its outputs.)
 # qpuforge_git_stamp_update is always out of date and runs cmake/git_stamp.cmake, which rewrites git_stamp.cpp only
-# when the stamp changes. That file is the whole of the static library the six programs link, so a new commit costs
-# one small compile and six relinks, and a build with nothing new recompiles and relinks nothing.
+# when the stamp changes. That file is the whole of the static library the programs below link, so a new commit costs
+# one small compile and one relink per program, and a build with nothing new recompiles and relinks nothing.
 # One way of building does not take the stamp: the Makefile rules <target>/fast skip the dependencies of the target,
 # so a program built that way is linked with the stamp of the last ordinary build.
 find_package(Git QUIET)   # a hint for the script, which looks for git on PATH when this one is missing at build time
@@ -273,6 +273,26 @@ set_tests_properties(cli_materials_qec PROPERTIES FAIL_REGULAR_EXPRESSION "error
 # command line and read the chip first (the sidecar is applied after the chip has loaded, so "cannot open" comes first)
 set_tests_properties(cli_materials_cz_missing_chip cli_materials_hwgate_missing_chip PROPERTIES PASS_REGULAR_EXPRESSION "error: cannot open .*cli_no_chip.json")
 set_tests_properties(cli_materials_gds_refused cli_materials_qec cli_materials_cz_missing_chip cli_materials_hwgate_missing_chip PROPERTIES LABELS unit)
+# `materials apply --out` (decision D2): writes a copy of the chip with the sidecar applied and a materials_source block;
+# analyze then reads the copy without --materials and sees the applied values (each qubit kept its Rn_kOhm, D1)
+set(QPUFORGE_CLI_APPLIED ${CMAKE_CURRENT_BINARY_DIR}/cli_materials_applied.json)
+add_test(NAME cli_materials_apply COMMAND qpuforge_cli materials apply ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json --out ${QPUFORGE_CLI_APPLIED})
+add_test(NAME cli_materials_apply_analyze COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_APPLIED})
+add_test(NAME cli_materials_apply_no_out COMMAND qpuforge_cli materials apply ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_apply_action COMMAND qpuforge_cli materials merge ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json --out ${CMAKE_CURRENT_BINARY_DIR}/cli_materials_never.json)
+add_test(NAME cli_materials_apply_overwrite COMMAND qpuforge_cli materials apply ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json --out ${QPUFORGE_CLI_CHIP})
+set_tests_properties(cli_materials_apply PROPERTIES FIXTURES_SETUP materials_applied FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06.*applied +junction_gap_ueV .*180 -> 190.*wrote .*cli_materials_applied.json: 2 applied, 1 skipped; materials_source records the sidecar \\(sha256 [0-9a-f]+\\)")
+set_tests_properties(cli_materials_apply_analyze PROPERTIES FIXTURES_REQUIRED materials_applied FAIL_REGULAR_EXPRESSION "materials sidecar|error:" PASS_REGULAR_EXPRESSION
+  "materials: Q_diel=1e\\+06  junction gap 190 ueV.*mean T1")
+set_tests_properties(cli_materials_apply_no_out PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge materials: materials apply needs --out <new-chip.json>")
+set_tests_properties(cli_materials_apply_action PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge materials: unknown materials action 'merge' \\(the only action is apply\\)")
+set_tests_properties(cli_materials_apply_overwrite PROPERTIES PASS_REGULAR_EXPRESSION "error: materials apply: --out .*alpha1_v11.json would overwrite an input file")
+set_tests_properties(cli_materials_apply cli_materials_apply_analyze cli_materials_apply_no_out cli_materials_apply_action cli_materials_apply_overwrite PROPERTIES LABELS unit)
+# the hand-written Alpha-1 v1.1 sidecar (D5): both values applied with provenance assumed, the device numbers unchanged
+add_test(NAME cli_materials_alpha1_handwritten COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${CMAKE_CURRENT_SOURCE_DIR}/designs/alpha1-v11/materials-alpha1-v11-handwritten.json)
+set_tests_properties(cli_materials_alpha1_handwritten PROPERTIES LABELS unit FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 3e\\+06, provenance assumed.*skipped +loss_tangent .*applied +junction_gap_ueV +materials.junction_gap_ueV 180 -> 180, provenance assumed.*materials: Q_diel=3e\\+06  junction gap 180 ueV.*mean T1")
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)
@@ -312,7 +332,8 @@ set(QPUFORGE_TESTS
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse" "flux_predistortion:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_checks:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
-  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "herald_weights:qec" "dqlr_herald:qec" "stream_ops:qec" "surgery:qec" "surgery_cnot:qec" "surgery_joint:qec" "surgery_routing:qec")
+  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "herald_weights:qec" "dqlr_herald:qec" "stream_ops:qec"
+  "surgery:qec" "surgery_cnot:qec" "surgery_joint:qec" "surgery_routing:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 # forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data

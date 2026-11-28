@@ -2764,6 +2764,26 @@ static void test_materials() {
         CHECK(overwrite && bad_left_nothing, "apply refuses to overwrite its input (%d) and writes nothing for a bad sidecar (%d)", int(overwrite), int(bad_left_nothing));
         for (const auto& f : {chip, out, out2, bad}) std::remove(f.c_str());
     }
+    // (g) the hand-written Alpha-1 v1.1 sidecar (decision D5, first half): it loads and validates, every number is
+    //     "assumed" and says why, and it repeats the committed chip's own values, so applying it changes no number
+    {
+        const std::string path = test_data("../../designs/alpha1-v11/materials-alpha1-v11-handwritten.json");
+        const auto H = load_materials(path);
+        const Json raw = Json::parse(materials_detail::read_file(path));
+        bool explained = H.quantities.size() == 3 && H.find("Q_dielectric") && H.find("junction_gap_ueV") && H.find("loss_tangent");
+        for (const auto& q : H.quantities)
+            if (q.value) explained = explained && q.provenance == "assumed" && q.reference.empty() &&
+                                     raw["quantities"][q.name]["reason"].type() == Json::Type::Str;
+        CHECK(explained && *H.find("Q_dielectric")->value == 3e6 && *H.find("junction_gap_ueV")->value == 180 && !H.find("loss_tangent")->value &&
+              !raw["contains_placeholders"].boolean() && H.produced_by.tool.find("hand-written") == 0,
+              "hand-written Alpha-1 v1.1 sidecar: Q 3e6 and gap 180 ueV, provenance assumed with a reason, no loss tangent, no placeholders");
+        const ChipDesign A = load_design(test_data("../../designs/alpha1-v11/alpha1_v11.json"));
+        ChipDesign B = A;
+        const auto rep = apply_materials(H, B);
+        CHECK(rep.applied() == 2 && rep.skipped() == 1 && json_text(design_to_json(B)) == json_text(design_to_json(A)) &&
+              rep.lines[0].note == "provenance assumed",
+              "the hand-written sidecar applies both values to the committed Alpha-1 v1.1 chip and changes none of its numbers");
+    }
     {   // file errors name the file; a hand-built sidecar with a bad value throws before the design is touched
         bool missing = false, named = false, threw = false;
         try { load_materials(temp_path("no_such_sidecar.json")); } catch (const std::runtime_error& e) { missing = std::string(e.what()).find("cannot open") != std::string::npos; }

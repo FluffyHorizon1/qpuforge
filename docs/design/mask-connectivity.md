@@ -2,7 +2,8 @@
 
 Status: **redesign in progress; not ready to merge.** The geometry and the checks below are implemented and pass on
 AF-17 with re-synthesised cells in a development run. The committed cell files, masks, previews, reviews and specs are
-still those of the previous geometry, and BF-49 and GF-97 have not been taken through the gates. The numbers in
+still those of the previous geometry (on `main` since PR #45), which fails these checks, and BF-49 and GF-97 have not
+been taken through the gates. The numbers in
 "Results" are from that development run, not from committed review outputs; they will be replaced by the regenerated
 reviews.
 

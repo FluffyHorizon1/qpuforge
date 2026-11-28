@@ -128,6 +128,8 @@ qpuforge new chip.json --grid 3x3 --arch tunable --g-MHz 4  # grid / line / ring
 qpuforge analyze chip.json                                  # device report + design-rule check
 qpuforge analyze chip.json --materials sidecar.json         # apply an atomforge forge.materials.v0 sidecar first (add --loss-tangent to use Q = 1/tanδ)
 qpuforge qec chip.json --materials sidecar.json             # --materials works on run, budget, fab, qec, cz, synth-chip, hwgate too
+qpuforge materials apply chip.json sidecar.json --out chip2.json   # save the applied values, with a materials_source block
+qpuforge analyze designs/alpha1-v11/alpha1_v11.json --materials designs/alpha1-v11/materials-alpha1-v11-handwritten.json   # hand-written sidecar (assumed values)
 qpuforge layout chip.json chip.svg                          # floor-plan
 qpuforge run chip.json examples/ghz5.qasm --traj 400        # emulate a circuit (mid-circuit measure/reset supported)
 qpuforge run chip.json xeb:10                               # also ghz:N qft:N bv:N
@@ -347,14 +349,11 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
 See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on the tooling side:
 
 1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
-2. Multi-qubit pulse simulation of spectator crossings; flux-pulse distortion and predistortion model.
+2. Multi-qubit pulse simulation of spectator crossings; a net-zero (bipolar) CZ and a flux-line term in the calibration
+   (the line model and its study are in `fluxline.hpp`).
 3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, routes with bends
    and a router for more than three patches, a correlated decoder fast enough for real time, and a layout for the
    patches and their routing region.
-2. Multi-qubit pulse simulation of spectator crossings; a net-zero (bipolar) CZ and a flux-line term in the calibration
-   (the line model and its study are in `fluxline.hpp`).
-3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, a joint
-   multi-observable decoder and routing between patches.
 4. Data-qubit leakage heralding, and herald weights derived from the leakage model.
 5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.

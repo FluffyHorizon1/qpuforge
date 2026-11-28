@@ -111,6 +111,7 @@ qpuforge new chip.json --surface 3 --arch tunable           # any surface-code c
 qpuforge new chip.json --grid 3x3 --arch tunable --g-MHz 4  # grid / line / ring chips
 qpuforge analyze chip.json                                  # device report + design-rule check
 qpuforge analyze chip.json --materials sidecar.json         # apply an atomforge forge.materials.v0 sidecar first (add --loss-tangent to use Q = 1/tanδ)
+qpuforge qec chip.json --materials sidecar.json             # --materials works on run, budget, fab, qec, cz, synth-chip, hwgate too
 qpuforge layout chip.json chip.svg                          # floor-plan
 qpuforge run chip.json examples/ghz5.qasm --traj 400        # emulate a circuit (mid-circuit measure/reset supported)
 qpuforge run chip.json xeb:10                               # also ghz:N qft:N bv:N

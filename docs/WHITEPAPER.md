@@ -12,10 +12,10 @@ Alpha-1 (AF-17) is a 17-qubit distance-3 surface-code design. It has not been fa
 
 Alpha-1 has not been fabricated. Every number in this note is a qpuforge simulation result, not a measurement. Two known issues of the development tree concern the AF-17 design this note describes (`CHANGELOG.md`, [Unreleased]):
 
-1. **The AF-17 mask is not fabrication-ready.** The AF17.V11 layout passes the placement and island-spacing checks (0 problems). The merged-etch width/space DRC at 4 µm / 4 µm (projection metric) reports **0 width + 4 space violations** (34 + 202 in 0.4); BF-49 rev C and GF-97 report 0 + 0. The metal connectivity check is **not clean** on any of the three: ground enclosed by cut-outs floats, the qubit flux lines have no DC return to the ground plane, and the qubit SQUID junctions do not land on metal on their ground side.
+1. **The AF-17 mask is DRC- and connectivity-clean in the model (modelled airbridges treated as ideal ground); airbridges, EM and inductance are not verified, and no foundry DRC deck has been run. A review found the SQUID ground and flux-line return sharing one airbridge, flux lines that cannot tune the SQUIDs, and a coupler-dominated XY drive (`docs/design/mask-connectivity.md`).** The AF17.V11 layout passes the placement and island-spacing checks, the merged-etch width/space DRC at 4 µm / 4 µm (projection metric: **0 + 0 violations**, 34 + 202 in 0.4), and the metal connectivity check with 122 modelled ground straps (airbridges); its control lines are within a 10× T1 budget. BF-49 rev C and GF-97 pass the DRC and connectivity checks; on their cells the flux line reaches 9.7× the design T1, just short of that budget, which is therefore reported, not gated. The straps' capacitance to the coupler and bus strips they cross, and the flux lines' inductive coupling to the SQUIDs, are not modelled.
 2. **CZ leakage is within the gate for every pair.** CZ model version 4 (`docs/design/cz-leakage.md`) re-calibrates the one pair class that failed the 2e-4 limit: Q8–Q11 goes from 2.33e-4 to 1.6e-5 per CZ. The largest leakage is now 1.2e-4 (Q8–Q10), the 24-pair mean 4.8e-5.
 
-Sources: `designs/alpha1-v11/alpha1_v11_review.json` (`layout.drc`, `layout.connectivity`, `cz_calibration`, `exit_criteria`), `designs/beta1/beta1_review.json` and `designs/gamma1/gamma1_review.json` (`layout`), `results/test_output.txt` (layout tests).
+Sources: `designs/alpha1-v11/alpha1_v11_review.json` (`layout.drc`, `layout.connectivity`, `layout.control_lines`, `cz_calibration`, `exit_criteria`), `designs/beta1/beta1_review.json` and `designs/gamma1/gamma1_review.json` (`layout`), `docs/design/mask-connectivity.md`.
 
 ## Two designs, both called AF-17
 
@@ -26,7 +26,7 @@ The note uses "v1.0" and "v1.1" for two models of the same 17-qubit chip, and gi
 | Couplers | abstract: g_max = 40 MHz. The 24 Nov review used 4 MHz direct coupling and a typed 5 kHz residual ZZ; since PR #2 `alpha1()` uses 1 MHz and a coupler transmon at the exchange null (idle ZZ −4 to −14 kHz, computed) | physical coupler transmon per pair (f_max 8.5 GHz, α_c −130 MHz, g_qc 160 MHz) |
 | CZ | 23.3 ns, 2e-3 assumed control error | pulse-level, 3-knob calibration, 35.6–49.2 ns |
 | Leakage | folded into the control error | simulated in the CZ (pulse level) and in the QEC frame model |
-| Layout | floor plan (SVG), no mask | MoM-synthesised cells, GDSII, DRC and connectivity check (mask not fabrication-ready) |
+| Layout | floor plan (SVG), no mask | MoM-synthesised cells, GDSII, DRC, connectivity check with ground straps, control-line budget (no foundry DRC yet) |
 | Files | `designs/alpha1/` (spec `ALPHA-1.md`; review output from 24 Nov, pre-PR #2, historical: see `designs/alpha1/README.md`) | `designs/alpha1-v11/` (spec `ALPHA-1-v1.1.md`, review regenerated for v0.4, `results/PROVENANCE.md`) |
 
 The abstract v1.0 model is kept because the transmon physics below and the v1.0 error-correction ladder are built on it. The v1.1 numbers are the ones that describe the design that has a mask.
@@ -162,21 +162,21 @@ These are emulator outputs. The reviews list what is missing: correlated and tim
 
 The layout is generated for v1.1. The cells are synthesised against circuit targets with a quasi-static method-of-moments extraction, assembled into a 5.8 × 5.8 mm chip, and exported as GDSII (`designs/alpha1-v11/AF17_v11.gds`, cell `AF17_V11`). It is not a photograph and not a measured chip.
 
-**The mask is not fabrication-ready.**
+**The mask is DRC- and connectivity-clean in the model** (2D LVS-lite connectivity with modelled airbridges). Airbridges, EM and inductance are not verified, and no foundry DRC deck has been run.
 - Placement and island-spacing checks: clean (0 problems).
-- Merged-etch minimum width and space of 4 µm, projection metric: **0 width + 4 space violations** (34 + 202 in 0.4). The four are ground necks of 0.42 µm (Q7, Q13) and 1.59 µm (Q10, Q16), each the only link between a ground region and the plane; the sliver clean-up does not cut them. BF-49 rev C and GF-97: 0 + 0.
-- Metal connectivity (reported, not gated): 143 floating ground fragments; 16 of 58 shorted lines reach the ground plane (qubit flux lines 0 of 17: they end open); 24 of 41 junctions land on metal at both ends (none of the 17 qubit SQUIDs). The extraction treats every enclosed ground fragment as grounded.
-- The Alpha simulation gate checks placement and spacing (`ALPHA-1-v1.1.md` section 6); `ROADMAP.md` requires the mask DRC and connectivity to be clean before fabrication.
+- Merged-etch minimum width and space of 4 µm, projection metric: **0 + 0 violations** (34 + 202 in 0.4). BF-49 rev C and GF-97: 0 + 0.
+- Metal connectivity (gated): clean. Each qubit SQUID bridges its stub to a ground lead cut out of the qubit's inner corner; each qubit flux line is shorted next to its SQUID; 122 ground straps (modelled airbridges) tie the enclosed ground (qubit inner corners, coupler–bus strips, plaquettes) to the plane, none over a qubit. No floating ground remains (143 fragments before). A strap's capacitance to the coupler or bus it crosses is not in the extraction.
+- Control lines (reported, not gated; **do not hold**: the review's mask-window extraction finds the XY bump coupled ~1.4–1.6 fF to neighbouring coupler pads, and the flux line's mutual inductance to the SQUID is ~0.01 pH): XY 0.03 fF and flux line 0.03 fF effective per qubit; T1 limits ≥ 1.56 ms (XY) and 1.47 ms (flux), at least 22× the design T1. The flux lines' mutual inductance to the SQUIDs is not modelled. Design note: `docs/design/mask-connectivity.md`.
 
 Post-layout circuit check (`alpha1_v11_review.txt`, section 7), from the extracted cells:
-- α = −220 MHz on both qubit types and −130 MHz on the coupler; g_qc = 167.3 MHz; readout g = 154.8 MHz against a design value of 155.8 MHz.
-- The direct coupling is g12 = 9.66 MHz against the 9.54 MHz needed for an exchange-free park at the coupler sweet spot, which would leave a 0.34 MHz gap. Parking each coupler at 8.405 GHz, 95 MHz below its sweet spot, nulls the exchange, and ZZ is then −4.3 kHz.
+- α = −220 MHz on both qubit types and −130 MHz on the coupler; g_qc = 168.0 MHz; readout g = 154.9 MHz against a design value of 155.8 MHz.
+- The direct coupling is g12 = 9.72 MHz against the 9.54 MHz needed for an exchange-free park at the coupler sweet spot, which would leave a 0.37 MHz gap. Parking each coupler at 8.398 GHz, 102 MHz below its sweet spot, nulls the exchange, and ZZ is then −4.4 kHz.
 
 The extraction is quasi-static on a thick substrate. It is not a full-wave extract, and a full-wave cross-check is the next design step before tape-out.
 
 ### Figures
 
-Previews rendered from `AF17_v11.gds` by the independent reader `tools/gds_preview.py` are committed with the design: [full chip](../designs/alpha1-v11/AF17_v11_layout.png) and [detail](../designs/alpha1-v11/AF17_v11_detail.png), with vector versions of the same two views ([full chip](../designs/alpha1-v11/AF17_v11_layout.svg), [detail](../designs/alpha1-v11/AF17_v11_detail.svg)). Vector redraws of the committed `AF17_v11.gds` over the three views of the earlier figures are in `docs/from-committed-layout/`: [full chip](from-committed-layout/af17-full.svg), [Q5, Q7, Q8 and Q10](from-committed-layout/af17-zoom.svg) and [Q5](from-committed-layout/af17-q5.svg). None of them marks the DRC violations or the connectivity problems. Diagonal gaps are stair-stepped in all of them because the mask itself is drawn from rectangles (`AF17_v11.gds` has no non-Manhattan edges), not because of the rendering.
+Previews rendered from `AF17_v11.gds` by the independent reader `tools/gds_preview.py` are committed with the design: [full chip](../designs/alpha1-v11/AF17_v11_layout.png) and [detail](../designs/alpha1-v11/AF17_v11_detail.png), with vector versions of the same two views ([full chip](../designs/alpha1-v11/AF17_v11_layout.svg), [detail](../designs/alpha1-v11/AF17_v11_detail.svg)). Vector redraws of the committed `AF17_v11.gds` over the three views of the earlier figures are in `docs/from-committed-layout/`: [full chip](from-committed-layout/af17-full.svg), [Q5, Q7, Q8 and Q10](from-committed-layout/af17-zoom.svg) and [Q5](from-committed-layout/af17-q5.svg). The ground straps are drawn in violet. Diagonal gaps are stair-stepped in all of them because the mask itself is drawn from rectangles (`AF17_v11.gds` has no non-Manhattan edges), not because of the rendering.
 
 The three figures in the earlier version of this note (`docs/af17-full.png`, `af17-zoom.png`, `af17-q5.png` from PR #2, and their bitmap SVG wrappers `docs/af17-full.svg`, `af17-zoom.svg`, `af17-q5.svg`) are an earlier drawing and are not used here. They do not match `AF17_v11.gds`: the redraws above cover the same views, and the bump pad and junction positions and the cut-outs around Q5 differ, so they do not show the layout this note describes.
 
@@ -185,7 +185,7 @@ The three figures in the earlier version of this note (`docs/af17-full.png`, `af
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ctest --test-dir build -LE smoke                        # the test groups' checks are logged in results/test_output.txt
-./build/test_qpuforge layout_presets                    # AF-17, BF-49, GF-97: DRC (0+4, 0+0, 0+0) and the connectivity report
+./build/test_qpuforge layout_presets                    # AF-17, BF-49, GF-97: DRC 0+0 and metal connectivity clean
 ./build/test_qpuforge designs_v04                       # Alpha-1 interaction points: 1.14 to 2.54 MHz above the idle-alpha estimate
 ./build/qpuforge new build/alpha1.json --preset alpha1  # writes and analyses alpha1(): charge dispersions, CZ points 5.33-5.51 GHz
 ./build/qpuforge analyze designs/alpha1/alpha1.json     # v1.0 (PR #2 model): 2.43e-3 CZ error

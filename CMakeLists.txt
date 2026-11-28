@@ -279,7 +279,7 @@ set_tests_properties(determinism determinism_env PROPERTIES LABELS unit)
 set(QPUFORGE_TESTS
   "decomposition:unit" "transmon:physics" "coupler_and_flux:physics" "zz_and_inverse_design:physics" "qasm:unit" "compiler:unit" "decoherence:physics"
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"
-  "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
+  "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse" "flux_predistortion:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
   "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "herald_weights:qec" "dqlr_herald:qec" "stream_ops:qec" "surgery:qec" "surgery_cnot:qec")
@@ -287,6 +287,10 @@ set(QPUFORGE_TESTS
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 # forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data
 list(APPEND QPUFORGE_TESTS "materials:unit")
+# q18 opt-in flux-line distortion term (docs/design/flux-line-distortion.md); reads a copy of results/cz_cache.json
+list(APPEND QPUFORGE_TESTS "flux_line:pulse")
+# q17 FEM reference cross-check scaffold (fem.hpp): Elmer / Palace importers; synthetic fixtures in tests/data/fem
+list(APPEND QPUFORGE_TESTS "fem:layout")
 foreach(t ${QPUFORGE_TESTS})
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)
@@ -296,7 +300,7 @@ foreach(t ${QPUFORGE_TESTS})
 endforeach()
 # End-to-end smoke runs of the review programs: 200 shots, outputs in the build tree, committed files untouched.
 # They reuse results/cz_cache.json (copied); with a stale or missing cache they re-calibrate (a few minutes).
-foreach(name alpha1_v11_review beta1_review gamma1_review surgery_study)
+foreach(name alpha1_v11_review beta1_review gamma1_review surgery_study flux_distortion_study)
   add_test(NAME smoke_${name} COMMAND ${name} --smoke --out ${CMAKE_CURRENT_BINARY_DIR}/smoke_${name}
            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   set_tests_properties(smoke_${name} PROPERTIES LABELS smoke TIMEOUT 1800)

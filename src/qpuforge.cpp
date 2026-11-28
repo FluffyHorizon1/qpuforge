@@ -76,7 +76,7 @@ static const UsageBlock kUsageCommands[] = {
      "                pulse-level CZ calibration of every pair (physical tunable coupler)\n"},
     {"gds",
      "  qpuforge gds <chip.json> <out.gds> [--cells cells.json] [--synthesize [--from cells0.json]] [--cell NAME]\n"
-     "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, GDSII\n"},
+     "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, metal connectivity, GDSII\n"},
     {"surgery",
      "  qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input 00|01|++|+-|..] [--readout Z|X] [--chip beta1|alpha1_v11]\n"
      "                [--shots N] [--seed S] [--merge-rounds R] [--pre R] [--post R] [--samples N] [--cache file]\n"
@@ -84,6 +84,10 @@ static const UsageBlock kUsageCommands[] = {
      "                lattice surgery: logical ZZ / XX measurement between two patches or the three-patch CNOT;\n"
      "                noiseless tableau check of detectors and observables, then logical error per operation\n"
      "                (Pauli-frame Monte Carlo, exact matching per observable); --shots 0 runs the check only\n"},
+    {"materials",
+     "  qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]\n"
+     "                writes a copy of the chip with the sidecar's accepted values and a materials_source block\n"
+     "                (sidecar SHA-256, producer, provenance per quantity); each qubit keeps its Rn_kOhm, so a new gap moves f01\n"},
     {"new", "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gamma1|gen0 [--distance D]   named designs\n"},
     {"new", "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"},
     {"", "  qpuforge --version | -V                           print the version and exit (first argument only)\n"},
@@ -100,7 +104,7 @@ static const UsageBlock kUsageNotes[] = {
     {"run qec", "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage (all: every source)\n"},
     {"qec cz synth-chip hwgate surgery", "  qec/cz/synth-chip/hwgate/surgery on a chip with a physical coupler calibrate CZs first (--cache file reuses them)\n"},
     {"*", "  each command takes only the options shown for it; an unknown option, a missing value or a bad number is an error\n"},
-    {"*", "  exit status: 0 done; 1 usage error; 2 error while running (also: gds layout not DRC-clean); 3 hwgate: gate not passed,\n"
+    {"*", "  exit status: 0 done; 1 usage error; 2 error while running (also: gds layout not DRC- and connectivity-clean); 3 hwgate: gate not passed,\n"
            "               surgery: a noiseless check failed\n"},
 };
 
@@ -709,6 +713,11 @@ static int cmd_cz(const Args& a) {
     double mt = 0, me = 0, ml = 0; for (const auto& c : cal) { mt += c.t_cz_ns; me += c.err_total; ml += c.leakage + c.leak_spectators; }
     const double n = std::max<std::size_t>(cal.size(), 1);
     std::printf("  mean: t_cz %.1f ns, CZ error %.2e (incl. decoherence), leakage %.1e per CZ\n", mt / n, me / n, ml / n);
+    if (D.flux_line.enabled) {   // q18, opt-in (tunable_coupler.flux_line): included in ctrl and total above
+        double md = 0, wd = 0, me2 = 0; for (const auto& c : cal) { md += c.err_distortion; wd = std::max(wd, c.err_distortion); me2 += c.flux_eps_eff; }
+        std::printf("  flux-line distortion (opt-in, on top of residual %.1e): eps_eff %.1e mean, error %.2e mean / %.2e worst pair\n",
+                    D.coupler.residual_ctrl_err, me2 / n, md / n, wd);
+    }
     if (const auto out = a.text("--out"); !out.empty()) { write_json_file(out, cz_calibration_json(cal)); std::printf("  wrote %s\n", out.c_str()); }
     return 0;
 }
@@ -755,7 +764,7 @@ static int cmd_gds(const Args& a) {
     write_gds(L, a.pos(1), a.text("--cell", "TOP"));
     std::printf("\n%s — layout: %.1f x %.1f mm, %zu etch polygons, %zu junction regions, %zu bump pads -> %s\n", D.name.c_str(),
                 L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), L.jj.size(), L.bumps.size(), a.pos(1).c_str());
-    std::printf("  DRC: %s\n", drc_summary(L).c_str());
+    std::printf("  DRC: %s\n  %s\n", drc_summary(L).c_str(), connectivity_summary(L).c_str());
     for (const auto& s : L.problems) std::printf("    %s\n", s.c_str());
     for (std::size_t i = 0; i < L.drc.size() && i < 10; ++i)
         std::printf("    %s %.3f um at (%.3f, %.3f) um\n", L.drc[i].rule.c_str(), L.drc[i].value, L.drc[i].box.cx(), L.drc[i].box.cy());
@@ -772,7 +781,7 @@ static int cmd_gds(const Args& a) {
     std::printf("  re-null by parking the couplers at %.3f GHz (%.0f MHz below the sweet spot, df/dPhi %.2f GHz/Phi0): residual gap %.3f MHz, ZZ %+.2f kHz\n",
                 P.park_fc_GHz, (D.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
     for (const auto& r : L.resonators) if (std::abs(r.drawn_um - r.target_um) > 1) std::printf("    resonator R%d length %.0f um vs target %.0f um\n", r.qubit, r.drawn_um, r.target_um);
-    return L.drc_clean() ? 0 : 2;
+    return L.drc_clean() && L.conn.clean() ? 0 : 2;
 }
 
 static int cmd_qec(const Args& a) {

@@ -88,3 +88,10 @@ expect_status(2 surgery --input 0 --shots 0)        # input of the wrong length:
 # analyze: the materials options
 expect_status(1 analyze "${MISSING}" --loss-tangent)
 expect_status(1 analyze "${MISSING}" --materials "")
+# materials apply: a missing --out or another action is a usage error before any file is read; overwriting the chip or
+# a chip file that does not exist is an error while running
+expect_status(1 materials apply "${MISSING}" "${MISSING}")
+expect_status(1 materials apply "${MISSING}" "${MISSING}" --out "")
+expect_status(1 materials merge "${MISSING}" "${MISSING}" --out "${OUT}.chip.json")
+expect_status(2 materials apply "${MISSING}" "${MISSING}" --out "${OUT}.chip.json")
+expect_status(2 materials apply "${CHIP}" "${CHIP}" --out "${CHIP}")

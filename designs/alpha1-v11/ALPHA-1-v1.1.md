@@ -4,7 +4,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Simulation gate **passed**: every criterion holds for every pair, including CZ leakage (§6). Layout (GDSII): placement and spacing checks clean; **the mask is not fabrication-ready**: four DRC space violations remain and the metal connectivity check is not clean (floating ground, flux-line return, junction landing; §5). |
+| **Status** | Simulation gate **passed**: every criterion holds for every pair, including CZ leakage, and the layout is DRC- and connectivity-clean in the model: placement and spacing, the 4 µm width/space DRC (0 violations), 2D metal connectivity (LVS-lite) with modelled airbridges; the control-line T1 budget is met (reported, not gated; §5, §6). **Not verified:** the airbridges themselves, EM (full-wave) extraction, inductance (flux-line coupling to the SQUIDs), a foundry DRC deck (§7). **Open review findings** (`docs/design/mask-connectivity.md`): the SQUID ground and the flux-line return share one modelled airbridge (T1 channel est. 0.1–1 µs); the flux line cannot tune the SQUID (~90–290 mA for Φ0/2); the XY drive is coupler-dominated, so the control-line figures in §5 do not hold. |
 | **Supersedes** | Alpha-1 v1.0 (`designs/alpha1/ALPHA-1.md`, qpuforge v0.2) |
 | **Purpose** | First error-correction-ready chip: 17-qubit distance-3 rotated surface code (memory experiment) |
 | **Tooling** | qpuforge v0.4: `alpha1_v11_review` (399 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
@@ -141,46 +141,49 @@ The dimensions were synthesised by Gauss-Newton against the circuit targets, usi
 
 | Cell | Dimension | Value |
 |---|---|---|
-| Measure / data qubit | arm length (centre to T-bar edge) | 127.4 / 129.8 µm |
+| Measure / data qubit | arm length (centre to T-bar edge) | 123.4 / 125.7 µm |
 | | arm width / gap / T-bar | 16 / 30 / 120 × 12 µm |
-| | readout pad / claw gap | 38.4 / 5 µm |
-| Coupler | T-bar (facing the qubit) | 42.0 µm long, 5 µm gap |
-| | body / trench / mid pad | 10 / 20 / 248.4 × 248.4 µm |
-| Bus | strip / trench / end gap to the qubit T-bar | 6 / 15 / 17.5 µm |
+| | readout pad / claw gap | 38.2 / 5 µm |
+| | SQUID: stub / span to the ground lead / lead width | 16 × 16 / 10 / 10 µm |
+| Coupler | T-bar (facing the qubit) | 42.7 µm long, 5 µm gap |
+| | body / trench / mid pad | 10 / 20 / 246.1 × 246.1 µm |
+| Bus | strip / trench / end gap to the qubit T-bar | 6 / 15 / 14.1 µm |
 
 | Extracted (fine mesh) | Value | Target | Error |
 |---|---|---|---|
-| E_C measure / data | 202.3 / 199.8 MHz | 202.2 / 199.7 MHz | +0.05 % |
-| E_C coupler | 125.6 MHz | 125.6 MHz | −0.01 % |
-| G measure–coupler / coupler–data (GHz per n n) | 0.0603 / 0.0585 | 0.0576 / 0.0612 | +4.6 % / −4.4 % |
-| G measure–data (direct) | 0.00563 | 0.00556 | +1.4 % (aimed 1.5 % high, see below) |
+| E_C measure / data | 202.4 / 200.0 MHz | 202.2 / 199.7 MHz | +0.09 % / +0.12 % |
+| E_C coupler | 125.6 MHz | 125.6 MHz | −0.03 % |
+| G measure–coupler / coupler–data (GHz per n n) | 0.0605 / 0.0585 | 0.0576 / 0.0612 | +5.0 % / −4.3 % |
+| G measure–data (direct) | 0.00566 | 0.00556 | +2.0 % (aimed 1.5 % high, see below) |
 | C qubit–readout | 9.10 fF | 9.15 fF | −0.5 % |
-| C_Σ qubit / C coupler / C_qc / C_qq | 96.0–97.2 / 155 / 5.61 / 0.104 fF | | |
+| C_Σ qubit / C coupler / C_qc / C_qq | 96.0–97.1 / 155 / 5.61 / 0.099 fF | | |
 
 **Post-layout circuit check.** The junctions are retargeted to the design frequencies and the representative pair is
 rebuilt from the extracted circuit:
-- α = −220 MHz; coupler α −130 MHz; g_qc = 167 MHz; readout g = 155 MHz (design 156).
-- g12 = 9.66 MHz against the 9.54 MHz needed for an exchange-free park at the sweet spot. This would leave a 0.34 MHz parked gap (2.9e-5 transfer per spectator crossing).
-- Because g12 is *above* the null value, parking each coupler 95 MHz below its sweet spot (8.405 GHz, df/dΦ = 2.9 GHz/Φ0) nulls it exactly. ZZ is then −4.3 kHz. The synthesis aims the direct coupling 1.5 % above target for this reason: a g12 just below the null value could not be re-nulled.
+- α = −220 MHz; coupler α −130 MHz; g_qc = 168 MHz; readout g = 155 MHz (design 156).
+- g12 = 9.72 MHz against the 9.54 MHz needed for an exchange-free park at the sweet spot. This would leave a 0.37 MHz parked gap (3.3e-5 transfer per spectator crossing).
+- Because g12 is *above* the null value, parking each coupler 102 MHz below its sweet spot (8.398 GHz, df/dΦ = 3.0 GHz/Φ0) nulls it exactly. ZZ is then −4.4 kHz. The synthesis aims the direct coupling 1.5 % above target for this reason: a g12 just below the null value could not be re-nulled.
 - Calibration plan: per-pair park flux = exchange null.
 
 **GDSII** (`AF17_v11.gds`, cell `AF17_V11`, 1 nm database unit):
 
 | Layer | Content |
 |---|---|
-| 1 | Etch: ground-plane cut-outs minus metal islands (14,855 polygons) |
+| 1 | Etch: ground-plane cut-outs minus metal islands (11,662 polygons) |
 | 2 | Josephson junction / SQUID regions (41) |
 | 3 | Flip-chip bump pads (75): XY, qubit flux, coupler flux, resonator–feedline coupling |
+| 4 / 5 | Ground straps (modelled airbridges, 122): span / feet |
 | 10 | Chip outline |
 | 20 | Labels |
 
 - Placement checks (10 µm metal spacing, 4 µm at designed coupling gaps, metal inside the outline): **clean**.
-- Mask DRC: minimum width and space of 4 µm on the merged etch layer, projection metric: **0 width and 4 space violations** (34 + 202 in 0.4). The 0.4 violations came from three places:
-  - the 75 nm bus T-bar (now never narrower than the 6 µm strip);
-  - a 1 µm etch slit beside the "shorted" end of each qubit flux line (the line now ends open with a full trench; see below);
-  - 0.3–3.3 µm ground slivers where the diagonal readout, XY and flux lines pass the corners of the qubit cut-out. A clean-up pass merges cut-outs closer than 4 µm. It removes ground only, never island metal, and a connectivity guard undoes any merge that would cut ground off the plane. The four remaining violations are such necks (0.42 µm at Q7 and Q13, 1.59 µm at Q10 and Q16): each is the only link between a ground region and the plane.
-  - Corner-to-corner (Euclidean) spacing is not checked; the foundry's DRC deck must still be run.
-- Metal connectivity (LVS-lite, reported, not gated): **not clean.** The ground between the arms of each qubit is enclosed by the arm and T-bar cut-outs (arm lengths below about 132 µm seal the inner corners) and floats; so does ground around the buses and in pockets near the resonators and coupler flux lines. Shorted lines that end in such a pocket do not reach the plane; the qubit flux lines end open (no DC return); the qubit SQUID junctions end in etch on their ground side. The extraction treats every enclosed ground fragment as grounded. The counts are in `alpha1_v11_review.json → layout.connectivity`.
+- Mask DRC: minimum width and space of 4 µm on the merged etch layer, projection metric: **0 width and 0 space violations** (34 + 202 in 0.4, 0 + 4 in the previous revision). A clean-up pass merges cut-outs closer than 4 µm (ground slivers where the diagonal lines pass the corners of the qubit cut-out); it removes ground only, never island metal. Ground it cuts off the plane is strapped back (below). Corner-to-corner (Euclidean) spacing is not checked; the foundry's DRC deck must still be run.
+- Metal connectivity (LVS-lite, gated): **clean** (`alpha1_v11_review.json → layout.connectivity`; design note `docs/design/mask-connectivity.md`).
+  - Each qubit SQUID bridges the stub to a 10 µm ground lead cut out of the (−x, −y) inner corner: island to plane (41 of 41 junctions, couplers included).
+  - Each qubit flux line is shorted into that corner next to the SQUID (17 of 17 reach the plane; 58 of 58 shorted lines in all).
+  - The inner corners of each qubit, the strip between each coupler and its bus, and each plaquette are enclosed by cut-outs. 122 ground straps (modelled airbridges, 10 µm wide, ≤ 150 µm span, GDS layers 4/5) tie them to the plane: 47 cross a line, 41 a coupler body or bus strip, none a qubit. No floating ground remains.
+  - Not modelled: a strap's capacitance to the coupler or bus it crosses (about 0.2 fF over a 6 µm bus at 3 µm bridge height, against C_bus ≈ 67 fF).
+- Control lines (reported, not gated; **superseded by the review findings in `docs/design/mask-connectivity.md`**: the XY bump couples ~1.4–1.6 fF to the neighbouring coupler pads, which this cell model omits, and the flux line's mutual inductance is far too small): the XY line ends open outside the qubit cut-out, 247 µm right of and 279 µm below the qubit centre. Extracted with the qubit (`line_coupling`): XY 0.029 / 0.030 fF (measure / data qubit); flux line 0.030 fF effective, i.e. the capacitance to each piece of the shorted line weighted by sin(βz) from the short (2.0 fF if it were open). T1 limits at the idle frequencies: at least 1.56 ms (XY) and 1.47 ms (flux), 23.8× and 22.4× the design T1 of the worst qubit (Q16); budget 10×. In the previous revision the XY line ran into the qubit's corner and coupled 3.0 fF (T1 limit 0.2 µs). The flux line's mutual inductance to the SQUID loop is not modelled.
 - All 17 resonators are drawn at their λ/4 length (4.17–4.35 mm).
 - Previews: `AF17_v11_layout.png`/`.svg`, `AF17_v11_detail.png`/`.svg`.
 - Independent reader: `tools/gds_preview.py`.
@@ -193,14 +196,17 @@ rebuilt from the extracted circuit:
 | Logical lifetime vs best T1 | > 2× | 3.3× ✔ |
 | CZ coherent error / leakage, every pair | ≤ 5e-4 / ≤ 2e-4 | largest pair 3.6e-4 / 1.2e-4 (means 7.9e-5 / 4.8e-5) ✔ |
 | Idle ZZ at park | ≤ 10 kHz | 3.4–4.5 kHz, mean 3.9 kHz (4.3 kHz re-nulled post-layout) ✔ (computed: `alpha1_v11_review.json → exit_criteria`) |
-| Layout | placement/spacing checks clean; E_C within 3 %, couplings within 6 %, exchange re-nullable (mask DRC and connectivity reported, not gated) | clean; 0.05 %; 4.6 %; yes ✔ (mask DRC 0 + 4, connectivity not clean) |
+| Mask | placement/spacing checks and 4 µm width/space DRC clean | clean; 0 + 0 ✔ |
+| Metal connectivity | conductors separate; shorted lines and all ground on the plane; SQUIDs island-to-plane | clean (122 ground straps) ✔ |
+| Control lines (reported, not gated) | each qubit's XY and flux line T1 limits ≥ 10× its design T1 | 23.8× (XY), 22.4× (flux) |
+| Layout | E_C within 3 %, couplings within 6 %, exchange re-nullable | 0.12 %; 5.0 %; yes ✔ |
 | Fabrication Monte Carlo, 2 % junction spread | ≥ 90 % collision-free | 98 % (v1.0 review; same frequency plan) ✔ |
 
 ## 7. Before tape-out (Alpha fabrication checklist)
 
-1. Full-wave/FEM cross-check of the qubit, coupler and readout cells (Palace / Sonnet / Q3D). Then a second synthesis iteration on the residual errors (up to 4.6 % on the qubit–coupler couplings).
+1. Full-wave/FEM cross-check of the qubit, coupler and readout cells (Palace / Sonnet / Q3D). Then a second synthesis iteration on the residual errors (up to 5.0 % on the qubit–coupler couplings).
 2. Interposer design: feedlines, Purcell filters, edge launchers, wiring of the 75 bump pads.
-3. Airbridges across the coupler and flux-line trenches; dicing lanes, alignment marks, test structures (junction test arrays, resonator Q).
+3. Airbridge process for the 122 modelled ground straps (and their capacitance to the coupler and bus strips they cross, in the extraction); the foundry DRC deck; the flux lines' mutual inductance to the SQUIDs; dicing lanes, alignment marks, test structures (junction test arrays, resonator Q).
 4. Junction process: target Rn per qubit from the design JSON, with ≤ 2 % spread (or trimming).
 5. Calibration plan: idle frequencies; coupler exchange-null park per pair; the 3-knob CZ; leakage-removing reset tune-up.
 6. Characterisation: follow `CHARACTERISATION-PLAN.md`. It sets the order of measurements and the data file, and `qpuforge hwgate` turns that file into the hardware-gate verdict of ROADMAP.md, including model versus measurement. The most important single number is the CZ residual control error.
@@ -211,7 +217,7 @@ rebuilt from the extracted circuit:
 - Pulse simulation is closed-system. Decoherence during the gate is applied by the emulators; 1/f flux noise is applied analytically.
 - Leakage is a frame-level model. The decoder is leakage-unaware.
 - Capacitances come from a quasi-static extraction on a thick substrate. Not included: box modes, kinetic inductance, crosstalk, participation-ratio TLS loss.
-- The mask is not fabrication-ready (§5): four DRC space violations, floating ground, no flux-line return, qubit junctions not landing; the coupling of the XY and flux lines to the qubits is not modelled. Control wiring and feedlines on the interposer are not drawn.
+- The mask passes the in-house checks only (§5): no foundry DRC deck has been run; the ground straps are modelled airbridges whose capacitance is not in the extraction; the flux lines' inductive coupling to the SQUIDs is not modelled. Control wiring and feedlines on the interposer are not drawn.
 - Coherence comes from the device model (Q = 3e6 dielectric loss, Purcell, 2 µΦ0 flux noise, photon shot noise), not from measurement.
 
 ## 9. Files

@@ -24,7 +24,10 @@ qpuforge now reads the sidecar. The reader is `include/qpuforge/materials.hpp`, 
 - `loss_tangent` is used only on request (`--loss-tangent`, `MaterialsApplyOptions::use_loss_tangent`) and only when `Q_dielectric` is null or absent. The conversion is the uniform-loss relation of §2.2, and the report line says so. A `Q_dielectric` with a value always wins.
 - A null value changes nothing and is reported as skipped. This covers atomforge's placeholders (value null, `status` and `provenance` "placeholder", listed in `placeholders`). A placeholder that carries a number is an error, and `qpuforge_default_for_reference` is never read. atomforge's placeholder sidecar leaves Alpha-1 v1.1 unchanged.
 - Errors (`std::runtime_error`, raised before the design is touched): a schema other than `forge.materials.v0`; an unknown quantity; `Rn_spread_pct` or an environment field under `quantities` (§2.1: they stay in the chip JSON); a missing or different unit (exactly `dimensionless` and `ueV`, as in the §3.2 example and atomforge's writer, not `µeV`); a value that is neither null nor a positive finite number; a `maps_to` naming another field. `loss_tangent` keeps `maps_to: null`: it is converted, never copied.
-- Ignored, as additive fields on v0: `structures_ref`, `atomforge_computed`, `not_in_contract`, `open_stack`, `notes` and any other top-level block, and a quantity's other members (`reason`, `relation`, `conditions`). An unknown *quantity* is an error, not ignored, so that a number qpuforge cannot map is never dropped silently.
+- **Provenance is enumerated on v0** (decision D4, 2026-11-28). A quantity's `provenance` is one of `placeholder` (not computed, value null: what atomforge writes), `assumed` (a hand estimate; say why in `reason`), `literature` (a published value), `measured` (measured on hardware), `dft-loss-tangent` (a DFT loss workflow) or `participation-weighted` (FEM participation ratios). These are the four values of the §3.2 example plus `placeholder` and `literature` (open question 5 names a literature value for the gap). Any other string is an error, with or without a value. A number must carry a provenance; a null value may omit it. `literature` and `measured` must name their source in a `reference` string, which the report line prints.
+- **Ranges.** A number must also lie in a physical range: `Q_dielectric` 1e3 to 1e10, `loss_tangent` 1e-10 to 1e-3, `junction_gap_ueV` 10 to 3000 µeV (bounds included). Outside it is an error naming the range.
+- **Bookkeeping.** `produced_by.tool` is required (a sidecar names the tool or person that wrote it). Every `placeholders` entry must be `quantities.<name>` for a quantity in the file, and `contains_placeholders`, when present, must be a boolean that agrees with the quantities (true exactly when one of them is a placeholder). atomforge's writer already satisfies every rule in this list.
+- Ignored, as additive fields on v0: `structures_ref`, `atomforge_computed`, `not_in_contract`, `open_stack`, `notes` and any other top-level block, and a quantity's other members (`reason`, `relation`, `conditions`; `reference` is read for the report). An unknown *quantity* is an error, not ignored, so that a number qpuforge cannot map is never dropped silently.
 
 Not implemented: the `conditions` of a value are not interpreted, so Q and tanδ are not scaled to the qubit's `f01` or `T_eff_mK` (open question 3); there is no participation weighting, and a sidecar sets the one chip-wide `Q_dielectric` (question 1); `--materials` is also read by `run`, `budget`, `fab`, `qec`, `cz`, `synth-chip` and `hwgate` (one shared loader; `layout` and `gds` refuse it), and it applies in memory only, so a sidecar cannot yet be saved into a chip JSON (question 6). See `docs/design/q16-materials-ingestion.md`.
 
@@ -168,7 +171,7 @@ Propose a **sidecar JSON file**, not a change to `report.json` and not a new C++
       "value": 3000000,
       "unit": "dimensionless",
       "maps_to": "ChipDesign.materials.Q_dielectric",
-      "provenance": "assumed | measured | dft-loss-tangent | participation-weighted",
+      "provenance": "assumed | literature | measured | dft-loss-tangent | participation-weighted | placeholder",
       "conditions": {"T_K": 0.01, "f_GHz": 5.0}
     },
     "loss_tangent": {
@@ -224,7 +227,7 @@ Units in this file must be explicit on every quantity. Recommended conventions, 
 3. **At what temperature and frequency is tanδ quoted?** qpuforge T1 uses the qubit `f01` (several GHz) and `T_eff_mK` (~35–45 mK). DFT loss estimates are often 0 K or 300 K. The `conditions` object is required for a reason; the method is not chosen.
 4. **Which material is first?** The READMEs name Al/AlOx barriers, Nb/Ta surface oxides, TiN, Si, and TLS defects. EAM cannot start those systems; the DFT bridge is a prerequisite. Ni–Al is the documented EAM failure, but it is not itself a QPU-stack dielectric.
 5. **Can `junction_gap_ueV` ever come from atomforge?** It is a superconducting gap, not a ground-state DFT total energy. If it stays a literature / measured input, the schema should keep it reserved or drop it from v0.
-6. **Should accepted contract values be copied into design JSON by hand, or is a loader in scope later?** This draft assumes hand copy until someone designs a reader. Do not add an API in advance of that decision.
+6. **Should accepted contract values be copied into design JSON by hand, or is a loader in scope later?** This draft assumes hand copy until someone designs a reader. Do not add an API in advance of that decision. *Decided 2026-11-28 (Finnian Bond): a loader, and `materials apply --out` to save the result (see Implementation status).*
 7. **How should failed or qualitative EAM structures be marked** so they are not silently used as DFT inputs (Ni–Al B2 is the example in `results/NiAl/report.json`)?
 8. **File location and ownership:** this proposal lives at `docs/DATA_CONTRACT.md` in qpuforge. Still open: should a copy or link also live in atomforge, next to atomforge `results/`, or next to a qpuforge design folder?
 
@@ -233,3 +236,52 @@ Units in this file must be explicit on every quantity. Recommended conventions, 
 ## 5. Recommended next software step (not part of this proposal's implementation)
 
 Once the DFT `ExternalPotential` can relax and evaluate a named QPU-stack system, write one `forge.materials.v0` file by hand from those results, set `Q_dielectric` (or tanδ plus an explicit conversion), and patch a copy of `designs/alpha1-v11/alpha1_v11.json` to see the T1 change through existing `analyze()`. That exercise validates the contract against the code that already exists. It does not require a new API.
+
+---
+
+## 6. FEM reference cross-check (`qpuforge.fem_crosscheck.v0`, q17)
+
+*Added Saturday 28 November 2026 on branch `feat/q17-fem-reference`. Decided by Finnian Bond, 2026-11-28: support both
+Elmer and Palace; report the FEM-vs-model tolerance first, tighten it later. Scope: `docs/design/q17-q18-feasibility.md`.*
+
+This is a second, separate contract: an offline FEM solver → qpuforge. No solver is a build dependency. The solver runs
+elsewhere, its native export is imported by `include/qpuforge/fem.hpp`, and the committed form is a small JSON file.
+
+```json
+{
+  "schema": "qpuforge.fem_crosscheck.v0",
+  "solver": {"name": "elmer" | "palace", "version": "..."},
+  "cell": "pair",                     // star_meas, star_data, pair (layout.hpp's extraction cells)
+  "cell_hash": "...",                 // optional: hash of the exported geometry
+  "units": "fF",                      // the only accepted unit
+  "conductors": ["qa", "coupler", "bus", "qb"],
+  "maxwell_fF": [[...], ...],         // Maxwell matrix, one row per conductor (negative off-diagonals)
+  "mesh": {...}, "domain": {...}      // free-form provenance, carried through
+}
+```
+
+| Solver | Native file | Importer | Convention handled |
+|---|---|---|---|
+| Elmer (StatElecSolver, `Calculate Capacitance Matrix`) | `CapacitanceMatrix.dat`: whitespace rows in F, no names, `!`/`#` comments | `fem::import_elmer(text, names, version, lumped = true)` | lumped (positive mutuals) → Maxwell by negating the off-diagonals; `lumped = false` reads a Maxwell file as is |
+| Palace (`Electrostatic`) | `terminal-C.csv`: header row, then `index, C[i][1] (F), ...` | `fem::import_palace(text, names, version)` | Maxwell; the index column must run 1..n |
+
+Names are given by the caller in Capacitance Body / terminal order. Every importer refuses: a row of the wrong length,
+a non-number, a duplicated or empty name, a non-positive diagonal, a positive off-diagonal (wrong convention), and an
+asymmetry above 5 %. A smaller asymmetry is kept (`FemReference::asymmetry`) and the matrix is symmetrised.
+`reference_from_json` additionally refuses another schema, a unit other than fF, and a solver other than elmer/palace.
+
+**Ground.** The MoM cell includes the ground plane as a conductor; the FEM uses it as a 0 V boundary. With ground at
+0 V the Maxwell matrix of the other conductors is the sub-matrix without ground, so `compare_fem` compares the
+conductors the reference names and lists the rest (`model_only`, normally `ground`). A reference conductor missing
+from the model is an error.
+
+**Deviation (reported, not enforced).** `fem::compare_fem(model, reference, FemTolerance)` gives the relative
+deviation of every Maxwell entry, of E_C per conductor and of G per pair (from the inverse of the shared sub-matrix, the
+convention of `layout::triple_circuit`), the worst of each, and whether they are within the stated tolerance
+(default 2 % C, 2 % E_C, 5 % G). `FemTolerance::enforced` is false: `comparison_summary` / `comparison_json` say
+"within" or "outside", and nothing fails on it. It becomes an enforced check once stage-one agreement has been measured.
+
+Tests: the `fem` group (label `layout`). Fixtures in `tests/data/fem/` are **synthetic** (no solver run): the same
+4-conductor pair-cell matrix as an Elmer file, a Palace file and the v0 JSON. Not yet done: the geometry export and
+driver (`tools/fem_crosscheck.py`), committed references from real solver runs, participation ratios (Palace
+`surface-Q.csv`).

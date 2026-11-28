@@ -97,12 +97,15 @@ chip names its origin. Alternatives:
 * Alternative considered: a shared JSON Schema file in both repos. Cheaper to check, but a second source of truth next to
   the reader; rejected for now.
 
-### Phase 4: tighter validation (G6)
+### Phase 4: tighter validation (G6), decided (D4: enumerate provenance now, in v0); implemented on `feat/materials-provenance-enum`
 
-* `provenance` is an enumerated set (`assumed`, `measured`, `dft-loss-tangent`, `participation-weighted`, `placeholder`).
-  A number with any other provenance is an error. Because v0 allows additive fields only, a stricter provenance rule is
-  a behaviour change for existing writers (atomforge writes only `placeholder` today, so no break); decide whether it is
-  v0.1 or waits for v1 (D4).
+* `provenance` is an enumerated set on `forge.materials.v0` itself (no v0.1, no v1 wait): the four values of the contract's
+  §3.2 example (`assumed`, `measured`, `dft-loss-tangent`, `participation-weighted`), `placeholder` (what atomforge
+  writes), and `literature` (contract open question 5 names a literature value for the gap). `assumed` is the label for a
+  hand estimate. Any other string is an error; a number without a provenance is an error; `literature` and `measured`
+  name their source in a `reference` string. atomforge writes only `placeholder`, so no writer breaks; hand-written
+  sidecars without a provenance on a number do.
+* Values outside a physical range are rejected, not only non-positive ones (bounds in `DATA_CONTRACT.md`).
 * Warn (not error) when `conditions.f_GHz` differs from the qubit's `f01` by more than a tolerance, or `T_K` from
   `T_eff_mK`, because `Q = 1/tanδ` is only meaningful under the uniform-loss model.
 * `contains_placeholders` must agree with the `placeholders` list and the per-quantity status.
@@ -110,6 +113,8 @@ chip names its origin. Alternatives:
 
 ### Phase 5: real producers and per-element loss (G7), depends on other work
 
+* D5 decided **both**: first a hand-written Alpha-1 sidecar (`provenance: "assumed"`, every number explained in its `reason`
+  and none presented as a sourced value), so the whole path is exercised now; later the DFT bridge writes sidecars.
 * atomforge side: a07/a08 (DFT `ExternalPotential` bridge) gives energies in eV; it still gives no loss tangent. A
   tanδ needs a separate model (TLS density × dipole moment, or measured), so the first non-null quantity will more likely be
   `provenance: "assumed"` / `"measured"` from a person than `dft-loss-tangent` from the code.

@@ -300,12 +300,12 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
   (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
   `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
 - Review and study programs (`alpha1_v11_review`, `beta1_review`, `gamma1_review`, `decoder_study`, `decoder_sweeps`,
-  `surgery_study`): `provenance.source_commit` and `provenance.source_tree_dirty` now describe the tree the program was
+  `decoder_study2`, `surgery_study`, `flux_distortion_study`): `provenance.source_commit` and `provenance.source_tree_dirty` now describe the tree the program was
   built from. They were compile definitions (`QPUFORGE_GIT_SHA`, `QPUFORGE_GIT_DIRTY`; no longer read) computed when
   CMake configured the build directory, so a directory configured at one commit and rebuilt after later commits kept
   writing the old commit into its outputs. The stamp is now taken on every build: the target `qpuforge_git_stamp_update`
   runs `cmake/git_stamp.cmake`, which rewrites the one source file of a small static library (`qpuforge_git_stamp`) only
-  when the commit or the dirty flag changes. A new commit costs one small compile and six relinks, and a build directory
+  when the commit or the dirty flag changes. A new commit costs one small compile and one relink per program, and a build directory
   does not have to be configured again before a recorded run. The Makefile rules `<program>/fast` skip a program's
   dependencies and therefore do not take the stamp. The dirty flag means what it did (tracked files modified, untracked
   files not counted) but is now read at every build: a build made after a recorded run has rewritten its tracked output
@@ -446,7 +446,9 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
 
 ### Known issues
 - **Open review findings on the mask connectivity now on `main`** (details in docs/design/mask-connectivity.md). The
-  approach is known to be electrically wrong on the points below; a redesign is in progress in PR #28:
+  approach is known to be electrically wrong on the points below. A redesign is in progress. Its first step, the
+  stricter checks of PR #28, is on `main` already and the committed masks fail them (`layout_presets`, 9 checks;
+  `qpuforge gds` reports "metal connectivity NOT clean" for them); the corrected geometry is not on `main` yet:
   - the SQUID ground lead and the flux-line short share one modelled airbridge to the plane (galvanic T1 channel,
     estimated 0.1–1 µs; the pocket is treated as ideal ground);
   - the flux-line short couples only ~0.004–0.011 pH to the SQUID loop (~90–290 mA for Φ0/2): the flux lines do not

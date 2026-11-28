@@ -1201,30 +1201,38 @@ static void test_matching() {
 
 // ---------------------------------------------------------------- v0.4: fast fault enumeration
 static void test_fault_enumeration() {
-    std::puts("[faults] fast single-fault enumeration against the reference, fault by fault");
-    long total = 0, differ = 0; double t_ref = 0, t_fast = 0;
-    auto compare = [&](const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, int rounds, char basis) {
-        const auto M = prepare_memory(D, R, nm, rounds, basis, false);
+    std::puts("[faults] sparse and linear-time single-fault enumeration against the reference, fault by fault");
+    long total = 0, differ = 0, differ_direct = 0; double t_ref = 0, t_direct = 0, t_fast = 0;
+    auto same = [](const FaultSignature& a, const FaultSignature& b) {
+        return a.dets == b.dets && a.obs == b.obs && a.p == b.p && a.moment == b.moment && a.what == b.what;
+    };
+    auto compare_frame = [&](const FrameProgram& F, const MemoryExperiment& E) {
         const auto t0 = std::chrono::steady_clock::now();
-        const auto a = enumerate_faults_reference(M.frame, M.exp);
+        const auto a = enumerate_faults_reference(F, E);
         const auto t1 = std::chrono::steady_clock::now();
-        const auto b = enumerate_faults(M.frame, M.exp);
+        const auto b = enumerate_faults_direct(F, E);
         const auto t2 = std::chrono::steady_clock::now();
-        t_ref += std::chrono::duration<double>(t1 - t0).count(); t_fast += std::chrono::duration<double>(t2 - t1).count();
-        if (a.size() != b.size()) { differ += long(std::max(a.size(), b.size())); return; }
+        const auto c = enumerate_faults(F, E);
+        const auto t3 = std::chrono::steady_clock::now();
+        t_ref += std::chrono::duration<double>(t1 - t0).count(); t_direct += std::chrono::duration<double>(t2 - t1).count();
+        t_fast += std::chrono::duration<double>(t3 - t2).count();
+        if (a.size() != b.size() || a.size() != c.size()) { differ += long(std::max(a.size(), c.size())); return; }
         for (std::size_t i = 0; i < a.size(); ++i) {
             ++total;
-            if (a[i].dets != b[i].dets || a[i].obs != b[i].obs || a[i].p != b[i].p || a[i].moment != b[i].moment || a[i].what != b[i].what) ++differ;
+            if (!same(a[i], c[i])) ++differ;
+            if (!same(a[i], b[i])) ++differ_direct;
         }
+    };
+    auto compare = [&](const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, int rounds, char basis) {
+        const auto M = prepare_memory(D, R, nm, rounds, basis, false);
+        compare_frame(M.frame, M.exp);
     };
     {
         const auto D = surface_chip(3); const auto R = analyze(D); const auto nm = noise_model(D, R);
-        compare(D, R, nm, 5, 'Z'); compare(D, R, nm, 5, 'X'); compare(D, R, nm, 1, 'Z');
+        compare(D, R, nm, 5, 'Z'); compare(D, R, nm, 5, 'X'); compare(D, R, nm, 1, 'Z'); compare(D, R, nm, 2, 'X');
         auto lk = nm; lk.leakage = true; lk.dqlr = true; lk.dqlr_err = 5e-4; lk.dqlr_eff = 0.98;      // DQLR faults
-        const auto ML = prepare_memory(D, R, lk, 3);                                                  // (also builds the DQLR partner map)
-        const auto a = enumerate_faults_reference(ML.frame, ML.exp), b = enumerate_faults(ML.frame, ML.exp);
-        for (std::size_t i = 0; i < std::min(a.size(), b.size()); ++i) { ++total; if (a[i].dets != b[i].dets || a[i].obs != b[i].obs || a[i].p != b[i].p) ++differ; }
-        if (a.size() != b.size()) ++differ;
+        const auto ML = prepare_memory(D, R, lk, 3, 'Z', false);                                      // (also builds the DQLR partner map)
+        compare_frame(ML.frame, ML.exp);
     }
     {
         const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
@@ -1241,11 +1249,282 @@ static void test_fault_enumeration() {
         slices_unequal = prepare_memory(D, R, nm, 6, 'Z', false).frame.moments.size();
         compare(D, R, nm, 6, 'Z'); compare(D, R, nm, 6, 'X');
     }
-    std::printf("  %ld faults compared over 8 experiments (d = 3 and 5, both bases, with DQLR, equal and unequal CZ durations): %ld differ; reference %.2f s, fast %.2f s\n",
-                total, differ, t_ref, t_fast);
+    std::printf("  %ld faults compared over 10 experiments (d = 3 and 5, both bases, 1 to 8 rounds, with DQLR, equal and unequal CZ durations):\n"
+                "  linear-time %ld differ, sparse %ld differ; reference %.2f s, sparse %.2f s, linear-time %.2f s\n",
+                total, differ, differ_direct, t_ref, t_direct, t_fast);
     std::printf("  time slices of a 6-round d=3 memory: %zu with equal CZ durations, %zu with unequal ones\n", slices_equal, slices_unequal);
-    CHECK(total > 100000 && differ == 0, "fast fault enumeration differs from the reference on %ld of %ld faults", differ, total);
+    CHECK(total > 100000 && differ == 0, "linear-time fault enumeration differs from the reference on %ld of %ld faults", differ, total);
+    CHECK(differ_direct == 0, "sparse fault enumeration differs from the reference on %ld of %ld faults", differ_direct, total);
     CHECK(2 * slices_unequal > 3 * slices_equal, "the unequal-duration case does not exercise the many-slice regime (%zu vs %zu slices)", slices_unequal, slices_equal);
+    // scaling: the work per fault (time slices processed, a deterministic count) must not grow with the number of
+    // rounds (d = 5, 10 against 40 rounds); for the sparse version it grows about 4x. Wall-clock time is printed only.
+    {
+        const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        double work[2] = {0, 0}, work_direct[2] = {0, 0}, secs[2] = {0, 0}; std::size_t nf[2] = {0, 0};
+        const int rr[2] = {10, 40};
+        for (int i = 0; i < 2; ++i) {
+            const auto M = prepare_memory(D, R, nm, rr[i], 'Z', false);
+            long st = 0, sd = 0;
+            const auto t0 = std::chrono::steady_clock::now();
+            nf[i] = enumerate_faults(M.frame, M.exp, &st).size();
+            secs[i] = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            enumerate_faults_direct(M.frame, M.exp, &sd);
+            work[i] = double(st) / double(nf[i]); work_direct[i] = double(sd) / double(nf[i]);
+        }
+        std::printf("  time slices processed per fault, d=5: linear-time %.2f at 10 rounds, %.2f at 40 (sparse %.2f, %.2f); %zu and %zu faults, %.3f and %.3f us per fault\n",
+                    work[0], work[1], work_direct[0], work_direct[1], nf[0], nf[1], 1e6 * secs[0] / double(nf[0]), 1e6 * secs[1] / double(nf[1]));
+        CHECK(work[1] < 1.25 * work[0] && work_direct[1] > 2.5 * work_direct[0],
+              "work per fault: linear-time %.2f -> %.2f, sparse %.2f -> %.2f", work[0], work[1], work_direct[0], work_direct[1]);
+    }
+}
+
+// ---------------------------------------------------------------- union-find decoder
+static void test_union_find() {
+    std::puts("[union-find] weighted union-find decoder: clears every syndrome, decodes single faults, logical error near the exact decoder");
+    long syndromes = 0, uncleared = 0, singles = 0, single_wrong = 0, single_wrong_exact = 0, outweighed = 0;
+    auto check_setup = [&](const MemorySetup& M, std::uint64_t seed) {
+        const MatchingDecoder& dec = *M.decoder;
+        const auto& uf = dec.union_find();
+        const int nd = dec.n_detectors();
+        DecodeScratch ws;
+        // syndromes from the detector error model (every mechanism at 3x its probability) and uniformly random ones
+        Xoshiro256 rng(seed);
+        std::vector<std::uint8_t> on(std::size_t(nd), 0), got(std::size_t(nd), 0);
+        std::vector<int> def;
+        for (int trial = 0; trial < 3000; ++trial) {
+            std::fill(on.begin(), on.end(), 0);
+            if (trial % 3 == 2) { for (int d = 0; d < nd; ++d) on[std::size_t(d)] = rng.uniform() < 0.1; }
+            else for (const auto& e : M.dem.edges) if (rng.uniform() < 3 * e.p) { on[std::size_t(e.a)] ^= 1; if (e.b >= 0) on[std::size_t(e.b)] ^= 1; }
+            def.clear(); for (int d = 0; d < nd; ++d) if (on[std::size_t(d)]) def.push_back(d);
+            dec.decode(def, ws, DecodeMethod::UnionFind);
+            std::fill(got.begin(), got.end(), 0);
+            for (int k : ws.uf.correction) { const auto& e = uf.edge[std::size_t(k)]; for (int v : {e.u, e.v}) if (v < nd) got[std::size_t(v)] ^= 1; }
+            ++syndromes; if (got != on) ++uncleared;
+        }
+        // every single fault mechanism of the circuit that the graph represents
+        // (a mechanism whose detectors are joined by a more likely path with the other logical parity is decoded
+        // "wrongly" by any decoder that uses these priors: counted separately, and its weight must exceed that path's)
+        for (const auto& f : enumerate_faults(M.frame, M.exp)) {
+            if (f.dets.empty() || f.dets.size() > 2) continue;
+            const double w = std::log((1 - f.p) / f.p);
+            const int b = f.dets.size() == 2 ? f.dets[1] : -1;
+            const int ex = dec.decode(f.dets, ws);
+            if (ex != int(f.obs)) {
+                ++outweighed;
+                if (!(dec.dist(f.dets[0], b) < w - 1e-9)) ++single_wrong_exact;
+                continue;
+            }
+            ++singles;
+            if (dec.decode(f.dets, ws, DecodeMethod::UnionFind) != int(f.obs)) ++single_wrong;
+        }
+    };
+    // peeling on a hand-made graph: 0 -1- 1 -2- 2 -3- boundary, plus a heavy 0 - boundary edge; edge bits 0/1/0/1
+    {
+        struct E { int a, b; bool obs; double p; };
+        const std::vector<E> g{{0, 1, false, 0.1}, {1, 2, true, 0.1}, {2, -1, false, 0.1}, {0, -1, true, 1e-4}};
+        const UnionFindDecoder U(3, g);
+        UFScratch us;
+        const int p02 = U.decode({0, 2}, us);            // the pair is joined through 1: edges 0-1 and 1-2, parity 1
+        std::vector<int> c02 = us.correction; std::sort(c02.begin(), c02.end());
+        const int p2 = U.decode({2}, us);                // one defect next to the boundary: edge 2-B, parity 0
+        const std::size_t n2 = us.correction.size();
+        const int p0 = U.decode({0}, us);                // one defect: 0-1-2-B (weight 3 x 2.2) beats 0-B (9.2): parity 1
+        std::printf("  hand-made graph: {0,2} -> parity %d via %zu edges; {2} -> parity %d via %zu edge; {0} -> parity %d via %zu edges\n",
+                    p02, c02.size(), p2, n2, p0, us.correction.size());
+        CHECK(p02 == 1 && c02.size() == 2 && p2 == 0 && n2 == 1 && p0 == 1 && us.correction.size() == 3, "peeling on the hand-made graph");
+    }
+    struct Row { int d; char b; int rounds; long shots; MemoryResult ex, uf; };
+    std::vector<Row> rows;
+    for (int d : {3, 5}) {
+        const auto D = surface_chip(d); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        for (char b : {'Z', 'X'}) {
+            const int rounds = d == 3 ? 6 : 5;
+            const auto M = prepare_memory(D, R, nm, rounds, b);
+            check_setup(M, 31 + std::uint64_t(d) + (b == 'X' ? 100u : 0u));
+            const long shots = d == 3 ? 40000 : 60000;
+            FrameRunOptions o; o.method = DecodeMethod::UnionFind;
+            rows.push_back({d, b, rounds, shots, run_memory_frame(M, shots, 900 + std::uint64_t(d)), run_memory_frame(M, shots, 900 + std::uint64_t(d), o)});
+        }
+    }
+    std::printf("  %ld syndromes (sampled from the error model and uniformly random): %ld not cleared by the correction\n", syndromes, uncleared);
+    std::printf("  %ld single-fault mechanisms: union-find wrong on %ld; %ld more are outweighed by a likelier path of the other parity "
+                "(%ld of those not explained by the weights)\n", singles, single_wrong, outweighed, single_wrong_exact);
+    double worst = 0;
+    for (const auto& r : rows) {
+        const double ratio = r.uf.p_logical / std::max(r.ex.p_logical, 1e-12);
+        worst = std::max(worst, ratio);
+        std::printf("  d=%d memory-%c, %d rounds, %ld shots (same syndromes): exact P_L %.5f (%ld), union-find P_L %.5f (%ld), ratio %.2f; decode %.2f vs %.2f us per shot\n",
+                    r.d, r.b, r.rounds, r.shots, r.ex.p_logical, r.ex.logical_errors, r.uf.p_logical, r.uf.logical_errors, ratio,
+                    r.ex.decode_us_per_shot, r.uf.decode_us_per_shot);
+        CHECK(r.uf.logical_errors >= r.ex.logical_errors * 9 / 10, "union-find beats the exact decoder by more than noise (d=%d %c: %ld vs %ld)", r.d, r.b, r.uf.logical_errors, r.ex.logical_errors);
+    }
+    CHECK(uncleared == 0, "union-find correction leaves %ld of %ld syndromes uncleared", uncleared, syndromes);
+    CHECK(single_wrong == 0 && single_wrong_exact == 0 && outweighed < singles / 1000, "single faults decoded wrongly: union-find %ld, exact %ld (outweighed %ld)",
+          single_wrong, single_wrong_exact, outweighed);
+    CHECK(worst < 1.5, "union-find logical error more than 1.5x the exact decoder's (worst ratio %.2f)", worst);
+}
+
+// ---------------------------------------------------------------- heralded leakage
+static NoiseModel stressed_leakage(const ChipDesign& D, const ChipReport& R, double p_cz) {
+    auto nm = noise_model(D, R);
+    nm.leakage = true; nm.leak_1q = 0; nm.leak_transport = 0.05; nm.reset_removes_leakage = true;
+    for (const auto& p : R.pairs) if (p.designed) {
+        const int a = D.index_of(p.a), b = D.index_of(p.b);
+        const int mover = D.qubits[std::size_t(a)].role == "data" ? b : a;   // the measure qubit leaks
+        nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, p_cz};
+    }
+    return nm;
+}
+
+static void test_heralds() {
+    std::puts("[heralds] heralded leakage: modified-graph matching is exact, herald statistics, logical gain with the leakage-removing reset");
+    // 1. decode_scaled against brute force: Floyd-Warshall on the whole modified graph, then the DP over the defects
+    {
+        const auto D = surface_chip(3); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        const auto M = prepare_memory(D, R, nm, 3);
+        const MatchingDecoder& dec = *M.decoder;
+        const auto& uf = dec.union_find();
+        const int nd = dec.n_detectors(), V = nd + 1;
+        Xoshiro256 rng(4242);
+        DecodeScratch ws;
+        int bad_w = 0, bad_uf = 0, trials = 300;
+        double worst = 0;
+        std::vector<double> dist(std::size_t(V) * std::size_t(V));
+        for (int t = 0; t < trials; ++t) {
+            std::vector<std::pair<int, double>> sc;
+            const int ne = 1 + int(rng.uniform() * 20);
+            for (int k = 0; k < ne; ++k) sc.push_back({int(rng.uniform() * double(uf.edge.size())), rng.uniform() < 0.3 ? 0.0 : rng.uniform()});
+            std::vector<int> def;
+            for (int d = 0; d < nd; ++d) if (rng.uniform() < 0.15 && def.size() < 10) def.push_back(d);
+            const double INF = 1e300;
+            std::fill(dist.begin(), dist.end(), INF);
+            for (int i = 0; i < V; ++i) dist[std::size_t(i) * std::size_t(V) + std::size_t(i)] = 0;
+            std::vector<double> f(uf.edge.size(), 1.0);
+            for (auto [e, x] : sc) f[std::size_t(e)] = std::min(f[std::size_t(e)], x);
+            for (std::size_t e = 0; e < uf.edge.size(); ++e) {
+                const auto& E = uf.edge[e];
+                double& a = dist[std::size_t(E.u) * std::size_t(V) + std::size_t(E.v)];
+                a = std::min(a, f[e] * E.w); dist[std::size_t(E.v) * std::size_t(V) + std::size_t(E.u)] = a;
+            }
+            for (int k = 0; k < V; ++k) for (int i = 0; i < V; ++i) for (int j = 0; j < V; ++j) {
+                const double c = dist[std::size_t(i) * std::size_t(V) + std::size_t(k)] + dist[std::size_t(k) * std::size_t(V) + std::size_t(j)];
+                double& x = dist[std::size_t(i) * std::size_t(V) + std::size_t(j)];
+                if (c < x) x = c;
+            }
+            // minimum-weight matching of def (or to the boundary) by DP over subsets
+            const int k = int(def.size());
+            std::vector<double> cost(std::size_t(1) << k, 0.0);
+            for (std::size_t mask = 1; mask < cost.size(); ++mask) {
+                int i = 0; while (!((mask >> i) & 1)) ++i;
+                const std::size_t rest = mask & ~(std::size_t(1) << i);
+                double best = dist[std::size_t(def[std::size_t(i)]) * std::size_t(V) + std::size_t(nd)] + cost[rest];
+                for (int j = i + 1; j < k; ++j) if ((rest >> j) & 1)
+                    best = std::min(best, dist[std::size_t(def[std::size_t(i)]) * std::size_t(V) + std::size_t(def[std::size_t(j)])] + cost[rest & ~(std::size_t(1) << j)]);
+                cost[mask] = best;
+            }
+            dec.decode_scaled(def, sc, ws);
+            const double err = std::abs(ws.weight - cost.back());
+            worst = std::max(worst, err);
+            if (err > 1e-9 * std::max(1.0, cost.back())) ++bad_w;
+            // union-find with the same modified lengths clears the syndrome
+            dec.decode_scaled(def, sc, ws, DecodeMethod::UnionFind);
+            std::vector<std::uint8_t> on(std::size_t(nd), 0), got(std::size_t(nd), 0);
+            for (int d : def) on[std::size_t(d)] = 1;
+            for (int e : ws.uf.correction) for (int v : {uf.edge[std::size_t(e)].u, uf.edge[std::size_t(e)].v}) if (v < nd) got[std::size_t(v)] ^= 1;
+            if (got != on) ++bad_uf;
+        }
+        std::printf("  %d random defect sets on randomly re-weighted graphs (d=3): matching weight differs from brute force on %d (worst %.1e); union-find leaves %d uncleared\n",
+                    trials, bad_w, worst, bad_uf);
+        CHECK(bad_w == 0 && bad_uf == 0, "re-weighted decoding: %d weight mismatches, %d uncleared", bad_w, bad_uf);
+    }
+    // 2. herald statistics and the logical gain (d = 5, CZ leakage of the measure qubits 2e-3, leakage-removing reset)
+    {
+        const auto D = surface_chip(5); const auto R = analyze(D);
+        const auto nm = stressed_leakage(D, R, 2e-3);
+        const auto M = prepare_memory(D, R, nm, 10);
+        const long shots = 20000;
+        FrameRunOptions on; on.herald.on = true;
+        FrameRunOptions blind = on; blind.herald.use_in_decoder = false;
+        FrameRunOptions perfect = on; perfect.herald.fidelity = 1; perfect.herald.false_rate = 0;
+        FrameRunOptions none = on; none.herald.fidelity = 0; none.herald.false_rate = 0;
+        FrameRunOptions det = on; det.herald.footprint = false; det.herald.touch_factor = 0.4;
+        const auto rb = run_memory_frame(M, shots, 515, blind), ru = run_memory_frame(M, shots, 515, on);
+        const auto rp = run_memory_frame(M, shots, 515, perfect), rn = run_memory_frame(M, shots, 515, none);
+        const auto rd = run_memory_frame(M, shots, 515, det);
+        FrameRunOptions ufo = on; ufo.method = DecodeMethod::UnionFind;
+        FrameRunOptions ufb = blind; ufb.method = DecodeMethod::UnionFind;
+        const auto rub = run_memory_frame(M, shots, 515, ufb), ruu = run_memory_frame(M, shots, 515, ufo);
+        std::printf("  d=5, 10 rounds, %ld shots: %.2f leakage events, %.2f heralds per shot (%.0f%% leaked); perfect heralds %.2f (%.0f%% leaked), none %.2f\n",
+                    shots, ru.leak_events_per_shot, ru.heralds_per_shot, 100 * ru.herald_true_frac, rp.heralds_per_shot, 100 * rp.herald_true_frac, rn.heralds_per_shot);
+        std::printf("  same syndromes: exact matching %ld failures without heralds, %ld with (footprint rule), %ld with the detector rule; union-find %ld -> %ld\n",
+                    rb.logical_errors, ru.logical_errors, rd.logical_errors, rub.logical_errors, ruu.logical_errors);
+        CHECK(rp.herald_true_frac == 1.0 && rn.heralds_per_shot == 0.0 && ru.herald_true_frac > 0.7 && ru.herald_true_frac < 1.0,
+              "herald sampling (perfect: %.3f leaked, none: %.3f per shot, default: %.3f leaked)", rp.herald_true_frac, rn.heralds_per_shot, ru.herald_true_frac);
+        CHECK(10 * ru.logical_errors < 9 * rb.logical_errors, "heralds do not lower the logical error by 10%% (%ld vs %ld failures)", ru.logical_errors, rb.logical_errors);
+        CHECK(10 * ruu.logical_errors < 9 * rub.logical_errors, "heralds do not help the union-find decoder by 10%% (%ld vs %ld failures)", ruu.logical_errors, rub.logical_errors);
+    }
+}
+
+// ---------------------------------------------------------------- impact injection and veto
+static void test_impact_veto() {
+    std::puts("[impact veto] per-shot impact injection (deterministic, separate stream), veto calibration, residual floor");
+    const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+    const auto M = prepare_memory(D, R, nm, 8);
+    const long shots = 20000;
+    // 1. an impact with no excess noise changes nothing: the injection draws come from their own stream
+    FrameRunOptions clean;
+    FrameRunOptions null_hit; null_hit.impact.p_shot = 0.5; null_hit.impact.burst.t1_peak_us = 0; null_hit.impact.burst.tphi_peak_us = 0;
+    const auto r0 = run_memory_frame(M, shots, 61, clean), rn = run_memory_frame(M, shots, 61, null_hit);
+    const double fh = double(rn.impacts) / double(shots);
+    std::printf("  impacts without excess noise in %.3f of shots: %ld vs %ld failures, detection %.6f vs %.6f\n", fh, rn.logical_errors, r0.logical_errors,
+                rn.detection_rate, r0.detection_rate);
+    CHECK(rn.logical_errors == r0.logical_errors && rn.detection_rate == r0.detection_rate && rn.mean_defects == r0.mean_defects,
+          "impact injection disturbs the shot's own noise stream");
+    CHECK(std::abs(fh - 0.5) < 4 * std::sqrt(0.25 / double(shots)), "impact rate %.4f, expected 0.5", fh);
+    // 2. veto calibrated on burst-free shots holds its false-veto rate on fresh burst-free shots
+    VetoSpec V;
+    const auto cal = calibrate_veto(M, 40000, 63, 2e-3, V);
+    V.on = true; V.threshold = cal.threshold;
+    FrameRunOptions vclean; vclean.veto = V;
+    const auto rf = run_memory_frame(M, 40000, 65, vclean);
+    const double fv = double(rf.discarded) / double(rf.shots);
+    std::printf("  veto (%d rounds x radius %.0f): threshold %d, false-veto rate %.2e on the calibration shots, %.2e on fresh ones (target 2e-3)\n",
+                V.window_rounds, V.radius, V.threshold, cal.false_rate, fv);
+    CHECK(cal.false_rate <= 2e-3 && fv < 2e-3 + 4 * std::sqrt(2e-3 / 40000.0), "false-veto rate %.2e (calibration %.2e)", fv, cal.false_rate);
+    // 3. chip-wide T1 impacts in 5% of shots: the veto catches most and brings the kept error back near the clean one
+    FrameRunOptions inj; inj.impact.p_shot = 0.05;
+    FrameRunOptions vet = inj; vet.veto = V;
+    const auto ri = run_memory_frame(M, shots, 67, inj), rv = run_memory_frame(M, shots, 67, vet), rc = run_memory_frame(M, shots, 67, vclean);
+    const double caught = double(rv.impacts_vetoed) / double(std::max(rv.impacts, 1L));
+    std::printf("  %ld chip-wide impacts: %.0f%% caught; eps %.5f (no impacts), %.5f (impacts, no veto), %.5f (impacts, veto; %.1f%% discarded)\n",
+                rv.impacts, 100 * caught, rc.eps_kept, ri.eps_per_round, rv.eps_kept, 100.0 * double(rv.discarded) / double(shots));
+    std::printf("  failures in impacted shots: %ld without the veto, %ld kept by it\n", ri.errors_impacted, rv.errors_impacted_kept);
+    CHECK(caught > 0.6, "veto catches only %.0f%% of chip-wide impacts", 100 * caught);
+    // (impacts late in a shot leave too few rounds to be seen: the residual excess comes from those)
+    CHECK(ri.eps_per_round > 1.5 * rc.eps_kept && rv.eps_kept - rc.eps_kept < 0.3 * (ri.eps_per_round - rc.eps_kept),
+          "veto does not remove most of the impact excess (%.5f, %.5f, %.5f)", rc.eps_kept, ri.eps_per_round, rv.eps_kept);
+    // 4. a local impact (sigma 1 lattice unit) does less damage than a chip-wide one
+    FrameRunOptions loc = inj; loc.impact.burst.radius = 1.0;
+    const auto rl = run_memory_frame(M, shots, 67, loc);
+    std::printf("  failures per impact: chip-wide %.3f, local (sigma 1) %.3f\n", double(ri.errors_impacted) / double(ri.impacts), double(rl.errors_impacted) / double(rl.impacts));
+    CHECK(rl.errors_impacted * ri.impacts < ri.errors_impacted * rl.impacts, "a local impact is not milder than a chip-wide one");
+    // 5. the floor over the burst profile with the veto (d = 3, gap-engineered dephasing burst, 1 ms)
+    {
+        const auto D3 = surface_chip(3); const auto R3 = analyze(D3); const auto nm3 = noise_model(D3, R3);
+        BurstSpec B; B.tau_ms = 1; B.t1_peak_us = 0; B.tphi_peak_us = 0.1;
+        VetoSpec V3; V3.threshold = calibrate_veto(prepare_memory(D3, R3, nm3, 6), 20000, 69, 2e-3, V3).threshold;
+        const auto bv = burst_floor_veto(D3, R3, nm3, B, 6, 6000, 71, V3, 'X');
+        std::printf("  d=3 dephasing burst: floor %.2e without the veto, %.2e with shot-by-shot discard (%.3f ms discarded per impact); latched:",
+                    bv.floor_per_round, bv.floor_per_round_veto, bv.discarded_ms);
+        bool mono = true;
+        for (std::size_t i = 0; i < bv.latched.size(); ++i) {
+            std::printf(" %.0ftau %.1e", bv.latched[i].hold_tau, bv.latched[i].floor_per_round);
+            if (i && bv.latched[i].floor_per_round > bv.latched[i - 1].floor_per_round) mono = false;
+        }
+        std::printf("\n");
+        CHECK(bv.floor_per_round_veto <= bv.floor_per_round && bv.discarded_ms > 0 && mono && bv.latched.back().floor_per_round < 0.01 * bv.floor_per_round,
+              "veto floor %.2e vs %.2e, discarded %.3f ms, latched monotone %d", bv.floor_per_round_veto, bv.floor_per_round, bv.discarded_ms, int(mono));
+    }
 }
 
 // ---------------------------------------------------------------- v0.4: memory in both bases
@@ -1485,6 +1764,148 @@ static void test_designs_v04() {
     CHECK(shift_min > 0.5 && shift_max < 6.0, "tuned-anharmonicity correction outside the expected few MHz");
 }
 
+// ---------------------------------------------------------------- materials: forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md)
+#ifndef QPUFORGE_TEST_DATA
+#define QPUFORGE_TEST_DATA "tests/data"   // CMake passes the absolute path; this default works from the source root
+#endif
+static std::string test_data(const char* name) { return std::string(QPUFORGE_TEST_DATA) + "/" + name; }
+// a minimal sidecar around the members of `quantities`
+static std::string sidecar_text(const std::string& quantities, const std::string& schema = "\"forge.materials.v0\"") {
+    return "{\"schema\": " + schema + ", \"quantities\": {" + quantities + "}}";
+}
+// reading `text` must throw std::runtime_error with `needle` in the message
+static bool sidecar_rejected(const std::string& text, const char* needle) {
+    try {
+        materials_from_json(Json::parse(text));
+    } catch (const std::runtime_error& e) {
+        if (std::string(e.what()).find(needle) != std::string::npos) return true;
+        std::printf("  rejected, but with another message: %s\n", e.what());
+    }
+    return false;
+}
+static void test_materials() {
+    std::puts("[materials] forge.materials.v0 sidecar: atomforge's placeholder file changes nothing, values reach analyze(), loss tangent on request only, malformed files throw");
+    const ChipDesign A0 = alpha1_v11(3);
+    const std::string A0_json = json_text(design_to_json(A0));
+    // (a) the sidecar exactly as atomforge's writer emits it: materials_contract_json() at atomforge ee734f9, for the
+    //     synthetic Cu-Au search and fixed options of its tests/test_materials_contract.cpp. All three quantities are
+    //     null placeholders.
+    const auto P = load_materials(test_data("materials-contract-CuAu.json"));
+    CHECK(P.schema == "forge.materials.v0" && P.produced_by.tool == "atomforge" && P.produced_by.potential_or_method == "Zhou04-EAM" &&
+          P.produced_by.commit == "0123456789abcdef0123456789abcdef01234567" && P.produced_by.timestamp == "2026-11-26T12:00:00+00:00" &&
+          P.system == std::vector<std::string>({"Cu", "Au"}), "atomforge sidecar metadata");
+    bool placeholders = P.quantities.size() == 3;
+    for (const auto& q : P.quantities) placeholders = placeholders && q.placeholder && !q.value && q.status == "placeholder";
+    CHECK(placeholders && P.find("Q_dielectric") && P.find("loss_tangent") && P.find("junction_gap_ueV") &&
+          P.find("Q_dielectric")->unit == "dimensionless" && P.find("junction_gap_ueV")->unit == "ueV" &&
+          P.find("Q_dielectric")->maps_to == "ChipDesign.materials.Q_dielectric" && P.find("loss_tangent")->maps_to.empty(),
+          "atomforge sidecar: three null placeholders with their units and maps_to");
+    for (bool lt : {false, true}) {
+        ChipDesign A = A0;
+        const auto rep = apply_materials(P, A, MaterialsApplyOptions{lt});
+        CHECK(json_text(design_to_json(A)) == A0_json && A.Q_dielectric == A0.Q_dielectric && A.gap_ueV == A0.gap_ueV &&
+              rep.applied() == 0 && rep.skipped() == 3, "placeholder sidecar must leave alpha1_v11(3) unchanged (loss-tangent opt-in %d)", int(lt));
+    }
+    {   // the qpuforge defaults quoted beside the placeholders (3e6, 180 ueV) equal Alpha-1's own values: check on other values too
+        ChipDesign B = A0; B.Q_dielectric = 1.5e6; B.gap_ueV = 175;
+        apply_materials(P, B);
+        CHECK(B.Q_dielectric == 1.5e6 && B.gap_ueV == 175, "placeholder sidecar applied a reference default (Q %.6g, gap %.6g)", B.Q_dielectric, B.gap_ueV);
+    }
+    // (b) a sidecar with values (Q 1e6, gap 190 ueV) reaches the device model
+    const auto V = load_materials(test_data("materials-values.json"));
+    ChipDesign C = A0;
+    const auto rv = apply_materials(V, C);
+    CHECK(C.Q_dielectric == 1e6 && C.gap_ueV == 190 && rv.applied() == 2 && rv.skipped() == 1 && rv.lines.size() == 3 &&
+          rv.lines[0].applied && rv.lines[0].before == 3e6 && rv.lines[0].after == 1e6 && !rv.lines[1].applied &&
+          rv.lines[2].field == "materials.junction_gap_ueV" && rv.lines[2].after == 190, "values sidecar: fields and report");
+    {
+        ChipDesign C2 = C; C2.Q_dielectric = A0.Q_dielectric; C2.gap_ueV = A0.gap_ueV;
+        CHECK(json_text(design_to_json(C2)) == A0_json, "a sidecar may change Q_dielectric and gap_ueV only");
+    }
+    const auto R0 = analyze(A0), R1 = analyze(C);
+    const auto& q0 = R0.q[0]; const auto& q1 = R1.q[0];
+    const double T1_formula = 1e6 / (2 * PI * q1.f01 * 1e9 / C.Q_dielectric);     // G_diel = 2 pi f / Q
+    std::printf("  Q%d, Q 3e6 -> 1e6 and gap 180 -> 190 ueV: f01 %.4f -> %.4f GHz, T1_diel %.1f -> %.1f us (2 pi f / Q gives %.1f us), T1 %.1f -> %.1f us\n",
+                q1.id, q0.f01, q1.f01, q0.T1_diel_us, q1.T1_diel_us, T1_formula, q0.T1_us, q1.T1_us);
+    CHECK(std::abs(q1.T1_diel_us / T1_formula - 1) < 1e-12, "T1_diel %.6f us vs 2 pi f / Q %.6f us", q1.T1_diel_us, T1_formula);
+    CHECK(std::abs(q1.EJ / q0.EJ - 190.0 / 180.0) < 1e-12, "E_J must scale with the gap (Ambegaokar-Baratoff): ratio %.15f", q1.EJ / q0.EJ);
+    CHECK(std::abs(1 / q1.T1_us - (1 / q1.T1_diel_us + 1 / q1.T1_purcell_us)) < 1e-12 / q1.T1_us && q1.T1_us < q0.T1_us,
+          "T1 must combine the new dielectric rate with Purcell decay (%.3f vs %.3f us)", q1.T1_us, q0.T1_us);
+    {   // Q alone: the frequencies stay put, so every T1_diel scales exactly with Q
+        ChipDesign E = A0;
+        apply_materials(materials_from_json(Json::parse(sidecar_text(R"("Q_dielectric": {"value": 1.2e7, "unit": "dimensionless"})"))), E);
+        const auto RE = analyze(E);
+        double worst = 0; bool same_f = RE.q.size() == R0.q.size();
+        for (std::size_t i = 0; same_f && i < RE.q.size(); ++i) {
+            same_f = RE.q[i].f01 == R0.q[i].f01;
+            worst = std::max(worst, std::abs(RE.q[i].T1_diel_us / R0.q[i].T1_diel_us / 4.0 - 1));
+        }
+        CHECK(same_f && worst < 1e-12, "Q 3e6 -> 1.2e7: f01 unchanged %d, T1_diel ratio off 4 by %.2e", int(same_f), worst);
+    }
+    // (c) loss tangent: Q_dielectric = 1/tan(delta) on request only, and only while Q_dielectric is null
+    const auto L = load_materials(test_data("materials-loss-tangent.json"));     // Q_dielectric null, loss_tangent 2.5e-7
+    {
+        ChipDesign F = A0;
+        const auto rf = apply_materials(L, F);
+        CHECK(F.Q_dielectric == A0.Q_dielectric && rf.applied() == 0 && rf.lines.size() == 3 && rf.lines[1].quantity == "loss_tangent" && !rf.lines[1].applied,
+              "loss_tangent must not be applied without the opt-in");
+        ChipDesign G = A0;
+        const auto rg = apply_materials(L, G, MaterialsApplyOptions{true});
+        const auto RG = analyze(G);
+        const double T1_tan = 1e6 / (2 * PI * RG.q[0].f01 * 1e9 * 2.5e-7);            // G_diel = 2 pi f tan(delta)
+        std::printf("  loss_tangent 2.5e-7 with the opt-in: Q_dielectric %.6g, Q%d T1_diel %.1f us (2 pi f tan(delta) gives %.1f us)\n",
+                    G.Q_dielectric, RG.q[0].id, RG.q[0].T1_diel_us, T1_tan);
+        CHECK(G.Q_dielectric == 1.0 / 2.5e-7 && G.gap_ueV == A0.gap_ueV && rg.applied() == 1 && rg.lines[1].applied && rg.lines[1].after == G.Q_dielectric &&
+              rg.lines[1].note.find("1/loss_tangent") != std::string::npos, "opt-in: Q_dielectric = 1/loss_tangent, recorded in the report");
+        CHECK(std::abs(RG.q[0].T1_diel_us / T1_tan - 1) < 1e-12, "T1_diel from the loss tangent %.6f vs %.6f us", RG.q[0].T1_diel_us, T1_tan);
+        ChipDesign H = A0;    // a Q_dielectric with a value wins, opt-in or not
+        const auto rh = apply_materials(materials_from_json(Json::parse(sidecar_text(
+            R"("loss_tangent": {"value": 1e-6, "unit": "dimensionless"}, "Q_dielectric": {"value": 2e6, "unit": "dimensionless"})"))), H, MaterialsApplyOptions{true});
+        CHECK(H.Q_dielectric == 2e6 && rh.applied() == 1 && !rh.lines[0].applied, "a given Q_dielectric must win over loss_tangent (Q %.6g)", H.Q_dielectric);
+    }
+    // (d) malformed sidecars are rejected, each with its own message
+    const std::string q_ok = R"("Q_dielectric": {"value": 1e6, "unit": "dimensionless"})";
+    CHECK(sidecar_rejected(sidecar_text(q_ok, "\"forge.materials.v1\""), "schema must be \"forge.materials.v0\", got \"forge.materials.v1\"") &&
+          sidecar_rejected(R"({"quantities": {}})", "no schema member") && sidecar_rejected(sidecar_text(q_ok, "0"), "non-string") &&
+          sidecar_rejected("[]", "JSON object"), "a wrong or missing schema must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 1e6, "unit": "ppm"})"), "unit must be \"dimensionless\"") &&
+          sidecar_rejected(sidecar_text(R"("junction_gap_ueV": {"value": 0.19, "unit": "meV"})"), "unit must be \"ueV\"") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 1e6})"), "unit is missing"), "a wrong or missing unit must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 0, "unit": "dimensionless"})"), "positive finite") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": -3e6, "unit": "dimensionless"})"), "positive finite"), "a non-positive Q must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("junction_gap_ueV": {"value": -180, "unit": "ueV"})"), "positive finite") &&
+          sidecar_rejected(sidecar_text(R"("loss_tangent": {"value": 0, "unit": "dimensionless"})"), "positive finite") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": "3e6", "unit": "dimensionless"})"), "number or null") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": {"unit": "dimensionless"})"), "value is missing"), "a bad gap, loss tangent or value type must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("participation_ratio": {"value": 0.1, "unit": "dimensionless"})"), "unknown quantity 'participation_ratio'"),
+          "an unknown quantity must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("Rn_spread_pct": {"value": 0.5, "unit": "%"})"), "not part of forge.materials.v0") &&
+          sidecar_rejected(sidecar_text(R"("T_eff_mK": {"value": 35, "unit": "mK"})"), "not part of forge.materials.v0"),
+          "Rn_spread_pct and the environment fields are not contract quantities");
+    CHECK(sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 3e6, "unit": "dimensionless", "status": "placeholder"})"), "placeholder must have value null") &&
+          sidecar_rejected(R"({"schema": "forge.materials.v0", "placeholders": ["quantities.Q_dielectric"], "quantities": {"Q_dielectric": {"value": 3e6, "unit": "dimensionless"}}})",
+                           "placeholder must have value null"), "a placeholder that carries a number must throw");
+    CHECK(sidecar_rejected(sidecar_text(R"("Q_dielectric": {"value": 1e6, "unit": "dimensionless", "maps_to": "ChipDesign.materials.junction_gap_ueV"})"), "maps_to") &&
+          sidecar_rejected(sidecar_text(R"("loss_tangent": {"value": 1e-6, "unit": "dimensionless", "maps_to": "ChipDesign.materials.Q_dielectric"})"), "maps_to"),
+          "a maps_to naming another field must throw (loss_tangent is converted, never copied)");
+    CHECK(sidecar_rejected(R"({"schema": "forge.materials.v0"})", "quantities must be an object") &&
+          sidecar_rejected(sidecar_text(R"("Q_dielectric": 3e6)"), "must be an object"), "a missing quantities block or a bare number must throw");
+    {   // file errors name the file; a hand-built sidecar with a bad value throws before the design is touched
+        bool missing = false, named = false, threw = false;
+        try { load_materials(temp_path("no_such_sidecar.json")); } catch (const std::runtime_error& e) { missing = std::string(e.what()).find("cannot open") != std::string::npos; }
+        const std::string chip = temp_path("chip_as_sidecar.json");
+        save_design(A0, chip);
+        try { load_materials(chip); } catch (const std::runtime_error& e) { named = std::string(e.what()).find(chip + ": materials sidecar: schema") == 0; }
+        std::remove(chip.c_str());
+        MaterialsSidecar bad = V;
+        for (auto& q : bad.quantities) if (q.name == "junction_gap_ueV") q.value = -1.0;
+        ChipDesign K = A0;
+        try { apply_materials(bad, K); } catch (const std::runtime_error&) { threw = true; }
+        CHECK(missing && named && threw && json_text(design_to_json(K)) == A0_json,
+              "file errors (missing %d, named %d); a failed apply must leave the design unchanged (threw %d)", int(missing), int(named), int(threw));
+    }
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -1517,6 +1938,10 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"bursts", test_bursts},
     {"characterisation", test_characterisation},
     {"designs_v04", test_designs_v04},
+    {"materials", test_materials},
+    {"union_find", test_union_find},
+    {"heralds", test_heralds},
+    {"impact_veto", test_impact_veto},
 };
 
 // test_qpuforge            run every test

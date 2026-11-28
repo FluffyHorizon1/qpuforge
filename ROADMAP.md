@@ -13,8 +13,8 @@ assumptions listed in each design spec. They are design targets, not measured pe
 
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
-| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (319 validation checks) | n/a |
-| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11) | open: fabricate and characterise |
+| 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (346 validation checks) | n/a |
+| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed on means; worst CZ pair leaks 2.3e-4 (limit 2e-4); mask DRC open (designs/alpha1-v11) | open: fabricate and characterise |
 | **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask DRC open (designs/beta1) | open |
 | **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask DRC open (designs/gamma1). Logical operations open | planned |
 | Delta | modular | Several logical qubits linked between modules; logical-level benchmarks | planned | planned |
@@ -107,7 +107,7 @@ model fitted to measured T1/T2, gate errors and leakage.
 - junction trimming to 0.5% spread.
 
 Rev C (qpuforge v0.4) corrects two things the second review found:
-- the readout plan: at most 9 resonators per feedline (6 feedlines), where rev B had 17 on each of 3;
+- the readout plan: at most 9 resonators per feedline (6 feedlines), where rev B had up to 17 on each of 3 (17, 17 and 15);
 - the cells: re-synthesised for the Beta-1 readout coupling, which the reused Alpha-1 cells missed by 30%.
 
 Details are in `designs/beta1/BETA-1.md`.
@@ -168,16 +168,26 @@ the chip in the same data file.
 
 - Two distance-5 patches with lattice surgery, giving a logical CNOT. qpuforge needs multi-patch circuits with merge
   and split schedules.
-- Leakage-aware decoding using heralded leakage from 3-state readout.
 - Real-time decoding at < 1 µs per round: FPGA first, then an ASIC. The exact software decoder is the reference.
-- An impact veto: detect a burst of detection events and discard or restart the affected window.
+  Done in software: a weighted union-find decoder (`DecodeMethod::UnionFind`), within 1.1× of the exact decoder's
+  logical error at d = 3 and 5 (`results/decoder_study.txt` for Gamma-1). Open: a streaming (sliding-window) version
+  and the hardware.
 - Wiring: about 380 coaxial lines at distance 7. High-density flex lines or multiplexed flux control are needed before
   this chip can be operated.
+
+### Done in Phase Gamma (software)
+
+- Leakage-aware decoding from heralded leakage (3-state readout of the measure qubits): `HeraldSpec`, with the
+  leakage-removing reset. See `docs/design/heralded-leakage.md` and `results/decoder_study.txt`.
+- An impact veto: per-shot impact injection, a sliding space-time window veto calibrated to a false-veto rate, and the
+  floor with shot-by-shot discard or a latched hold. See `docs/design/impact-veto.md`.
+- Linear-time fault enumeration: setup cost linear in the number of rounds (Gamma-1, d = 7, 50 rounds: 1.3 s against
+  41 s for the 0.4 routine on four threads).
 
 **Main risks.**
 - Wiring scale (above).
 - High-energy impacts set a floor that distance does not remove. It is far below the distance-7 error, and becomes
-  the limit near distance 14 at the simulated Λ. Gap-engineered junctions shorten each event; they should be in the
+  the limit near distance 16 at the simulated Λ. Gap-engineered junctions shorten each event; they should be in the
   process by Delta, together with an impact veto.
 - Calibration time for 168 couplers.
 
@@ -198,7 +208,7 @@ the chip in the same data file.
 - **Cryogenics.** Dilution refrigerator.
   - Alpha: ≥ 70 lines.
   - Beta: ≥ 190 lines.
-  - Gamma: ≥ 380 lines, or multiplexed control.
+  - Gamma: ≥ 384 lines, or multiplexed control.
   - Both: TWPA plus HEMT readout chains.
 - **Control electronics.** One flux line per qubit and per coupler. Microwave drive and readout multiplexing (up to 9 qubits per feedline).
 - **Software.** qpuforge model updates after every characterisation run (the model-vs-measurement gate).

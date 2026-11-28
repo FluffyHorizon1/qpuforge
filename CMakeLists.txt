@@ -33,7 +33,7 @@ endif()
 # enough to change eps from 0.01200 to 0.01223 at 8 threads (see results/PROVENANCE.md).
 # Every target, including the fp_contract guard, must use this list (see tests/check_fp_contract_flags.cmake).
 set(QPUFORGE_COMPILE_OPTIONS -Wall -Wextra -O3 -ffp-contract=off)
-foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp test_fp_contract:tests/test_fp_contract.cpp)
+foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp test_fp_contract:tests/test_fp_contract.cpp)
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)
   list(GET parts 1 src)
@@ -49,9 +49,11 @@ endforeach()
 set_target_properties(qpuforge_cli PROPERTIES OUTPUT_NAME qpuforge)
 # `qpuforge --version` prints this (the version comes from project(... VERSION ...) above)
 target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERSION}")
-foreach(name alpha1_v11_review beta1_review gamma1_review)
+foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps)
   target_compile_definitions(${name} PRIVATE QPUFORGE_GIT_SHA="${QPUFORGE_GIT_SHA}" QPUFORGE_GIT_DIRTY=${QPUFORGE_GIT_DIRTY})
 endforeach()
+# the materials group reads its forge.materials.v0 sidecar fixtures from the source tree
+target_compile_definitions(test_qpuforge PRIVATE QPUFORGE_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
 
 # One CTest entry per validation test, labelled by layer:  ctest -L unit | physics | pulse | qec | layout | smoke
 #   ctest -LE smoke    everything except the end-to-end review smoke runs
@@ -103,6 +105,11 @@ qpuforge_cli_test(extra_argument "qpuforge analyze: unexpected argument 'extra.j
 qpuforge_cli_test(missing_argument "qpuforge run: missing <circuit>" run ${CLI_CHIP})
 qpuforge_cli_test(preset_takes_only_distance "qpuforge new: --name cannot be combined with --preset" new ${CLI_OUT}.json --preset alpha1 --name X)
 qpuforge_cli_test(burst_options_need_bursts "qpuforge qec: --burst-rate needs --bursts" qec ${CLI_CHIP} --burst-rate 1)
+qpuforge_cli_test(veto_needs_bursts "qpuforge qec: --veto needs --bursts" qec ${CLI_CHIP} --veto)
+qpuforge_cli_test(veto_options_need_veto "qpuforge qec: --impact-p needs --veto" qec ${CLI_CHIP} --bursts --impact-p 0.1)
+qpuforge_cli_test(herald_options_need_herald "qpuforge qec: --herald-rule needs --herald" qec ${CLI_CHIP} --herald-rule detector)
+qpuforge_cli_test(bad_probability "qpuforge qec: --herald-fidelity expects a number from 0 to 1, got '1.5'" qec ${CLI_CHIP} --herald --herald-fidelity 1.5)
+qpuforge_cli_test(loss_tangent_needs_materials "qpuforge analyze: --loss-tangent needs --materials <sidecar.json>" analyze ${CLI_CHIP} --loss-tangent)
 # accepted: one run per command, every option given (cz and gds stop at the missing chip file)
 qpuforge_cli_test(ok_new "wrote .*cli_line2.json \\(2 qubits, 1 couplers\\)"
   new ${CLI_OUT}_line2.json --line 2 --f-hi 5.4 --f-lo 4.8 --alpha -0.22 --g-MHz 4 --arch tunable --Q 3e6 --plan 8
@@ -119,6 +126,10 @@ set_tests_properties(cli_ok_analyze cli_ok_layout cli_ok_fab cli_ok_run cli_ok_b
 qpuforge_cli_test(ok_qec "logical-error floor from impacts"
   qec ${CLI_CHIP} --rounds 2 --shots 50 --seed 3 --basis Z --statevector 0 --off leakage --decoder exact --leakage-removal none
   --cache ${CLI_OUT}_unused_cache.json --bursts --burst-rate 0.1 --burst-tau-ms 25 --burst-t1-us 1 --burst-tphi-us 0)
+qpuforge_cli_test(ok_qec_decoding "latched veto"   # the Phase Gamma decoding options: union-find, heralds, impact veto
+  qec ${CLI_CHIP} --rounds 2 --shots 50 --seed 3 --decoder uf --herald --herald-fidelity 0.95 --herald-false 0.001
+  --herald-factor 0.4 --herald-rule detector --bursts --veto --veto-window 3 --veto-radius 2 --veto-false 0.01
+  --impact-p 0.05 --burst-radius 0)
 qpuforge_cli_test(ok_synth_chip "wrote .*cli_synth.json: 17 qubits"
   synth-chip ${CLI_CHIP} ${CLI_OUT}_synth.json --seed 1 --shots 50 --rounds 2 --z-only --hidden-dephasing-us 0 --cache ${CLI_OUT}_unused_cache.json)
 qpuforge_cli_test(ok_hwgate "wrote .*cli_gate.json"   # exit 3 (gate not passed) is ignored by the pass regex
@@ -142,6 +153,25 @@ endif()
 add_test(NAME cli_exit_status COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpuforge_cli> -DCHIP=${CLI_CHIP} -DMISSING=${CLI_NO_CHIP}
          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_exit_status.cmake)
 set_tests_properties(cli_exit_status PROPERTIES LABELS unit)
+# CLI guards for `analyze --materials` (not validation checks), on the committed Alpha-1 v1.1 design: a sidecar with
+# values is applied before the device report, atomforge's placeholder sidecar changes nothing, the loss tangent needs
+# --loss-tangent, a chip design given as the sidecar is refused, and the usage text lists the flags.
+set(QPUFORGE_CLI_CHIP ${CMAKE_CURRENT_SOURCE_DIR}/designs/alpha1-v11/alpha1_v11.json)
+set(QPUFORGE_CLI_DATA ${CMAKE_CURRENT_SOURCE_DIR}/tests/data)
+add_test(NAME cli_materials COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_placeholder COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_DATA}/materials-contract-CuAu.json)
+add_test(NAME cli_materials_loss_tangent COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_DATA}/materials-loss-tangent.json --loss-tangent)
+add_test(NAME cli_materials_refused COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_CHIP})
+add_test(NAME cli_usage_materials COMMAND qpuforge_cli)
+set_tests_properties(cli_materials PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06.*applied +junction_gap_ueV +materials.junction_gap_ueV 180 -> 190.*materials: Q_diel=1e\\+06  junction gap 190 ueV.*mean T1")
+set_tests_properties(cli_materials_placeholder PROPERTIES FAIL_REGULAR_EXPRESSION "applied |error:" PASS_REGULAR_EXPRESSION
+  "skipped +Q_dielectric +placeholder.*skipped +loss_tangent +placeholder.*skipped +junction_gap_ueV +placeholder.*materials: Q_diel=3e\\+06  junction gap 180 ueV.*mean T1")
+set_tests_properties(cli_materials_loss_tangent PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +loss_tangent +materials.Q_dielectric 3e\\+06 -> 4e\\+06, Q_dielectric = 1/loss_tangent.*materials: Q_diel=4e\\+06.*mean T1")
+set_tests_properties(cli_materials_refused PROPERTIES PASS_REGULAR_EXPRESSION "error: .*alpha1_v11.json: materials sidecar: schema must be")
+set_tests_properties(cli_usage_materials PROPERTIES PASS_REGULAR_EXPRESSION "analyze <chip.json> \\[--materials <sidecar.json> \\[--loss-tangent\\]\\]")
+set_tests_properties(cli_materials cli_materials_placeholder cli_materials_loss_tangent cli_materials_refused cli_usage_materials PROPERTIES LABELS unit)
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)
@@ -164,9 +194,12 @@ set(QPUFORGE_TESTS
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
-  "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics")
+  "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
+  "union_find:qec" "heralds:qec" "impact_veto:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
+# forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data
+list(APPEND QPUFORGE_TESTS "materials:unit")
 foreach(t ${QPUFORGE_TESTS})
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)

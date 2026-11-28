@@ -39,17 +39,25 @@ static const UsageBlock kUsageCommands[] = {
      "                [--stagger-MHz s] [--name NAME] [--feedlines N] [--kappa-MHz k] [--chi-MHz chi]\n"
      "                [--purcell f] [--readout-ns t] [--reset-ns t] [--reset-err p] [--err2q p]\n"
      "                [--residual-zz-kHz z] [--active-reset]\n"},
-    {"analyze", "  qpuforge analyze <chip.json>                      device physics report\n"},
+    {"analyze",
+     "  qpuforge analyze <chip.json> [--materials <sidecar.json> [--loss-tangent]]\n"
+     "                device physics report; --materials first applies a forge.materials.v0 sidecar (atomforge),\n"
+     "                --loss-tangent lets it set Q_dielectric = 1/loss_tangent when Q_dielectric is null\n"},
     {"run", "  qpuforge run <chip.json> <circuit> [--traj N] [--shots N] [--seed S] [--off SRC,..] [--top K]\n"},
     {"budget", "  qpuforge budget <chip.json> <circuit> [--traj N] [--seed S]   error budget by noise source\n"},
     {"fab", "  qpuforge fab <chip.json> [--samples N] [--seed S] fabrication Monte Carlo (junction spread)\n"},
     {"qec",
      "  qpuforge qec <chip.json> [--rounds 2,4,6,8,10] [--shots N] [--seed S] [--basis Z|X|both] [--statevector N]\n"
-     "                [--off SRC,..] [--decoder exact|legacy|greedy] [--leakage-removal lrr|dqlr|lrr+dqlr|none]\n"
-     "                [--cache file] [--bursts [--burst-rate Hz] [--burst-tau-ms T] [--burst-t1-us T] [--burst-tphi-us T]]\n"
+     "                [--off SRC,..] [--decoder exact|uf|legacy|greedy] [--leakage-removal lrr|dqlr|lrr+dqlr|none]\n"
+     "                [--cache file] [--herald [--herald-fidelity F] [--herald-false P] [--herald-factor X]\n"
+     "                [--herald-rule footprint|detector]] [--bursts [--burst-rate Hz] [--burst-tau-ms T] [--burst-t1-us T]\n"
+     "                [--burst-tphi-us T] [--veto [--veto-window R] [--veto-radius L] [--veto-false P] [--impact-p P]\n"
+     "                [--burst-radius L]]]\n"
      "                surface-code memory experiment: logical error per round (needs a surface layout);\n"
-     "                --bursts adds the logical-error floor set by high-energy impacts;\n"
-     "                --decoder legacy reproduces the pre-v0.4 decoder (greedy above 22 defects) on the same syndromes\n"},
+     "                --bursts adds the logical-error floor set by high-energy impacts; with --veto, impacts are also\n"
+     "                injected per shot and detected by a sliding-window veto (residual floor, discard fraction);\n"
+     "                --decoder legacy reproduces the pre-v0.4 decoder (greedy above 22 defects) on the same syndromes;\n"
+     "                --herald: 3-state readout heralds leaked measure qubits; decoded with and without them\n"},
     {"synth-chip",
      "  qpuforge synth-chip <chip.json> <data.json> [--seed S] [--shots N] [--rounds 5,15,25] [--z-only]\n"
      "                [--hidden-dephasing-us T] [--cache file]   virtual chip -> characterisation file (to test the chain)\n"},
@@ -511,8 +519,37 @@ static int cmd_new(const Args& a) {
     return 0;
 }
 
+// --materials: one line per sidecar quantity, applied or skipped, before the device report
+static void print_materials(const std::string& path, const MaterialsSidecar& S, const MaterialsReport& M) {
+    const auto& p = S.produced_by;
+    std::string meta;
+    for (const std::string& s : {p.commit.empty() ? std::string() : "commit " + p.commit, p.potential_or_method, p.timestamp})
+        if (!s.empty()) meta += (meta.empty() ? "" : ", ") + s;
+    std::string sys;
+    for (const auto& el : S.system) sys += (sys.empty() ? "" : "-") + el;
+    std::printf("\nmaterials sidecar %s: %s", path.c_str(), S.schema.c_str());
+    if (!p.tool.empty()) std::printf(" from %s", p.tool.c_str());
+    if (!meta.empty()) std::printf(" (%s)", meta.c_str());
+    if (!sys.empty()) std::printf(", system %s", sys.c_str());
+    std::printf("\n");
+    for (const auto& l : M.lines) {
+        if (l.applied) std::printf("  applied  %-17s %s %.6g -> %.6g, %s\n", l.quantity.c_str(), l.field.c_str(), l.before, l.after, l.note.c_str());
+        else std::printf("  skipped  %-17s %s\n", l.quantity.c_str(), l.note.c_str());
+    }
+}
+
 static int cmd_analyze(const Args& a) {
-    const auto D = load_design(a.pos(0));
+    const std::string mat = a.text("--materials");
+    if (a.has("--materials") && mat.empty()) throw UsageError("--materials needs a sidecar file");
+    if (a.flag("--loss-tangent") && mat.empty()) throw UsageError("--loss-tangent needs --materials <sidecar.json>");
+    auto D = load_design(a.pos(0));
+    if (!mat.empty()) {
+        MaterialsApplyOptions o;
+        o.use_loss_tangent = a.flag("--loss-tangent");
+        const auto S = load_materials(mat);
+        const auto M = apply_materials(S, D, o);
+        print_materials(mat, S, M);
+    }
     print_report(D, analyze(D));
     return 0;
 }
@@ -699,8 +736,14 @@ static int cmd_gds(const Args& a) {
 
 static int cmd_qec(const Args& a) {
     if (!a.flag("--bursts"))
-        for (const char* o : {"--burst-rate", "--burst-tau-ms", "--burst-t1-us", "--burst-tphi-us"})
+        for (const char* o : {"--burst-rate", "--burst-tau-ms", "--burst-t1-us", "--burst-tphi-us", "--veto"})
             if (a.has(o)) throw UsageError(std::string(o) + " needs --bursts");
+    if (!a.flag("--veto"))
+        for (const char* o : {"--veto-window", "--veto-radius", "--veto-false", "--impact-p", "--burst-radius"})
+            if (a.has(o)) throw UsageError(std::string(o) + " needs --veto");
+    if (!a.flag("--herald"))
+        for (const char* o : {"--herald-fidelity", "--herald-false", "--herald-factor", "--herald-rule"})
+            if (a.has(o)) throw UsageError(std::string(o) + " needs --herald");
     auto D = load_design(a.pos(0));
     if (const auto v = a.text("--leakage-removal"); !v.empty()) {
         D.leakage.reset_removes_leakage = v == "lrr" || v == "lrr+dqlr";
@@ -718,10 +761,26 @@ static int cmd_qec(const Args& a) {
     const std::vector<char> bases = bsel == "both" ? std::vector<char>{'Z', 'X'} : std::vector<char>{bsel == "X" || bsel == "x" ? 'X' : 'Z'};
     FrameRunOptions fro;
     {
-        const std::string dsel = a.text("--decoder", "exact");   // exact, legacy or greedy
+        const std::string dsel = a.text("--decoder", "exact");   // exact, uf (union-find), legacy or greedy (checked)
         if (dsel == "legacy") fro.method = DecodeMethod::Legacy;
         else if (dsel == "greedy") fro.method = DecodeMethod::Greedy;
-        if (dsel != "exact") std::printf("decoder: %s\n", dsel == "legacy" ? "pre-v0.4 behaviour (exact up to 22 defects, greedy beyond)" : "greedy matching");
+        else if (dsel == "uf" || dsel == "union-find") fro.method = DecodeMethod::UnionFind;
+        if (dsel != "exact")
+            std::printf("decoder: %s\n", dsel == "legacy" ? "pre-v0.4 behaviour (exact up to 22 defects, greedy beyond)"
+                                         : dsel == "greedy" ? "greedy matching" : "weighted union-find (real-time candidate; not exact)");
+    }
+    const bool herald = a.flag("--herald");
+    if (herald) {
+        fro.herald.on = true;
+        fro.herald.fidelity = a.real("--herald-fidelity", 0.95);
+        fro.herald.false_rate = a.real("--herald-false", 0.001);
+        fro.herald.footprint_factor = a.real("--herald-factor", 0.4);
+        const std::string rule = a.text("--herald-rule", "footprint");   // footprint or detector (checked)
+        fro.herald.footprint = rule == "footprint";
+        if (!fro.herald.footprint) fro.herald.touch_factor = fro.herald.footprint_factor;
+        std::printf("heralded leakage: 3-state readout of the measure qubits, fidelity %.3f, false-herald rate %.1e; %s rule, factor %.2f%s\n",
+                    fro.herald.fidelity, fro.herald.false_rate, rule.c_str(), fro.herald.footprint_factor,
+                    nm.leakage ? (nm.reset_removes_leakage ? "" : " (the reset does not remove leakage)") : " (leakage is not simulated: only false heralds)");
     }
     double best_T1 = 0, best_T2 = 0;
     for (const auto& q : R.q) { best_T1 = std::max(best_T1, q.T1_us); best_T2 = std::max(best_T2, q.T2_us); }
@@ -737,6 +796,12 @@ static int cmd_qec(const Args& a) {
                         res.eps_per_round, res.mean_defects, res.max_defects, res.decode_us_per_shot);
             if (M.frame.leakage) std::printf("   leaked: data %.1e meas %.1e", res.leak_frac_data, res.leak_frac_meas);
             std::printf("\n");
+            if (herald) {
+                FrameRunOptions blind = fro; blind.herald.use_in_decoder = false;
+                const auto nb = run_memory_frame(M, shots, seed + unsigned(r) + (basis == 'X' ? 7919u : 0u), blind);
+                std::printf("          heralds %.2f per shot (%.0f%% leaked); same syndromes decoded without heralds: P_L %.5f, eps %.5f (with: %.5f)\n",
+                            res.heralds_per_shot, 100 * res.herald_true_frac, nb.p_logical, nb.eps_per_round, res.eps_per_round);
+            }
             if (res.ignored_exchange_pairs) std::printf("    ! %d near-degenerate exchange pair(s) not modelled by the Pauli-frame simulator\n", res.ignored_exchange_pairs);
             if (sv_shots > 0 && r == rounds.front()) {
                 const auto sv = run_memory_statevector(M, nm, sv_shots, seed);
@@ -766,6 +831,40 @@ static int cmd_qec(const Args& a) {
             std::printf("    one impact flips the logical qubit with probability %.2f; unprotected for %.0f ms, visible in the syndrome for %.0f ms\n",
                         b.p_fail, b.dead_time_ms, b.detectable_ms);
             std::printf("    logical-error floor from impacts: %.2e per round (quiet chip: %.2e)\n", b.floor_per_round, b.eps0);
+        }
+        if (a.flag("--veto")) {
+            VetoSpec V;
+            V.window_rounds = int(a.integer("--veto-window", 3));
+            V.radius = a.real("--veto-radius", 2);
+            const double target = a.real("--veto-false", 0.001);
+            ImpactSpec I; I.burst = B; I.burst.radius = a.real("--burst-radius", 0);
+            I.p_shot = a.real("--impact-p", 0.05);
+            for (char basis : bases) {
+                const auto M = prepare_memory(D, R, nm, br, basis);
+                const auto cal = calibrate_veto(M, shots, seed + 91, target, V, fro);
+                V.on = true; V.threshold = cal.threshold;
+                FrameRunOptions inj = fro; inj.impact = I;
+                FrameRunOptions vet = inj; vet.veto = V;
+                FrameRunOptions clean = fro; clean.veto = V;
+                const auto rc = run_memory_frame(M, shots, seed + 93, clean);
+                const auto ri = run_memory_frame(M, shots, seed + 93, inj);
+                const auto rv = run_memory_frame(M, shots, seed + 93, vet);
+                std::printf("\n  impact veto, memory-%c (%d rounds): window %d rounds x radius %.1f, threshold %d events (false-veto rate %.1e on %ld burst-free shots, target %.1e)\n",
+                            basis, br, V.window_rounds, V.radius, V.threshold, cal.false_rate, cal.shots, target);
+                std::printf("    impacts injected in %.1f%% of shots (onset uniform in the shot, %s): %ld impacts, %ld caught (%.0f%%)\n",
+                            100 * I.p_shot, I.burst.radius > 0 ? "local" : "chip-wide", rv.impacts, rv.impacts_vetoed,
+                            100.0 * double(rv.impacts_vetoed) / double(std::max(rv.impacts, 1L)));
+                std::printf("    eps/round: burst-free %.5f; with impacts %.5f without the veto, %.5f with it (%.2f%% of shots discarded; burst-free: %.2f%%)\n",
+                            rc.eps_per_round, ri.eps_per_round, rv.eps_kept, 100.0 * double(rv.discarded) / double(rv.shots), 100.0 * double(rc.discarded) / double(rc.shots));
+                std::printf("    failures in impacted shots: %ld without the veto, %ld left after it\n", ri.errors_impacted, rv.errors_impacted_kept);
+                const auto bv = burst_floor_veto(D, R, nm, B, br, shots, seed + 5, V, basis, fro.method);
+                std::printf("    over the burst profile (chip-wide severity ladder): floor %.2e per round without the veto, %.2e with shot-by-shot discard (%.2f ms discarded per impact)\n",
+                            bv.floor_per_round, bv.floor_per_round_veto, bv.discarded_ms);
+                std::printf("    latched veto (discard for a hold time after the onset):");
+                for (const auto& L : bv.latched) std::printf("  %.0f tau: %.1e (dead %.1e)", L.hold_tau, L.floor_per_round, L.dead_time_frac);
+                std::printf("\n");
+                V.on = false;
+            }
         }
     }
     return 0;
@@ -835,7 +934,7 @@ static const std::vector<Command>& commands() {
           real("--purcell"), real("--readout-ns"), real("--reset-ns"), real("--reset-err", 0, 1), real("--err2q", 0, 1),
           real("--residual-zz-kHz"), flag("--active-reset"),
           choice("--preset", "alpha1|alpha1v11|beta1|gamma1|gen0"), integer("--distance", 3)}},
-        {"analyze", cmd_analyze, {"<chip.json>"}, {}},
+        {"analyze", cmd_analyze, {"<chip.json>"}, {text("--materials"), flag("--loss-tangent")}},
         {"run", cmd_run, {"<chip.json>", "<circuit>"},
          {integer("--traj", 1), integer("--shots", 0), seed("--seed"), choice_list("--off", kNoiseSources), integer("--top", 0)}},
         {"budget", cmd_budget, {"<chip.json>", "<circuit>"}, {integer("--traj", 1), seed("--seed")}},
@@ -843,8 +942,12 @@ static const std::vector<Command>& commands() {
         {"qec", cmd_qec, {"<chip.json>"},
          {int_list("--rounds", 1), integer("--shots", 1, std::numeric_limits<long>::max()), seed("--seed"),
           choice("--basis", "Z|X|both|z|x"), integer("--statevector", 0), choice_list("--off", kNoiseSources),
-          choice("--decoder", "exact|legacy|greedy"), choice("--leakage-removal", "lrr|dqlr|lrr+dqlr|none"), text("--cache"),
-          flag("--bursts"), real("--burst-rate"), real("--burst-tau-ms"), real("--burst-t1-us"), real("--burst-tphi-us")}},
+          choice("--decoder", "exact|uf|union-find|legacy|greedy"), choice("--leakage-removal", "lrr|dqlr|lrr+dqlr|none"),
+          text("--cache"), flag("--herald"), real("--herald-fidelity", 0, 1), real("--herald-false", 0, 1),
+          real("--herald-factor", 0), choice("--herald-rule", "footprint|detector"),
+          flag("--bursts"), real("--burst-rate"), real("--burst-tau-ms"), real("--burst-t1-us"), real("--burst-tphi-us"),
+          flag("--veto"), integer("--veto-window", 1), real("--veto-radius", 0), real("--veto-false", 0, 1),
+          real("--impact-p", 0, 1), real("--burst-radius", 0)}},
         {"synth-chip", cmd_synth, {"<chip.json>", "<data.json>"},
          {seed("--seed"), integer("--shots", 1, std::numeric_limits<long>::max()), int_list("--rounds", 1), flag("--z-only"),
           real("--hidden-dephasing-us"), text("--cache")}},

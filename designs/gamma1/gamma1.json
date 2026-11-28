@@ -13,11 +13,14 @@
     "err_2q_control": 0.002,
     "readout_separation_err": 0.005,
     "active_reset": true,
-    "reset_err": 0.003
+    "reset_err": 0.003,
+    "cz_flux_noise": false
   },
   "tunable_coupler": {
     "g_max_MHz": 40,
     "residual_zz_kHz": 5,
+    "coupler_EC_GHz": 0.2,
+    "model_coupler": false,
     "physical": true,
     "f_max_GHz": 8.5,
     "alpha_GHz": -0.13,

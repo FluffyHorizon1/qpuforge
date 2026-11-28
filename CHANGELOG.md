@@ -5,6 +5,48 @@ every such change is listed under **API changes**.
 
 ## [Unreleased]
 
+The decoding items of Phase Gamma: a union-find decoder, leakage-aware decoding from heralded leakage, per-shot impact
+injection with an impact veto, and linear-time fault enumeration. Study: `examples/decoder_study.cpp` ->
+`results/decoder_study.{txt,json}`.
+
+The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_CONTRACT.md`): a reader for the
+`forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
+
+### Added
+- `unionfind.hpp`: `UnionFindDecoder`, Delfosse-Nickerson union-find with weighted growth and peeling
+  (docs/design/union-find-decoder.md). `DecodeMethod::UnionFind`; `qpuforge qec --decoder uf`.
+- `qec.hpp`:
+  - Heralded leakage (docs/design/heralded-leakage.md): `HeraldSpec` in `FrameRunOptions` (3-state readout of the
+    measure qubits with a herald fidelity and a false-herald rate), `MatchingDecoder::decode_scaled` (exact matching on
+    a per-shot re-weighted graph), `herald_touch_edges`, `herald_footprints`, `MemorySetup::herald_edges`.
+    `qpuforge qec --herald [--herald-fidelity F] [--herald-false P] [--herald-factor X] [--herald-rule footprint|detector]`.
+  - Impact injection and veto (docs/design/impact-veto.md): `ImpactSpec` and `VetoSpec` in `FrameRunOptions`,
+    `BurstSpec::radius`, `impact_shot_seed`, `calibrate_veto`, `burst_floor_veto`. `qpuforge qec --bursts --veto
+    [--veto-window R] [--veto-radius L] [--veto-false P] [--impact-p P] [--burst-radius L]`.
+  - `MemoryResult`: herald counts, impact and discard counts, `p_logical_kept`, `eps_kept`, `veto_hist`.
+  - `MemorySetup::sim_xy`, `det_xy` (lattice positions); `FrameProgram::FMoment::known` (known basis state per slice).
+  - `enumerate_faults_direct`: the 0.4 sparse enumeration, kept for timing comparisons.
+- Tests: groups `union_find`, `heralds`, `impact_veto` (label qec); `fault_enumeration` now also checks the linear-time
+  version and its scaling (a deterministic work count: the optional `steps` output of both enumerations); the thread-count determinism digest covers union-find, heralds, and impacts with the veto.
+- `materials.hpp`: `load_materials` / `materials_from_json` read and check a `forge.materials.v0` sidecar, and
+  `apply_materials` writes it into a `ChipDesign`. The sidecar's `Q_dielectric` (unit `dimensionless`) sets
+  `ChipDesign::Q_dielectric` and its `junction_gap_ueV` (unit `ueV`) sets `ChipDesign::gap_ueV`; a value must be
+  finite and > 0. With `MaterialsApplyOptions::use_loss_tangent`, a `loss_tangent` sets
+  `Q_dielectric = 1 / loss_tangent` (the uniform-loss model of `analyze()`) when the sidecar's `Q_dielectric` is null
+  or absent. A null value, such as each of atomforge's placeholders, changes nothing. `Rn_spread_pct` and the
+  environment fields are never taken from a sidecar. The returned `MaterialsReport` has one line per quantity, applied
+  or skipped, with the reason. A wrong schema, an unknown quantity, a wrong unit, a bad value or a mismatched `maps_to`
+  throws `std::runtime_error` before the design is changed.
+- CLI: `analyze --materials <sidecar.json> [--loss-tangent]` applies a sidecar, prints one line per quantity, then
+  prints the device report. The chip JSON file is not changed.
+- Tests: the `materials` group (label `unit`, 25 checks), with sidecar fixtures in `tests/data/`, among them
+  atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
+  `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
+  guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
+- 367 validation checks in all (346 on `main` before the decoding work, plus 21 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
+  `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
+- `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
+
 ### Fixed
 - CLI: each command accepts only the options it reads. An unknown or misspelt option (`--shot 1000`, `-grid`, or another
   command's option such as `hwgate --hidden-dephasing-us`) used to be ignored without a word; it is now an error that
@@ -13,13 +55,18 @@ every such change is listed under **API changes**.
   `--shots 1e5`, which `std::stoi` read as 1), a count out of range (`fab --samples 0` crashed, `run --traj 0` reported
   a fidelity of 1), a negative seed (`std::stoul` wrapped it) and an unknown choice (`--arch tunabel` gave a
   fixed-coupling chip; `--off contrl` and `--leakage-removal lrrr` did nothing). `new --preset` rejects the generator
-  options it ignored, `new` takes one topology, `qec` rejects `--burst-*` without `--bursts`, and `budget` no longer
-  accepts `--shots`, which it never used.
+  options it ignored, `new` takes one topology, `qec` rejects `--burst-*` and `--veto` without `--bursts`, the veto
+  options without `--veto` and the herald options without `--herald`, and `budget` no longer accepts `--shots`, which it
+  never used.
 - CLI: `hwgate --out`, `cz --out`, the `synth-chip` data file and the `gds --cells` write-back fail with "cannot write"
   (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
   `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
 
 ### Changed
+- `enumerate_faults` is linear in the number of rounds (docs/design/linear-fault-enumeration.md): faults are propagated
+  to the next measurement cut and finished with precomputed per-qubit tails. Output unchanged, fault by fault.
+- The matching decoder's DP, blossom and greedy paths read distances through an oracle, so that `decode_scaled` can
+  reuse them; results of `decode` are unchanged.
 - **Behaviour change:** a malformed number, an unknown circuit (`ghz:x`) and an unknown `--basis`, `--decoder`,
   `--preset` or `--phase` value are usage errors (exit 1); they used to exit 2, numbers with "error: stoi". The usage
   text and README document the exit statuses: 0 done, 1 usage error, 2 error while running (also `gds`: layout not
@@ -29,6 +76,17 @@ every such change is listed under **API changes**.
   usage of its command only. Options may come before the positional arguments.
 - Tests: `cli_*` guards (label `unit`) for unknown options, missing values, malformed numbers and choices, repeated and
   extra arguments, one accepted invocation per command, failed writes and the exit statuses.
+
+### API changes
+- `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
+- `frame_detail::FaultDesc` (internal) gained `owner`.
+- New header `include/qpuforge/materials.hpp`, included by `qpuforge.hpp`. It adds `MaterialsQuantity`,
+  `MaterialsProducer`, `MaterialsSidecar`, `MaterialsApplyOptions`, `MaterialsReportLine`, `MaterialsReport`,
+  `materials_from_json`, `load_materials`, `apply_materials` and the `materials_detail` namespace to `qpuforge`. Code
+  that includes `qpuforge.hpp`, defines one of these names itself and uses `using namespace qpuforge` can now hit an
+  ambiguity.
+- Nothing else changes: `device.hpp`, chip JSON files and the output of `qpuforge analyze` without `--materials` are
+  as before. `--loss-tangent` without `--materials` is an error.
 
 ## [0.4.0] (unreleased)
 
@@ -67,11 +125,12 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - `presets.hpp`: `alpha1_with_coupling(d, g_GHz)`. `device.hpp`: `ChipDesign::cz_flux_noise` (design JSON
   `gates.cz_flux_noise`).
 - Tests: eleven new groups (`matching`, `fault_enumeration`, `memory_bases`, `bursts`, `characterisation`,
-  `designs_v04`, and the serialisation groups `json`, `gds`, `json_rfc`, `json_depth`, `gds_write`), 319 checks in all
-  (186 in 0.3.0), and a third review smoke test. Outside the validation checks: the `determinism` (1, 2, 3, 4 and 8
-  threads in one process) and `determinism_env` (separate processes under `OMP_NUM_THREADS` = 1, 2, 4, 8) guards, the
-  `fp_contract` and `fp_contract_flags` build-flag guards, and the `cli_version`, `cli_version_short` and `cli_usage`
-  CLI guards.
+  `designs_v04`, and the serialisation groups `json`, `gds`, `json_rfc`, `json_depth`, `gds_write`), checks of the
+  opt-in flux term and the 4 MHz direct coupling in `coupler_and_flux`, and the tuned-anharmonicity |11⟩–|20⟩ test in
+  `transmon`: 321 checks in all (186 in 0.3.0), and a third review smoke test. Outside the validation checks: the
+  `determinism` (1, 2, 3, 4 and 8 threads in one process) and `determinism_env` (separate processes under
+  `OMP_NUM_THREADS` = 1, 2, 4, 8) guards, the `fp_contract` and `fp_contract_flags` build-flag guards, and the
+  `cli_version`, `cli_version_short` and `cli_usage` CLI guards.
 
 ### API changes
 - **`MatchingDecoder::decode(defects, DecodeScratch&, DecodeMethod = Auto)`** replaces
@@ -103,8 +162,11 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - `Json::parse` rejects input that is not RFC 8259 JSON (see Fixed).
 
 ### Changed
-- All review outputs were regenerated from the integrated code with CZ model version 2, the exact decoder and the
-  thread-count-independent Monte Carlo (`results/PROVENANCE.md`).
+- Every review output except the historical Alpha-1 v1.0 review (`results/alpha1_review.*`: pre-PR #2 model, not
+  regenerated), and `results/design_study.*` and `results/test_output.txt`, were regenerated from `802ceb7` with CZ
+  model version 2, the exact decoder and the thread-count-independent Monte Carlo (`results/PROVENANCE.md`).
+- Build: every target is compiled with `-ffp-contract=off` (`QPUFORGE_COMPILE_OPTIONS`), so `-march` / FMA choices no
+  longer change results; `fp_contract` and `fp_contract_flags` check it.
 - The Beta and Gamma reviews report both memory bases, the largest per-pair CZ leakage, and the mask-level DRC counts.
 - The Beta gate adds a 100-round detection-rate stability criterion and an extraction criterion for the layout.
 - Review smoke runs shorten the long experiments (setup time is quadratic in the number of rounds).
@@ -133,7 +195,7 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - Setting up a memory experiment takes time quadratic in the number of rounds (single-fault enumeration).
 - The hardware-gate chain has only been run on synthetic data from the virtual chip.
 
-## [0.3.0] - YYYY-MM-DD
+## [0.3.0] - 2026-11-27
 
 
 First tagged release. Adds pulse-level CZ calibration, a leakage-modelled QEC frame simulator, layout synthesis with
@@ -159,7 +221,7 @@ GDSII output, and the Alpha-1 v1.1 (AF-17) and Beta-1 (BF-49) designs. See the R
 - CLI (PR #2): `qpuforge analyze` prints two new pair columns, `flux_e` (CZ flux-noise error) and `c_GHz` (coupler
   park frequency).
 - `docs/WHITEPAPER.md` (PR #2): "Transmon anharmonicity and the Alpha-1 processor", with the AF17 layout figures
-  `docs/af17-*.png`.
+  `docs/af17-*.png` (an earlier drawing that does not match `AF17_v11.gds`).
 - Tests (PR #2): new `coupler_and_flux` CTest group (label `physics`).
 
 ### API changes

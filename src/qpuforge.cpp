@@ -1044,7 +1044,7 @@ static int cmd_surgery(const Args& a) {
     rr.pre = int(a.integer("--pre", 1));
     rr.post = int(a.integer("--post", 1));
     const int gap = int(a.integer("--gap", 1));
-    if (gap % 2 == 0) throw UsageError("--gap expects an odd strip length from 1 to 15, got " + std::to_string(gap));
+    if (gap % 2 == 0) throw UsageError("--gap expects an odd strip length from 1 to 15, got " + std::to_string(gap));   // 1..15: the option table
     const std::string dsel = a.text("--decoder", "separate");   // checked
     std::vector<SurgeryDecoder> modes;
     if (dsel == "separate" || dsel == "all") modes.push_back(SurgeryDecoder::Separate);
@@ -1053,6 +1053,15 @@ static int cmd_surgery(const Args& a) {
     if (dsel == "joint-uf" || dsel == "all") modes.push_back(SurgeryDecoder::JointUF);
     if (dsel == "correlated" || dsel == "all") modes.push_back(SurgeryDecoder::Correlated);
     const bool correlated = dsel == "correlated" || dsel == "all";
+    // the inputs and the readout basis: a combination the protocol cannot run is a usage error, before any file is read
+    // (the library checks them when it builds the experiment; the smallest distance is enough, the rules do not depend on it)
+    try {
+        (void)surgery_experiment(op, 3, input, ro.empty() ? char(0) : ro[0], rr, gap);
+    } catch (const std::exception& e) {
+        std::string msg = e.what();
+        if (msg.rfind("surgery: ", 0) == 0) msg = msg.substr(9);
+        throw UsageError(msg + " (--op " + op + " --input " + input + (ro.empty() ? std::string() : " --readout " + ro) + ")");
+    }
     int bad = 0;
     for (int d : ds) {
         const auto E = surgery_experiment(op, d, input, ro.empty() ? char(0) : ro[0], rr, gap);
@@ -1076,6 +1085,9 @@ static int cmd_surgery(const Args& a) {
         const auto rs = run_surgery_decoders(M, shots, seed, modes);
         const auto& r = rs[0];
         std::printf("  %s, Pauli-frame Monte Carlo, %ld shots, %c-type detectors (%d), duration %.2f us\n", D.name.c_str(), shots, basis, r.n_detectors, r.total_ns / 1e3);
+        if (M.timing.joining > 0)
+            std::printf("    %d qubits join at a phase boundary, prepared just in time (as soon as possible they would be ready %.2f us early)\n", M.timing.joining,
+                        M.timing.ahead_asap_ns / 1e3);
         std::printf("    detection %.4f, defects/shot %.2f (max %d); DEM: %zu fault mechanisms, %d hyperedge (p %.1e), %d undetectable logical\n",
                     r.detection_rate, r.mean_defects, r.max_defects, M.n_faults, r.hyperedge_faults, r.hyperedge_p, r.undetectable_logical);
         if (dsel != "separate" && dsel != "uf")
@@ -1083,7 +1095,7 @@ static int cmd_surgery(const Args& a) {
         if (correlated)
             std::printf("    correlated decoding: %zu detectors of the other type, %d correlated edge pairs\n", M.other_detectors.size(), M.correlated_pairs);
         for (const auto& q : rs) {
-            if (dsel != "separate") std::printf("    decoder: %s (%.2f us per shot)\n", surgery_decoder_name(q.decoder), q.decode_ns / 1e3);
+            std::printf("    decoder: %s (%.2f us per shot)\n", surgery_decoder_name(q.decoder), q.decode_ns / 1e3);
             for (std::size_t k = 0; k < q.names.size(); ++k)
                 std::printf("    logical error %-8s %.5f +- %.5f\n", q.names[k].c_str(), q.p[k], q.p_sem[k]);
             std::printf("    any observable wrong  %.5f +- %.5f\n", q.p_any, q.p_any_sem);

@@ -135,6 +135,11 @@ qpuforge_cli_test(bad_number_surgery_shots "qpuforge surgery: --shots expects an
 qpuforge_cli_test(bad_seed_surgery "qpuforge surgery: --seed expects an integer from 0 to 18446744073709551615, got '-1'" surgery --shots 0 --seed -1)
 qpuforge_cli_test(bad_choice_surgery "qpuforge surgery: --op expects zz, xx or cnot, got 'zzz'" surgery --op zzz)
 qpuforge_cli_test(surgery_extra_argument "qpuforge surgery: unexpected argument 'extra'" surgery extra)
+# inputs and readout bases the protocol cannot run are usage errors, before any file is read (they used to exit 2)
+qpuforge_cli_test(surgery_bad_input "qpuforge surgery: inputs are two characters, e.g. 00, 01, \\+\\+, \\+- \\(--op zz --input 0\\)" surgery --input 0)
+qpuforge_cli_test(surgery_mixed_inputs "qpuforge surgery: both inputs must be in the same basis \\(--op zz --input 0\\+\\)" surgery --input 0+)
+qpuforge_cli_test(surgery_no_observable "qpuforge surgery: no deterministic observable for these inputs and readout basis \\(--op cnot --input \\+\\+ --readout Z\\)"
+  surgery --op cnot --input ++ --readout Z)
 qpuforge_cli_test(bad_probability "qpuforge qec: --herald-fidelity expects a number from 0 to 1, got '1.5'" qec ${CLI_CHIP} --herald --herald-fidelity 1.5)
 qpuforge_cli_test(loss_tangent_needs_materials "qpuforge analyze: --loss-tangent needs --materials <sidecar.json>"   # before the chip is read
   analyze ${CLI_NO_CHIP} --loss-tangent)
@@ -182,6 +187,21 @@ set_tests_properties(cli_ok_surgery cli_ok_surgery_zz cli_ok_surgery_xx PROPERTI
 qpuforge_cli_test(ok_surgery_routing "CNOT d=3 \\|\\+\\+> strips 3: 89 qubits, .*noiseless tableau check, 2 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
   surgery --op cnot --d 3 --input ++ --gap 3 --decoder joint --shots 0 --samples 2)
 set_tests_properties(cli_ok_surgery_routing PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:")
+# runs that decode shots: every decoder choice once, and all of them on the same shots (in this order). They read a
+# copy of results/cz_cache.json (a full cache: nothing is calibrated and the copy is not rewritten).
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/results/cz_cache.json ${CLI_OUT}_surgery_cz_cache.json COPYONLY)
+qpuforge_cli_test(ok_surgery_decoders_all
+  "ZZ measurement d=3 \\|00>.*prepared just in time.*decoder: separate matching.*any observable wrong.*decoder: joint matching.*decoder: separate union-find.*decoder: joint union-find.*decoder: correlated joint matching.*against separate matching on the same shots"
+  surgery --op zz --d 3 --input 00 --shots 200 --seed 3 --decoder all --cache ${CLI_OUT}_surgery_cz_cache.json)
+foreach(pair "separate:separate matching" "joint:joint matching" "uf:separate union-find" "joint-uf:joint union-find" "correlated:correlated joint matching")
+  string(REPLACE ":" ";" parts ${pair})
+  list(GET parts 0 choice)
+  list(GET parts 1 name)
+  qpuforge_cli_test(ok_surgery_decoder_${choice} "decoder: ${name} \\(.*any observable wrong  0\\.[0-9]+"
+    surgery --op zz --d 3 --input 00 --shots 200 --seed 3 --decoder ${choice} --cache ${CLI_OUT}_surgery_cz_cache.json)
+  set_tests_properties(cli_ok_surgery_decoder_${choice} PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:|against ")   # one decoder only
+endforeach()
+set_tests_properties(cli_ok_surgery_decoders_all PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:")
 qpuforge_cli_test(ok_synth_chip "wrote .*cli_synth.json: 17 qubits"
   synth-chip ${CLI_CHIP} ${CLI_OUT}_synth.json --seed 1 --shots 50 --rounds 2 --z-only --hidden-dephasing-us 0 --cache ${CLI_OUT}_unused_cache.json)
 qpuforge_cli_test(ok_hwgate "wrote .*cli_gate.json"   # exit 3 (gate not passed) is ignored by the pass regex

@@ -84,7 +84,9 @@ expect_status(1 surgery --d 3,4)
 expect_status(1 surgery --readout X)                 # zz reads each patch in its input basis
 expect_status(1 surgery --post 0)
 expect_status(1 surgery --shots 1e5)                # malformed number
-expect_status(2 surgery --input 0 --shots 0)        # input of the wrong length: refused by the library
+expect_status(1 surgery --input 0 --shots 0)        # input of the wrong length (exit 2 until the fix of finding F18)
+expect_status(1 surgery --input 0+ --shots 0)       # inputs in different bases
+expect_status(1 surgery --op cnot --input ++ --readout Z --shots 0)   # no deterministic observable for that readout
 expect_status(0 surgery --op zz --d 3 --gap 3 --decoder joint --shots 0 --samples 1)   # routing strip
 expect_status(1 surgery --gap 2)                     # the strip length is odd
 expect_status(1 surgery --gap 0)

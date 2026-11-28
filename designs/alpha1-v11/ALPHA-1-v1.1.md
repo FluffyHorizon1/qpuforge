@@ -4,10 +4,10 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Simulation gate **passed on means**. After the v0.3 recalibration (Lc = 4), one pair (Q8–Q11) leaks 2.3e-4 per CZ, above the 2e-4 limit (§6). Layout first cut (GDSII): placement and spacing checks clean, mask width/space DRC **not clean** (§5). Ready for an external EM cross-check; the mask needs a DRC clean-up before fabrication. |
+| **Status** | Simulation gate **passed**: every criterion holds for every pair, including CZ leakage (§6). Layout (GDSII): placement and spacing checks clean; **the mask is not fabrication-ready**: four DRC space violations remain and the metal connectivity check is not clean (floating ground, flux-line return, junction landing; §5). |
 | **Supersedes** | Alpha-1 v1.0 (`designs/alpha1/ALPHA-1.md`, qpuforge v0.2) |
 | **Purpose** | First error-correction-ready chip: 17-qubit distance-3 rotated surface code (memory experiment) |
-| **Tooling** | qpuforge v0.4: `alpha1_v11_review` (392 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
+| **Tooling** | qpuforge v0.4: `alpha1_v11_review` (399 s), `qpuforge gds`, `qpuforge cz`, `qpuforge hwgate` |
 
 All performance numbers are **simulation results** under the assumptions in §8.
 
@@ -17,7 +17,7 @@ All performance numbers are **simulation results** under the assumptions in §8.
 |---|---|---|
 | Tunable coupler | Abstract, g_max = 40 MHz. Idle ZZ: 5 kHz typed (24 Nov v1.0 review); since PR #2 computed by `alpha1()` from a coupler transmon at the exchange null, −4 to −14 kHz | **Physical coupler transmon** per pair: f_max 8.5 GHz (park at the sweet spot), α_c −130 MHz, g_qc 160 MHz |
 | Direct coupling | Not modelled in the 24 Nov v1.0 review (4 MHz); since PR #2 `alpha1()` has 1 MHz (0.035 fF), cancelled at the coupler's exchange null | **Per-pair g12 = 9.4–9.8 MHz**, chosen so the parked coupler cancels the qubit–qubit exchange: no avoided crossings when a measure qubit sweeps past its other neighbours |
-| CZ gate | 23.3 ns, 2e-3 control error (assumed) | **Pulse-level**: sin² flux ramps (7 ns) + flat top, 3-knob calibration per pair. 35.6–49.2 ns, simulated coherent error 8.1e-5, leakage 5.7e-5 |
+| CZ gate | 23.3 ns, 2e-3 control error (assumed) | **Pulse-level**: sin² flux ramps (7 ns) + flat top, 3-knob calibration per pair. 35.6–49.2 ns, simulated coherent error 7.9e-5, leakage 4.8e-5 |
 | Leakage | Folded into control error | **Simulated**: CZ leakage of the moving qubit, leaked-partner phase scrambling, transport (5 %), seepage at 2/T1 |
 | Reset | Active reset 200 ns, 0.3 % | Same, made **leakage-removing** (multi-level reset: \|2⟩ → \|0⟩) |
 | Layout | Floor plan (SVG) | **MoM-synthesised cells, assembled chip, DRC, GDSII**, post-layout circuit check |
@@ -30,7 +30,7 @@ The per-pair g12 in the table above is set by the pulse-level calibration itself
 
 | | |
 |---|---|
-| Qubits | 17 flux-tunable transmons (SQUID), all idling at their sweet spot: 9 data (5.11–5.29 GHz), 8 measure (5.81–5.99 GHz); α ≈ −220 MHz (−215 MHz post-layout) |
+| Qubits | 17 flux-tunable transmons (SQUID), all idling at their sweet spot: 9 data (5.11–5.29 GHz), 8 measure (5.81–5.99 GHz); α ≈ −220 MHz (also post-layout) |
 | Couplers | 24 grounded tunable-coupler transmons (one per surface-code CZ pair) |
 | Readout | 17 λ/4 resonators at 6.90–7.20 GHz (60 MHz steps), κ = 4 MHz, 2χ = κ, one Purcell filter per feedline, 3 feedlines; 500 ns readout, 0.5 % separation error |
 | Reset | Active, 200 ns, 0.3 % residual excitation, leakage-removing |
@@ -42,14 +42,19 @@ The per-pair g12 in the table above is set by the pulse-level calibration itself
 
 **Protocol.** The measure qubit (the higher frequency) is the *mover*. For each CZ:
 
-1. Its flux pulse brings |11⟩ into resonance with |20⟩ (f_mover + α = f_data). The interaction point is 5.32–5.50 GHz, an excursion of 309–665 MHz.
-2. At the same time the coupler swings from 8.5 GHz down to ≈ 6.03–6.13 GHz, which turns on the |11⟩–|20⟩ coupling (gap 36 MHz for the 5.99/5.29 GHz test pair with the coupler at 6.10 GHz, `results/test_output.txt`).
+1. Its flux pulse brings |11⟩ into resonance with |20⟩ (f_mover + α = f_data). The interaction point is 5.33–5.50 GHz, an excursion of 308–665 MHz.
+2. At the same time the coupler swings from 8.5 GHz down to ≈ 6.03–6.14 GHz, which turns on the |11⟩–|20⟩ coupling (gap 36 MHz for the 5.99/5.29 GHz test pair with the coupler at 6.10 GHz, `results/test_output.txt`).
 3. One full |11⟩ → |20⟩ → |11⟩ cycle gives the conditional phase π.
 
 Three knobs are calibrated per pair:
 - the mover's interaction flux;
 - the flat-top length;
 - the coupler bias, which also closes the off-resonant |01⟩–|10⟩ swap.
+
+The calibration minimises 1 − F_avg. If a pair then fails the 2e-4 leakage limit, it is calibrated again with leakage
+weighted ten times; the repeat is kept only if it meets the limit, its 1 − F_avg is no worse and it stays within 5e-4
+(CZ model version 4, `../../docs/design/cz-leakage.md`). One of the 16 frequency combinations needs this: Q8–Q11 goes
+from 2.3e-4 to 1.6e-5 leakage (1 − F_avg 4.1e-4 → 3.6e-4, gate 3.5 ns longer, total CZ error +0.5 %).
 
 The simulation covers:
 - exact transmon charge-basis spectra for each element, truncated to 4/4/4 levels (qubit/coupler/qubit; qpuforge v0.3 release, was 4/3/4, see CHANGELOG);
@@ -59,10 +64,10 @@ The simulation covers:
 
 | Quantity (24 pairs) | Value |
 |---|---|
-| Duration | 35.6–49.2 ns (mean 43.6 ns) |
-| Coherent error (1 − F_avg, closed system) | 8.1e-5 mean |
-| Leakage per CZ (moving qubit) | 5.7e-5 mean, 2.3e-4 max |
-| 1/f flux noise (local dephasing at the excursion + quasi-static sensitivity) | 3.1e-5 |
+| Duration | 35.6–49.2 ns (mean 43.7 ns) |
+| Coherent error (1 − F_avg, closed system) | 7.9e-5 mean, 3.6e-4 max (Q8–Q11) |
+| Leakage per CZ (moving qubit) | 4.8e-5 mean, 1.2e-4 max (Q8–Q10) |
+| 1/f flux noise (local dephasing at the excursion + quasi-static sensitivity) | 3.2e-5 |
 | Residual idle ZZ at park | 3.4–4.5 kHz |
 | Spectator crossings (Landau–Zener, nulled exchange) | < 1e-15 |
 | Residual control allowance (assumed: distortion, drift, TLS, crosstalk) | 1.0e-3 |
@@ -75,12 +80,12 @@ The per-pair table is `alpha1_v11_review.json → cz_calibration.per_pair`. The 
 | | Logical error per round | Round |
 |---|---|---|
 | v1.0 model | 0.454 % ± 0.006 % | 847 ns |
-| **v1.1 model (pulse CZ + leakage + leakage-removing reset), memory-Z** | **0.374 % ± 0.004 %** | 928 ns |
-| v1.1 model, memory-X (\|+⟩ logical state, phase flips) | 0.370 % ± 0.005 % | 928 ns |
-| Logical lifetime | **248 µs** = 3.3 × best physical T1 (75.6 µs) | |
-| Distance-5 projection (same physics, 49 qubits) | 0.107 % ± 0.007 % → **Λ = 3.52 ± 0.23** | |
+| **v1.1 model (pulse CZ + leakage + leakage-removing reset), memory-Z** | **0.377 % ± 0.004 %** | 928 ns |
+| v1.1 model, memory-X (\|+⟩ logical state, phase flips) | 0.360 % ± 0.005 % | 928 ns |
+| Logical lifetime | **246 µs** = 3.3 × best physical T1 (75.6 µs) | |
+| Distance-5 projection (same physics, 49 qubits) | 0.123 % ± 0.007 % → **Λ = 2.95 ± 0.18** | |
 
-The v1.0, lifetime and distance-5 rows are memory-Z. The two bases differ by 0.004 %, which is 0.6 standard errors.
+The v1.0, lifetime and distance-5 rows are memory-Z. The two bases differ by 0.017 %, which is 2.7 standard errors.
 The ± values are 1σ Monte Carlo errors of the fits. The distance-5 projection compares distance 3 and distance 5 over
 5–15 rounds, a shorter fit than the headline rows. Since qpuforge 0.4 the Monte Carlo is thread-count independent
 (`docs/design/deterministic-mc.md`): a rerun gives the same numbers bit for bit at any `OMP_NUM_THREADS`.
@@ -96,29 +101,29 @@ v1.1 is better than v1.0 despite the slower CZ. The physically modelled control 
 
 | | eps / round | P_L (50 rounds) | leaked data / measure |
 |---|---|---|---|
-| Leakage not modelled | 0.368 % | 0.151 | — |
-| No leakage removal | 0.412 % | 0.168 | 1.2e-3 / 1.6e-3 |
-| **Leakage-removing reset (chosen)** | **0.377 %** | **0.157** | 6.9e-5 / 1.1e-4 |
-| + DQLR each round (30 ns, 5e-4 error) | 0.409 % | 0.170 | 7.1e-6 / 1.1e-4 |
-| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.192 / 0.203 | 5.9e-4 / 6.4e-5 |
+| Leakage not modelled | 0.366 % | 0.150 | — |
+| No leakage removal | 0.395 % | 0.163 | 1.0e-3 / 1.4e-3 |
+| **Leakage-removing reset (chosen)** | **0.366 %** | **0.153** | 4.9e-5 / 9.7e-5 |
+| + DQLR each round (30 ns, 5e-4 error) | 0.402 % | 0.168 | 5.5e-6 / 8.8e-5 |
+| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.183 / 0.191 | 3.9e-4 / 4.5e-5 |
 
 **Decision:** the leakage-removing reset is enough for Alpha-1. DQLR removes data-qubit leakage but costs more than it
 saves at distance 3, even at 10× leakage. It is carried to Beta as an option to re-test at distance 5.
 
-**Error budget** (eps change when one source is removed): T1 −80 %, CZ/1q control −38 %, Tφ −29 %, readout −16 %,
-reset −10 %, leakage −2 %, thermal −1 %, ZZ +2 %. Changes of a few per cent are within the Monte Carlo noise.
+**Error budget** (eps change when one source is removed): T1 −80 %, CZ/1q control −40 %, Tφ −32 %, readout −18 %,
+reset −13 %, leakage −5 %, thermal −3 %, ZZ +1 %. Changes of a few per cent are within the Monte Carlo noise.
 
 **Sensitivity** (single change):
 
 | Change | eps change |
 |---|---|
-| Dielectric Q ×2 | −35 % |
-| T_eff 35 mK | −26 % |
-| Readout 300 ns | −24 % |
+| Dielectric Q ×2 | −36 % |
+| T_eff 35 mK | −27 % |
+| Readout 300 ns | −22 % |
 | CZ residual 5e-4 | −19 % |
-| Readout separation 0.25 % | −9 % |
-| Flux noise ×3 | +7 % |
-| CZ residual 2e-3 | +38 % |
+| Readout separation 0.25 % | −10 % |
+| Flux noise ×3 | +9 % |
+| CZ residual 2e-3 | +37 % |
 
 These ranks set the Beta-1 upgrade list.
 
@@ -126,51 +131,56 @@ These ranks set the Beta-1 upgrade list.
 
 **Cells.** An Xmon-style cross with a T-bar at each arm end faces each coupler's T-bar across a 5 µm gap. The readout
 claw wraps a pad in the cross's inner corner. The coupler is a grounded transmon: two T-bars, a 10 µm body and a square
-mid pad; its SQUID sits on the pad edge with an inductive flux line. A thin floating strip runs parallel to each coupler.
-The synthesis drove its T-bar to ~0, so it only adds 1.5 fF of loading and could be dropped in v1.2.
+mid pad; its SQUID sits on the pad edge with an inductive flux line. A thin floating strip (the bus) runs parallel to each coupler and sets the direct coupling.
+The target direct coupling is weak, so the bus has no T-bar: it is a 6 µm strip whose ends stop 17.5 µm short of the
+qubit T-bars. (The 0.4 synthesis shrank a bus T-bar to 75 nm instead; the cell generator no longer draws metal narrower
+than the strip.) It adds 1.2 fF of loading.
 
 The dimensions were synthesised by Gauss-Newton against the circuit targets, using method-of-moments extraction
 (quasi-static, ε_eff = (11.45 + 1)/2 on silicon) with a coarse-to-fine mesh correction:
 
 | Cell | Dimension | Value |
 |---|---|---|
-| Measure / data qubit | arm length (centre to T-bar edge) | 129.3 / 131.9 µm |
+| Measure / data qubit | arm length (centre to T-bar edge) | 127.4 / 129.8 µm |
 | | arm width / gap / T-bar | 16 / 30 / 120 × 12 µm |
-| | readout pad / claw gap | 40.9 / 5 µm |
-| Coupler | T-bar (facing the qubit) | 43.5 µm long, 5 µm gap |
-| | body / trench / mid pad | 10 / 20 / 252.6 × 252.6 µm |
+| | readout pad / claw gap | 38.4 / 5 µm |
+| Coupler | T-bar (facing the qubit) | 42.0 µm long, 5 µm gap |
+| | body / trench / mid pad | 10 / 20 / 248.4 × 248.4 µm |
+| Bus | strip / trench / end gap to the qubit T-bar | 6 / 15 / 17.5 µm |
 
 | Extracted (fine mesh) | Value | Target | Error |
 |---|---|---|---|
-| E_C measure / data | 198.2 / 195.8 MHz | 202.2 / 199.7 MHz | −2.0 % |
-| E_C coupler | 124.4 MHz | 125.6 MHz | −0.9 % |
-| G measure–coupler / coupler–data (GHz per n n) | 0.0598 / 0.0579 | 0.0576 / 0.0612 | +3.8 % / −5.3 % |
-| G measure–data (direct) | 0.00568 | 0.00555 | +2.2 % |
-| C qubit–readout | 9.36 fF | 9.15 fF | +2.3 % |
-| C_Σ qubit / C coupler / C_qc / C_qq | 98.0–99.2 / 157 / 5.72 / 0.105 fF | | |
+| E_C measure / data | 202.3 / 199.8 MHz | 202.2 / 199.7 MHz | +0.05 % |
+| E_C coupler | 125.6 MHz | 125.6 MHz | −0.01 % |
+| G measure–coupler / coupler–data (GHz per n n) | 0.0603 / 0.0585 | 0.0576 / 0.0612 | +4.6 % / −4.4 % |
+| G measure–data (direct) | 0.00563 | 0.00556 | +1.4 % (aimed 1.5 % high, see below) |
+| C qubit–readout | 9.10 fF | 9.15 fF | −0.5 % |
+| C_Σ qubit / C coupler / C_qc / C_qq | 96.0–97.2 / 155 / 5.61 / 0.104 fF | | |
 
 **Post-layout circuit check.** The junctions are retargeted to the design frequencies and the representative pair is
 rebuilt from the extracted circuit:
-- α = −215 MHz; coupler α −129 MHz; g_qc = 168 MHz; readout g = 158 MHz (design 156).
-- g12 = 9.94 MHz against the 9.54 MHz needed for an exchange-free park at the sweet spot. This would leave a 0.77 MHz parked gap (1.4e-4 transfer per spectator crossing).
-- Because g12 is *above* the null value, parking each coupler 205 MHz below its sweet spot (8.295 GHz, df/dΦ = 4.2 GHz/Φ0) nulls it exactly. ZZ is then −5.0 kHz.
+- α = −220 MHz; coupler α −130 MHz; g_qc = 167 MHz; readout g = 155 MHz (design 156).
+- g12 = 9.66 MHz against the 9.54 MHz needed for an exchange-free park at the sweet spot. This would leave a 0.34 MHz parked gap (2.9e-5 transfer per spectator crossing).
+- Because g12 is *above* the null value, parking each coupler 95 MHz below its sweet spot (8.405 GHz, df/dΦ = 2.9 GHz/Φ0) nulls it exactly. ZZ is then −4.3 kHz. The synthesis aims the direct coupling 1.5 % above target for this reason: a g12 just below the null value could not be re-nulled.
 - Calibration plan: per-pair park flux = exchange null.
 
 **GDSII** (`AF17_v11.gds`, cell `AF17_V11`, 1 nm database unit):
 
 | Layer | Content |
 |---|---|
-| 1 | Etch: ground-plane cut-outs minus metal islands (14,380 polygons) |
+| 1 | Etch: ground-plane cut-outs minus metal islands (14,855 polygons) |
 | 2 | Josephson junction / SQUID regions (41) |
 | 3 | Flip-chip bump pads (75): XY, qubit flux, coupler flux, resonator–feedline coupling |
 | 10 | Chip outline |
 | 20 | Labels |
 
 - Placement checks (10 µm metal spacing, 4 µm at designed coupling gaps, metal inside the outline): **clean**.
-- Mask DRC, added in qpuforge v0.3: minimum width and space of 4 µm on the merged etch layer, projection metric. It reports **34 width and 202 space violations: not clean.**
-  - Metal is the outline minus etch, so an etch-space violation is a metal neck. Examples are 75 nm and 0.31 µm ground-plane slivers between neighbouring cut-outs.
-  - These are artefacts of how the cut-outs are composed, not intended features: every width violation is below 2 µm.
-  - KLayout's Euclidean metric adds corner-to-corner cases on top of these.
+- Mask DRC: minimum width and space of 4 µm on the merged etch layer, projection metric: **0 width and 4 space violations** (34 + 202 in 0.4). The 0.4 violations came from three places:
+  - the 75 nm bus T-bar (now never narrower than the 6 µm strip);
+  - a 1 µm etch slit beside the "shorted" end of each qubit flux line (the line now ends open with a full trench; see below);
+  - 0.3–3.3 µm ground slivers where the diagonal readout, XY and flux lines pass the corners of the qubit cut-out. A clean-up pass merges cut-outs closer than 4 µm. It removes ground only, never island metal, and a connectivity guard undoes any merge that would cut ground off the plane. The four remaining violations are such necks (0.42 µm at Q7 and Q13, 1.59 µm at Q10 and Q16): each is the only link between a ground region and the plane.
+  - Corner-to-corner (Euclidean) spacing is not checked; the foundry's DRC deck must still be run.
+- Metal connectivity (LVS-lite, reported, not gated): **not clean.** The ground between the arms of each qubit is enclosed by the arm and T-bar cut-outs (arm lengths below about 132 µm seal the inner corners) and floats; so does ground around the buses and in pockets near the resonators and coupler flux lines. Shorted lines that end in such a pocket do not reach the plane; the qubit flux lines end open (no DC return); the qubit SQUID junctions end in etch on their ground side. The extraction treats every enclosed ground fragment as grounded. The counts are in `alpha1_v11_review.json → layout.connectivity`.
 - All 17 resonators are drawn at their λ/4 length (4.17–4.35 mm).
 - Previews: `AF17_v11_layout.png`/`.svg`, `AF17_v11_detail.png`/`.svg`.
 - Independent reader: `tools/gds_preview.py`.
@@ -179,16 +189,16 @@ rebuilt from the extracted circuit:
 
 | Criterion | Threshold | Result |
 |---|---|---|
-| d=3 logical error per round | ≤ 0.6 % | 0.374 % (memory-Z), 0.370 % (memory-X) ✔ |
+| d=3 logical error per round | ≤ 0.6 % | 0.377 % (memory-Z), 0.360 % (memory-X) ✔ |
 | Logical lifetime vs best T1 | > 2× | 3.3× ✔ |
-| CZ coherent error / leakage | ≤ 5e-4 / ≤ 2e-4 | 8.1e-5 / 5.7e-5 mean ✔; **worst-pair leakage 2.3e-4 exceeds 2e-4** (Lc = 4 recalibration, was 1.3e-4) |
-| Idle ZZ at park | ≤ 10 kHz | 3.9 kHz mean (5.0 kHz re-nulled post-layout) ✔ |
-| Layout | placement/spacing checks clean; E_C within 3 %, couplings within 6 %, exchange re-nullable | clean; 2.0 %; 5.3 %; yes ✔ (mask width/space DRC not clean, not gated) |
+| CZ coherent error / leakage, every pair | ≤ 5e-4 / ≤ 2e-4 | largest pair 3.6e-4 / 1.2e-4 (means 7.9e-5 / 4.8e-5) ✔ |
+| Idle ZZ at park | ≤ 10 kHz | 3.4–4.5 kHz, mean 3.9 kHz (4.3 kHz re-nulled post-layout) ✔ (computed: `alpha1_v11_review.json → exit_criteria`) |
+| Layout | placement/spacing checks clean; E_C within 3 %, couplings within 6 %, exchange re-nullable (mask DRC and connectivity reported, not gated) | clean; 0.05 %; 4.6 %; yes ✔ (mask DRC 0 + 4, connectivity not clean) |
 | Fabrication Monte Carlo, 2 % junction spread | ≥ 90 % collision-free | 98 % (v1.0 review; same frequency plan) ✔ |
 
 ## 7. Before tape-out (Alpha fabrication checklist)
 
-1. Full-wave/FEM cross-check of the qubit, coupler and readout cells (Palace / Sonnet / Q3D). Then a second synthesis iteration on the residual 2–5 % errors.
+1. Full-wave/FEM cross-check of the qubit, coupler and readout cells (Palace / Sonnet / Q3D). Then a second synthesis iteration on the residual errors (up to 4.6 % on the qubit–coupler couplings).
 2. Interposer design: feedlines, Purcell filters, edge launchers, wiring of the 75 bump pads.
 3. Airbridges across the coupler and flux-line trenches; dicing lanes, alignment marks, test structures (junction test arrays, resonator Q).
 4. Junction process: target Rn per qubit from the design JSON, with ≤ 2 % spread (or trimming).
@@ -201,7 +211,7 @@ rebuilt from the extracted circuit:
 - Pulse simulation is closed-system. Decoherence during the gate is applied by the emulators; 1/f flux noise is applied analytically.
 - Leakage is a frame-level model. The decoder is leakage-unaware.
 - Capacitances come from a quasi-static extraction on a thick substrate. Not included: box modes, kinetic inductance, crosstalk, participation-ratio TLS loss.
-- The layout is a first cut. Control wiring and feedlines on the interposer are not drawn.
+- The mask is not fabrication-ready (§5): four DRC space violations, floating ground, no flux-line return, qubit junctions not landing; the coupling of the XY and flux lines to the qubits is not modelled. Control wiring and feedlines on the interposer are not drawn.
 - Coherence comes from the device model (Q = 3e6 dielectric loss, Purcell, 2 µΦ0 flux noise, photon shot noise), not from measurement.
 
 ## 9. Files

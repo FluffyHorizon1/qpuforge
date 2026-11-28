@@ -268,9 +268,21 @@ struct CouplerGeom {
     double l_c{52};         // coupler T-bar length (sets C_qc)
     double w_body{10}, gap{20};
     double pad{150};        // coupler mid pad (sets the coupler E_C)
-    double l_b{30};         // bus T-bar length (sets the direct coupling)
+    double l_b{30};         // bus T-bar length (sets the direct coupling); drawn no shorter than w_bus
     double w_bus{6}, gap_bus{15};
+    double g_b{-1};         // gap between a bus end and the qubit T-bar face (< 0: g_c); retracted bus for a weak direct coupling
+    double bus_gap() const { return g_b < 0 ? g_c : g_b; }
+    double bus_tbar() const { return std::max(l_b, w_bus); }
 };
+// The synthesis drives the direct coupling with one continuous knob u: for u >= w_bus it is the bus T-bar length; below
+// that the T-bar is gone (a bus no wider than its strip) and the bus end is pulled back from the qubit by
+// kBusRetract * (w_bus - u). The two branches meet at u = w_bus, so no metal narrower than the bus strip is ever drawn.
+inline constexpr double kBusRetract = 3.0;
+inline double bus_knob(const CouplerGeom& c) { return c.l_b > c.w_bus ? c.l_b : c.w_bus - std::max(0.0, c.bus_gap() - c.g_c) / kBusRetract; }
+inline void set_bus_knob(CouplerGeom& c, double u) {
+    c.l_b = std::max(u, c.w_bus);
+    c.g_b = c.g_c + kBusRetract * std::max(0.0, c.w_bus - u);
+}
 
 struct Drawn {
     std::vector<Rect> metal;     // islands inside cut-outs (qubit, coupler, bus, claws, centre conductors)
@@ -329,14 +341,15 @@ inline PairElements coupler_and_bus(const XmonParams& q, const CouplerGeom& c, d
         add(E.holes, {p / 2 - c.pad / 2 - c.gap, -c.y1 - c.w_body / 2 - c.pad - c.gap, p / 2 + c.pad / 2 + c.gap, -c.y1 - c.w_body / 2});
         add(E.jj, {p / 2 - 4, -c.y1 - c.w_body / 2 - c.pad - c.gap, p / 2 + 4, -c.y1 - c.w_body / 2 - c.pad});
     }
-    // bus
+    // bus (T-bar no shorter than the strip is wide; its ends may be retracted from the qubits, see set_bus_knob)
     if (c.l_b > 0) {
-        add(E.bus, {xa, c.y1 - c.l_b / 2, xa + c.t_w, c.y1 + c.l_b / 2});
-        add(E.bus, {xa + c.t_w, c.y1 - c.w_bus / 2, far_end ? xb - c.t_w : xend, c.y1 + c.w_bus / 2});
-        if (far_end) add(E.bus, {xb - c.t_w, c.y1 - c.l_b / 2, xb, c.y1 + c.l_b / 2});
-        add(E.holes, {xa - c.gap_bus, c.y1 - c.l_b / 2 - c.gap_bus, xa + c.t_w + c.gap_bus, c.y1 + c.l_b / 2 + c.gap_bus});
-        add(E.holes, {xa, c.y1 - c.w_bus / 2 - c.gap_bus, (far_end ? xb - c.t_w : xend) + (far_end ? 0 : c.gap_bus), c.y1 + c.w_bus / 2 + c.gap_bus});
-        if (far_end) add(E.holes, {xb - c.t_w - c.gap_bus, c.y1 - c.l_b / 2 - c.gap_bus, xb + c.gap_bus, c.y1 + c.l_b / 2 + c.gap_bus});
+        const double lb = c.bus_tbar(), ua = q.L + c.bus_gap(), ub = p - (L_far > 0 ? L_far : q.L) - c.bus_gap();
+        add(E.bus, {ua, c.y1 - lb / 2, ua + c.t_w, c.y1 + lb / 2});
+        add(E.bus, {ua + c.t_w, c.y1 - c.w_bus / 2, far_end ? ub - c.t_w : xend, c.y1 + c.w_bus / 2});
+        if (far_end) add(E.bus, {ub - c.t_w, c.y1 - lb / 2, ub, c.y1 + lb / 2});
+        add(E.holes, {ua - c.gap_bus, c.y1 - lb / 2 - c.gap_bus, ua + c.t_w + c.gap_bus, c.y1 + lb / 2 + c.gap_bus});
+        add(E.holes, {ua, c.y1 - c.w_bus / 2 - c.gap_bus, (far_end ? ub - c.t_w : xend) + (far_end ? 0 : c.gap_bus), c.y1 + c.w_bus / 2 + c.gap_bus});
+        if (far_end) add(E.holes, {ub - c.t_w - c.gap_bus, c.y1 - lb / 2 - c.gap_bus, ub + c.gap_bus, c.y1 + lb / 2 + c.gap_bus});
     }
     return E;
 }
@@ -344,6 +357,15 @@ inline PairElements coupler_and_bus(const XmonParams& q, const CouplerGeom& c, d
 // ---------------------------------------------------------------- extraction cells and synthesis
 struct CellSet { XmonParams meas, data; CouplerGeom cg; double pitch{900}; };
 
+namespace detail { inline int fill_ground_slivers(std::vector<Rect>& holes, const std::vector<Rect>& metal, double min_ground, int max_passes = 6); }
+// Ground cut-outs of an extraction cell after the same mask clean-up as the assembled chip (ground slivers below the
+// 4 um minimum merged away), so that the cells are extracted as they will be fabricated.
+inline std::vector<Rect> cell_ground_holes(std::vector<Rect> holes, const std::vector<Conductor>& metal, double min_ground = 4.0) {
+    std::vector<Rect> m;
+    for (const auto& c : metal) if (!c.ground) m.insert(m.end(), c.rects.begin(), c.rects.end());
+    detail::fill_ground_slivers(holes, m, min_ground);
+    return holes;
+}
 // Star cell: one qubit with its 4 couplers + buses (truncated beyond the mid pad) and the readout claw.
 inline CapacitanceMatrix star_cell(const XmonParams& q, const CouplerGeom& c, double p, const MeshOptions& mo) {
     std::vector<Conductor> cs;
@@ -361,7 +383,7 @@ inline CapacitanceMatrix star_cell(const XmonParams& q, const CouplerGeom& c, do
     cs.push_back(R);
     Conductor G; G.name = "ground"; G.ground = true;
     const double ext = q.L + c.g_c + c.t_w + 200 + 100;
-    G.outline = {-ext, -ext, ext, ext}; G.holes = holes;
+    G.outline = {-ext, -ext, ext, ext}; G.holes = cell_ground_holes(holes, cs);
     cs.push_back(G);
     return extract_capacitance(cs, 11.45, mo);
 }
@@ -380,7 +402,7 @@ inline CapacitanceMatrix pair_cell(const XmonParams& qa, const XmonParams& qb, c
     cs.push_back(B);
     Conductor G; G.name = "ground"; G.ground = true;
     const double ex = std::max(qa.L, qb.L) + 150;
-    G.outline = {-ex, -ex, p + ex, ex}; G.holes = holes;
+    G.outline = {-ex, -ex, p + ex, ex}; G.holes = cell_ground_holes(holes, cs);
     cs.push_back(G);
     return extract_capacitance(cs, 11.45, mo);
 }
@@ -425,6 +447,10 @@ struct LayoutTargets {
     double EC_m{0.2}, EC_c{0.126}, EC_d{0.2};          // GHz
     double G_mc{0.0575}, G_cd{0.061}, G_md{0.0056};     // GHz per n n
     double C_qr_fF{6.6};                                 // qubit-readout claw capacitance
+    // The synthesis aims the direct coupling this fraction above G_md. Parking the coupler below its sweet spot can
+    // only add coupler-mediated (negative) exchange, so a layout g12 slightly above the null value can be re-nulled and
+    // one slightly below cannot; the margin keeps mesh error and the G_mc/G_cd asymmetry on the re-nullable side.
+    double G_md_renull_margin{0.015};
 };
 struct LayoutMetrics {
     double EC_m{0}, EC_c{0}, EC_d{0}, G_mc{0}, G_cd{0}, G_md{0}, C_qr_fF{0};
@@ -458,14 +484,15 @@ inline CellSet synthesize_cells(CellSet S, const LayoutTargets& T, SynthesisLog*
                                 MeshOptions coarse = {3.0, 50.0, 2.0}, MeshOptions fine = {1.5, 50.0, 1.6}) {
     constexpr int K = 6;
     using Vec = std::array<double, K>;
-    auto get = [](const CellSet& s) { return Vec{s.meas.L, s.data.L, s.cg.pad, s.cg.l_c, s.cg.l_b, s.meas.r_pad}; };
+    auto get = [](const CellSet& s) { return Vec{s.meas.L, s.data.L, s.cg.pad, s.cg.l_c, bus_knob(s.cg), s.meas.r_pad}; };
     auto put = [](CellSet& s, const Vec& x) {
-        s.meas.L = x[0]; s.data.L = x[1]; s.cg.pad = x[2]; s.cg.l_c = x[3]; s.cg.l_b = x[4]; s.meas.r_pad = s.data.r_pad = x[5];
+        s.meas.L = x[0]; s.data.L = x[1]; s.cg.pad = x[2]; s.cg.l_c = x[3]; set_bus_knob(s.cg, x[4]); s.meas.r_pad = s.data.r_pad = x[5];
     };
     const double Tb = S.meas.T;
     auto bounds = [&](const Vec& x, Vec& lo, Vec& hi) {
-        lo = {70, 70, 20, 8, 0, 12};
-        hi = {300, 300, 420, Tb - 26, std::max(0.0, Tb - 26 - x[3]), 80};
+        // bus knob: down to a 60 um retraction of the bus ends (see set_bus_knob)
+        lo = {70, 70, 20, 8, S.cg.w_bus - 60 / kBusRetract, 12};
+        hi = {300, 300, 420, Tb - 26, std::max(S.cg.w_bus, Tb - 26 - x[3]), 80};
         for (int q = 0; q < 2; ++q) {          // claw clear of the arm T-bars; resonator exit clear of the T-bar corners
             const XmonParams& Q = q ? S.data : S.meas;
             const double claw_outer = Q.w_arm / 2 + x[5] + Q.claw_gap + Q.claw_w;
@@ -475,12 +502,12 @@ inline CellSet synthesize_cells(CellSet S, const LayoutTargets& T, SynthesisLog*
     auto clampx = [&](Vec x) { Vec lo, hi; bounds(x, lo, hi); for (int i = 0; i < K; ++i) x[std::size_t(i)] = std::clamp(x[std::size_t(i)], lo[std::size_t(i)], std::max(lo[std::size_t(i)], hi[std::size_t(i)])); return x; };
     const Vec w{1, 1, 1, 1, 0.7, 0.5};    // residual weights (G_md can be trimmed by the coupler park point; C_qr by the resonator)
     auto metric = [&](const LayoutMetrics& m) { return Vec{m.EC_m, m.EC_d, m.EC_c, 0.5 * (m.G_mc + m.G_cd), m.G_md, m.C_qr_fF}; };
-    Vec target{T.EC_m, T.EC_d, T.EC_c, 0.5 * (T.G_mc + T.G_cd), T.G_md, T.C_qr_fF};
-    const Vec target0 = target;
+    Vec target{T.EC_m, T.EC_d, T.EC_c, 0.5 * (T.G_mc + T.G_cd), T.G_md * (1 + T.G_md_renull_margin), T.C_qr_fF};
+    const Vec target0{T.EC_m, T.EC_d, T.EC_c, 0.5 * (T.G_mc + T.G_cd), T.G_md, T.C_qr_fF};   // reported errors: against the design targets
     auto say = [&](const std::string& s) { if (log) log->lines.push_back(s); };
     auto line = [&](const char* tag, const Vec& x, const Vec& f) {
         char b[400];
-        std::snprintf(b, sizeof b, "%-18s L_m %6.1f L_d %6.1f pad %6.1f l_c %5.1f l_b %5.1f r %5.1f | EC_m %.4f EC_d %.4f EC_c %.4f G %.4f G_md %.5f C_qr %.2f",
+        std::snprintf(b, sizeof b, "%-18s L_m %6.1f L_d %6.1f pad %6.1f l_c %5.1f bus %5.1f r %5.1f | EC_m %.4f EC_d %.4f EC_c %.4f G %.4f G_md %.5f C_qr %.2f",
                       tag, x[0], x[1], x[2], x[3], x[4], x[5], f[0], f[1], f[2], f[3], f[4], f[5]);
         say(b);
     };
@@ -585,14 +612,23 @@ inline void cpw_path(const std::vector<std::pair<double, double>>& P, double w, 
         }
     }
 }
-// diagonal staircase CPW of 10 um squares from (x0,y0) to (x1,y1) (|dx| = |dy|)
+// diagonal staircase CPW of 10 um squares from (x0,y0) to (x1,y1) (|dx| = |dy|). A shorted far end drops the trench of
+// the last square and trims the one before it to the last square's outer edges, so the short meets the ground plane
+// without leaving a 1 um etch slit beside it.
 inline void stair(double x0, double y0, double x1, double y1, std::vector<Rect>& metal, std::vector<Rect>& holes, bool short_end) {
     const int n = int(std::lround(std::abs(x1 - x0) / 5.0));
     const double sx = x1 > x0 ? 5 : -5, sy = y1 > y0 ? 5 : -5;
+    const double xn = x0 + n * sx, yn = y0 + n * sy;
     for (int k = 0; k <= n; ++k) {
         const double cx = x0 + k * sx, cy = y0 + k * sy;
         metal.push_back(rect_c(cx, cy, 10, 10));
-        if (!(short_end && k == n)) holes.push_back(rect_c(cx, cy, 22, 22));
+        if (short_end && k == n) continue;
+        Rect h = rect_c(cx, cy, 22, 22);
+        if (short_end && k == n - 1) {
+            if (sx > 0) h.x1 = std::min(h.x1, xn + 5); else h.x0 = std::max(h.x0, xn - 5);
+            if (sy > 0) h.y1 = std::min(h.y1, yn + 5); else h.y0 = std::max(h.y0, yn - 5);
+        }
+        holes.push_back(h);
     }
 }
 inline std::vector<Rect> subtract(const Rect& a, const Rect& b) {
@@ -682,12 +718,234 @@ inline std::vector<DrcMarker> width_space_check(const std::vector<Rect>& region,
     }
     return out;
 }
+// Etch layer: the cut-outs minus the metal islands, as disjoint-per-cut-out rectangles. `area_um2` (if given) receives
+// the summed area, with overlaps between cut-outs counted twice (an upper bound).
+inline std::vector<Rect> etch_of(const std::vector<Rect>& holes, std::vector<Rect> metal, double* area_um2 = nullptr) {
+    std::sort(metal.begin(), metal.end(), [](const Rect& a, const Rect& b) { return a.x0 < b.x0; });
+    double wmax = 0; for (const auto& m : metal) wmax = std::max(wmax, m.w());
+    std::vector<Rect> etch;
+    double area = 0;
+    for (const auto& h : holes) {
+        std::vector<Rect> pieces{h};
+        auto it = std::lower_bound(metal.begin(), metal.end(), h.x0 - wmax - 1.0, [](const Rect& a, double v) { return a.x0 < v; });
+        for (; it != metal.end() && it->x0 < h.x1; ++it) {
+            if (!it->intersects(h)) continue;
+            std::vector<Rect> next;
+            for (const auto& pc : pieces) { auto s = subtract(pc, *it); next.insert(next.end(), s.begin(), s.end()); }
+            pieces.swap(next);
+        }
+        for (const auto& pc : pieces) if (pc.w() > 1e-6 && pc.h() > 1e-6) { etch.push_back(pc); area += pc.area(); }
+    }
+    if (area_um2) *area_um2 = area;
+    return etch;
+}
+
+// Connected components of the metal (the outline minus the etch), exact for Manhattan geometry. The chip is cut into
+// vertical columns; in each column, every horizontal strip between consecutive edge coordinates holds a set of disjoint
+// metal x-intervals. Intervals that overlap (by more than a rounding tolerance) in adjacent strips, or along a column
+// boundary, are joined by union-find. Corner-to-corner contact does not connect. at(x, y) returns the component of the
+// metal at a point, or -1 on etch or outside the outline.
+struct MetalMap {
+    Rect outline;
+    double col_w{400};
+    struct Strip { double y0, y1; int first, count; };
+    struct Col { double x0, x1; std::vector<Strip> strips; };
+    std::vector<Col> cols;
+    std::vector<double> ix0, ix1, iy0, iy1;
+    std::vector<int> comp;
+    int n_comp{0};
+    int at(double x, double y) const {
+        if (!(x > outline.x0 && x < outline.x1 && y > outline.y0 && y < outline.y1)) return -1;
+        const int c = std::clamp(int((x - outline.x0) / col_w), 0, int(cols.size()) - 1);
+        const auto& S = cols[std::size_t(c)].strips;
+        auto it = std::upper_bound(S.begin(), S.end(), y, [](double v, const Strip& st) { return v < st.y0; });
+        if (it == S.begin()) return -1;
+        const Strip& st = *(it - 1);
+        if (y >= st.y1) return -1;
+        int lo = st.first, hi = st.first + st.count;         // last interval with ix0 <= x
+        while (hi - lo > 1) { const int m = (lo + hi) / 2; (ix0[std::size_t(m)] <= x ? lo : hi) = m; }
+        if (st.count == 0 || ix0[std::size_t(lo)] > x || x >= ix1[std::size_t(lo)]) return -1;
+        return comp[std::size_t(lo)];
+    }
+};
+inline MetalMap metal_map(const Rect& outline, const std::vector<Rect>& etch, double col_w = 400) {
+    MetalMap M; M.outline = outline; M.col_w = col_w;
+    const double eps = 1e-7;
+    const int nc = std::max(1, int(std::ceil(outline.w() / col_w)));
+    std::vector<std::vector<Rect>> bucket(static_cast<std::size_t>(nc));
+    for (const auto& r : etch) {
+        const int a = std::clamp(int((r.x0 - outline.x0) / col_w), 0, nc - 1), b = std::clamp(int((r.x1 - outline.x0) / col_w), 0, nc - 1);
+        for (int c = a; c <= b; ++c) bucket[std::size_t(c)].push_back(r);
+    }
+    std::vector<int> parent;
+    auto find = [&](int i) { while (parent[std::size_t(i)] != i) { parent[std::size_t(i)] = parent[std::size_t(parent[std::size_t(i)])]; i = parent[std::size_t(i)]; } return i; };
+    auto unite = [&](int a, int b) { a = find(a); b = find(b); if (a != b) parent[std::size_t(std::max(a, b))] = std::min(a, b); };
+    M.cols.resize(std::size_t(nc));
+    for (int c = 0; c < nc; ++c) {
+        MetalMap::Col& C = M.cols[std::size_t(c)];
+        C.x0 = outline.x0 + c * col_w; C.x1 = c + 1 == nc ? outline.x1 : std::min(outline.x1, C.x0 + col_w);
+        auto& rs = bucket[std::size_t(c)];
+        for (auto& r : rs) { r.x0 = std::max(r.x0, C.x0); r.x1 = std::min(r.x1, C.x1); r.y0 = std::max(r.y0, outline.y0); r.y1 = std::min(r.y1, outline.y1); }
+        rs.erase(std::remove_if(rs.begin(), rs.end(), [&](const Rect& r) { return r.w() <= eps || r.h() <= eps; }), rs.end());
+        std::sort(rs.begin(), rs.end(), [](const Rect& a, const Rect& b) { return a.y0 < b.y0; });
+        std::vector<double> ys{outline.y0, outline.y1};
+        for (const auto& r : rs) { ys.push_back(r.y0); ys.push_back(r.y1); }
+        std::sort(ys.begin(), ys.end());
+        ys.erase(std::unique(ys.begin(), ys.end(), [&](double a, double b) { return b - a < eps; }), ys.end());
+        std::vector<const Rect*> active;
+        std::size_t next = 0;
+        int prev_first = -1, prev_count = 0;
+        for (std::size_t k = 0; k + 1 < ys.size(); ++k) {
+            const double ya = ys[k], yb = ys[k + 1], ym = 0.5 * (ya + yb);
+            while (next < rs.size() && rs[next].y0 < ym) active.push_back(&rs[next++]);
+            active.erase(std::remove_if(active.begin(), active.end(), [&](const Rect* r) { return r->y1 <= ym; }), active.end());
+            std::vector<std::pair<double, double>> iv;
+            for (const Rect* r : active) if (r->y0 < ym) iv.push_back({r->x0, r->x1});
+            std::sort(iv.begin(), iv.end());
+            const int first = int(M.ix0.size());
+            double x = C.x0;
+            auto emit = [&](double a, double b) {
+                if (b - a <= eps) return;
+                M.ix0.push_back(a); M.ix1.push_back(b); M.iy0.push_back(ya); M.iy1.push_back(yb);
+                parent.push_back(int(parent.size()));
+            };
+            for (const auto& v : iv) { if (v.first > x + eps) emit(x, v.first); x = std::max(x, v.second); }
+            emit(x, C.x1);
+            const int count = int(M.ix0.size()) - first;
+            // join with the strip below (they share the edge y = ya when ya is the previous strip's top)
+            if (prev_first >= 0) {
+                int i = prev_first, j = first;
+                while (i < prev_first + prev_count && j < first + count) {
+                    const double o = std::min(M.ix1[std::size_t(i)], M.ix1[std::size_t(j)]) - std::max(M.ix0[std::size_t(i)], M.ix0[std::size_t(j)]);
+                    if (o > eps) unite(i, j);
+                    (M.ix1[std::size_t(i)] < M.ix1[std::size_t(j)] ? i : j)++;
+                }
+            }
+            C.strips.push_back({ya, yb, first, count});
+            prev_first = first; prev_count = count;
+        }
+    }
+    // join across column boundaries: intervals ending at the boundary in column c and starting there in column c + 1
+    for (int c = 0; c + 1 < nc; ++c) {
+        const MetalMap::Col& A = M.cols[std::size_t(c)]; const MetalMap::Col& B = M.cols[std::size_t(c + 1)];
+        std::vector<int> ra, lb;
+        for (const auto& st : A.strips) if (st.count && M.ix1[std::size_t(st.first + st.count - 1)] >= A.x1 - eps) ra.push_back(st.first + st.count - 1);
+        for (const auto& st : B.strips) if (st.count && M.ix0[std::size_t(st.first)] <= B.x0 + eps) lb.push_back(st.first);
+        std::size_t i = 0, j = 0;
+        while (i < ra.size() && j < lb.size()) {
+            const int a = ra[i], b = lb[j];
+            const double o = std::min(M.iy1[std::size_t(a)], M.iy1[std::size_t(b)]) - std::max(M.iy0[std::size_t(a)], M.iy0[std::size_t(b)]);
+            if (o > eps) unite(a, b);
+            (M.iy1[std::size_t(a)] < M.iy1[std::size_t(b)] ? i : j)++;
+        }
+    }
+    M.comp.resize(parent.size());
+    std::map<int, int> ids;
+    for (std::size_t i = 0; i < parent.size(); ++i) {
+        const int r = find(int(i));
+        auto it = ids.find(r);
+        if (it == ids.end()) it = ids.emplace(r, int(ids.size())).first;
+        M.comp[i] = it->second;
+    }
+    M.n_comp = int(ids.size());
+    return M;
+}
+
+// Mask clean-up: a strip of ground plane narrower than `min_ground` between two cut-outs (projection metric, as in
+// width_space_check) is etched away, i.e. the two cut-outs are merged. This happens where a diagonal staircase line
+// passes the corner of a qubit cut-out. Only ground is removed: a gap that touches island metal is left alone (and
+// still reported by the DRC), so no island changes shape and no net is shorted or split. Repeats until nothing changes
+// (a fill can expose a new notch); returns the number of rectangles added to `holes`.
+inline int fill_ground_slivers(std::vector<Rect>& holes, const std::vector<Rect>& metal, double min_ground, int max_passes) {
+    std::vector<Rect> ms = metal;
+    std::sort(ms.begin(), ms.end(), [](const Rect& a, const Rect& b) { return a.x0 < b.x0; });
+    double wmax = 0; for (const auto& m : ms) wmax = std::max(wmax, m.w());
+    auto touches_metal = [&](const Rect& b) {
+        const Rect g = b.grow(1e-6);
+        auto it = std::lower_bound(ms.begin(), ms.end(), g.x0 - wmax - 1.0, [](const Rect& a, double v) { return a.x0 < v; });
+        for (; it != ms.end() && it->x0 < g.x1; ++it) if (it->intersects(g)) return true;
+        return false;
+    };
+    int added = 0;
+    for (int pass = 0; pass < max_passes; ++pass) {
+        const auto etch = etch_of(holes, ms);
+        int now = 0;
+        for (const auto& mk : width_space_check(etch, 0.0, min_ground, "fill")) {
+            if (mk.rule.find("space") == std::string::npos || touches_metal(mk.box)) continue;
+            holes.push_back(mk.box); ++now;
+        }
+        added += now;
+        if (!now) break;
+    }
+    return added;
+}
+// fill_ground_slivers with a connectivity guard: a fill may only remove ground, never cut ground off the plane (the
+// metal component of the outline border). Every fill that borders metal which was part of the plane before the clean-up
+// and is cut off from it after is undone, until nothing is cut off; the DRC then reports the narrow neck it leaves.
+// Returns the fills kept and undone, and the metal map of the final cut-outs.
+struct GuardedFill { int kept{0}, undone{0}; MetalMap map; };
+inline GuardedFill guarded_fill(const Rect& outline, std::vector<Rect>& holes, const std::vector<Rect>& metal, double min_ground) {
+    GuardedFill G;
+    const std::size_t n_holes = holes.size();
+    const auto map0 = metal_map(outline, etch_of(holes, metal));
+    const int plane0 = map0.at(outline.x0 + 0.5, outline.y0 + 0.5);
+    fill_ground_slivers(holes, metal, min_ground);
+    std::vector<bool> keep(holes.size() - n_holes, true);
+    for (int pass = 0; pass < 8; ++pass) {
+        std::vector<Rect> hs(holes.begin(), holes.begin() + std::ptrdiff_t(n_holes));
+        for (std::size_t k = 0; k < keep.size(); ++k) if (keep[k]) hs.push_back(holes[n_holes + k]);
+        G.map = metal_map(outline, etch_of(hs, metal));
+        const int plane1 = G.map.at(outline.x0 + 0.5, outline.y0 + 0.5);
+        std::vector<char> detached(std::size_t(G.map.n_comp), 0), seen(std::size_t(G.map.n_comp), 0);
+        for (std::size_t i = 0; i < G.map.comp.size(); ++i) {
+            const int c = G.map.comp[i];
+            if (seen[std::size_t(c)] || c == plane1) continue;
+            seen[std::size_t(c)] = 1;
+            if (map0.at(0.5 * (G.map.ix0[i] + G.map.ix1[i]), 0.5 * (G.map.iy0[i] + G.map.iy1[i])) == plane0) detached[std::size_t(c)] = 1;
+        }
+        int undone = 0;
+        for (std::size_t k = 0; k < keep.size(); ++k) {
+            if (!keep[k]) continue;
+            const Rect& f = holes[n_holes + k];
+            const double d = 0.25;
+            const std::array<std::pair<double, double>, 4> probe{{{f.x0 - d, f.cy()}, {f.x1 + d, f.cy()}, {f.cx(), f.y0 - d}, {f.cx(), f.y1 + d}}};
+            for (const auto& pr : probe) {
+                const int c = G.map.at(pr.first, pr.second);
+                if (c >= 0 && detached[std::size_t(c)]) { keep[k] = false; ++undone; break; }
+            }
+        }
+        G.undone += undone;
+        if (!undone) break;
+    }
+    std::vector<Rect> hs(holes.begin(), holes.begin() + std::ptrdiff_t(n_holes));
+    for (std::size_t k = 0; k < keep.size(); ++k) if (keep[k]) hs.push_back(holes[n_holes + k]);
+    holes.swap(hs);
+    G.kept = int(holes.size() - n_holes);
+    return G;
+}
 } // namespace detail
 
 // Width / space rules on the fabricated etch layer (layer 1). Metal is the outline minus etch, so the etch-space rule is
 // also the minimum metal (island and ground-plane) width, and the etch-width rule the minimum metal-to-metal gap.
 // Default: the 4 um process minimum that assemble_chip already uses for designed coupling gaps.
 struct DrcRules { double etch_min_width_um{4.0}, etch_min_space_um{4.0}; };
+
+// Connectivity of the fabricated metal (LVS-lite), from detail::metal_map on the final etch layer:
+//   - every island (qubit, coupler, bus, line) is its own conductor: no two islands share a metal component, and only
+//     the lines meant to end in a short (resonators R*, qubit flux lines FQ*, coupler flux lines FC*) touch the plane;
+//   - each shorted line reaches the ground plane (the component of the chip border), so it has a DC return;
+//   - no ground metal is cut off from the plane (a floating ground fragment is an unintended island);
+//   - each junction (layer 2) lands on metal at both ends of its long axis, on two different components.
+struct ConnectivityReport {
+    int components{0}, islands{0}, islands_merged{0}, islands_on_plane{0};
+    int shorted_lines{0}, shorted_lines_on_plane{0}, flux_lines{0}, flux_lines_on_plane{0};
+    int floating_ground{0}, junctions{0}, junctions_landed{0};
+    int fills_reverted{0};                               // sliver fills undone because they cut ground off the plane
+    bool clean() const {
+        return islands_merged == 0 && islands_on_plane == 0 && shorted_lines_on_plane == shorted_lines && floating_ground == 0 &&
+               junctions_landed == junctions;
+    }
+};
 using detail::DrcMarker;
 
 struct ChipLayout {
@@ -701,6 +959,8 @@ struct ChipLayout {
     std::vector<std::string> problems;                 // placement / spacing / outline problems found during assembly
     std::vector<DrcMarker> drc;                         // width / space violations on the merged etch layer
     DrcRules rules;
+    int slivers_filled{0};                              // ground-sliver fills added by the mask clean-up (fill_ground_slivers)
+    ConnectivityReport conn;                            // metal connectivity of the final mask (see ConnectivityReport)
     double etch_area_mm2{0};
     int drc_count(const std::string& rule_suffix) const {
         int n = 0; for (const auto& m : drc) if (m.rule.size() >= rule_suffix.size() && m.rule.compare(m.rule.size() - rule_suffix.size(), rule_suffix.size(), rule_suffix) == 0) ++n;
@@ -769,11 +1029,10 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
         if (y > cy + 480) L.problems.push_back("resonator R" + std::to_string(q.id) + " exceeds its serpentine box");
         // flux line (inductive, shorted next to the SQUID) and XY line (open end at the (+x,-y) corner), both to bumps
         std::vector<Rect> fm, fh;
-        stair(cx - 61, cy - 61, cx - 156, cy - 156, fm, fh, false);
+        // The line ends open next to the SQUID: the corner ground there is enclosed by the arm and T-bar cut-outs (a
+        // floating fragment, see ConnectivityReport), so a short drawn into it would not reach the plane.
+        stair(cx - 156, cy - 156, cx - 61, cy - 61, fm, fh, false);
         cpw_path({{cx - 156, cy - 156}, {cx - 156, cy - 250}}, 10, 6, fm, fh, false);
-        std::reverse(fm.begin(), fm.end());
-        // mark the line end next to the SQUID as shorted: drop the trench square closest to the qubit
-        for (auto it = fh.begin(); it != fh.end(); ++it) if (std::abs(it->cx() - (cx - 61)) < 1e-6 && std::abs(it->cy() - (cy - 61)) < 1e-6) { fh.erase(it); break; }
         fm.push_back(rect_c(cx - 156, cy - 262, 36, 36)); fh.push_back(rect_c(cx - 156, cy - 262, 52, 52));
         L.bumps.push_back(rect_c(cx - 156, cy - 262, 30, 30));
         L.islands.push_back({"FQ" + std::to_string(q.id), fm});
@@ -850,20 +1109,49 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
             }
         }
     for (const auto& r : all) if (!L.outline.covers(r.first)) { L.problems.push_back("metal outside the chip outline"); break; }
-    // etch = cut-outs minus metal islands
+    // etch = cut-outs minus metal islands, after merging cut-outs separated by ground slivers below the minimum width
     std::vector<Rect> metal; for (const auto& r : all) metal.push_back(r.first);
-    std::sort(metal.begin(), metal.end(), [](const Rect& a, const Rect& b) { return a.x0 < b.x0; });
+    const auto fill = detail::guarded_fill(L.outline, L.holes, metal, rules.etch_min_space_um);
+    L.slivers_filled = fill.kept; L.conn.fills_reverted = fill.undone;
+    const detail::MetalMap& map1 = fill.map;
     double area = 0;
-    for (const auto& h : L.holes) {
-        std::vector<Rect> pieces{h};
-        auto it = std::lower_bound(metal.begin(), metal.end(), h.x0 - 2000.0, [](const Rect& a, double v) { return a.x0 < v; });
-        for (; it != metal.end() && it->x0 < h.x1; ++it) {
-            if (!it->intersects(h)) continue;
-            std::vector<Rect> next;
-            for (const auto& pc : pieces) { auto s = detail::subtract(pc, *it); next.insert(next.end(), s.begin(), s.end()); }
-            pieces.swap(next);
+    L.etch = detail::etch_of(L.holes, metal, &area);
+    // connectivity of the final mask
+    {
+        auto& C = L.conn;
+        C.components = map1.n_comp;
+        const int plane = map1.at(L.outline.x0 + 0.5, L.outline.y0 + 0.5);
+        auto shorted = [](const std::string& n) { return n.rfind("FQ", 0) == 0 || n.rfind("FC", 0) == 0 || n[0] == 'R'; };
+        std::map<int, int> island_of;                  // component -> number of islands in it
+        std::vector<int> isl_comp;
+        for (const auto& [name, rs] : L.islands) {
+            const Rect* big = &rs.front();
+            for (const auto& r : rs) if (r.area() > big->area()) big = &r;
+            const int c = map1.at(big->cx(), big->cy());
+            isl_comp.push_back(c);
+            island_of[c]++;
         }
-        for (const auto& pc : pieces) if (pc.w() > 1e-6 && pc.h() > 1e-6) { L.etch.push_back(pc); area += pc.area(); }
+        C.islands = int(L.islands.size());
+        for (std::size_t i = 0; i < L.islands.size(); ++i) {
+            const std::string& n = L.islands[i].first;
+            const bool fq = n.rfind("FQ", 0) == 0, line = shorted(n);
+            const int c = isl_comp[i];
+            if (line) { C.shorted_lines++; if (c == plane) C.shorted_lines_on_plane++; }
+            else if (c == plane) C.islands_on_plane++;
+            if (fq) { C.flux_lines++; if (c == plane) C.flux_lines_on_plane++; }
+            // a conductor (qubit, coupler, bus, XY line) sharing its metal with any other island is a short; two shorted
+            // lines ending in the same enclosed pocket count under shorted lines that miss the plane instead
+            if (!line && island_of[c] > 1) C.islands_merged++;
+        }
+        for (int c = 0; c < map1.n_comp; ++c) if (c != plane && !island_of.count(c)) C.floating_ground++;
+        for (const auto& j : L.jj) {
+            C.junctions++;
+            const bool horiz = j.w() >= j.h();
+            const double d = 0.5;
+            const int a = horiz ? map1.at(j.x0 - d, j.cy()) : map1.at(j.cx(), j.y0 - d);
+            const int b = horiz ? map1.at(j.x1 + d, j.cy()) : map1.at(j.cx(), j.y1 + d);
+            if (a >= 0 && b >= 0 && a != b) C.junctions_landed++;
+        }
     }
     L.etch_area_mm2 = area * 1e-6;   // with overlaps between cut-outs counted twice (upper bound)
     // minimum width / space on the merged etch layer (what the mask actually contains)
@@ -871,6 +1159,25 @@ inline ChipLayout assemble_chip(const ChipDesign& D, const CellSet& cs, double e
     L.drc = detail::width_space_check(L.etch, rules.etch_min_width_um, rules.etch_min_space_um, "etch");
     (void)nc;
     return L;
+}
+
+inline std::string connectivity_summary(const ChipLayout& L) {
+    const auto& C = L.conn;
+    char b[600];
+    std::snprintf(b, sizeof b, "metal connectivity %s: %d components; islands merged %d, on the plane %d; shorted lines reaching the plane %d/%d "
+                  "(qubit flux lines %d/%d); floating ground fragments %d; junctions landing on metal at both ends %d/%d; fills undone %d",
+                  C.clean() ? "clean" : "NOT clean", C.components, C.islands_merged, C.islands_on_plane, C.shorted_lines_on_plane, C.shorted_lines,
+                  C.flux_lines_on_plane, C.flux_lines, C.floating_ground, C.junctions_landed, C.junctions, C.fills_reverted);
+    return b;
+}
+inline Json connectivity_json(const ChipLayout& L) {
+    const auto& C = L.conn;
+    Json j = Json::object();
+    j.set("clean", C.clean()); j.set("components", C.components); j.set("islands", C.islands); j.set("islands_merged", C.islands_merged);
+    j.set("islands_on_plane", C.islands_on_plane); j.set("shorted_lines", C.shorted_lines); j.set("shorted_lines_on_plane", C.shorted_lines_on_plane);
+    j.set("flux_lines", C.flux_lines); j.set("flux_lines_on_plane", C.flux_lines_on_plane); j.set("floating_ground", C.floating_ground);
+    j.set("junctions", C.junctions); j.set("junctions_landed", C.junctions_landed); j.set("sliver_fills_undone", C.fills_reverted);
+    return j;
 }
 
 // One-line DRC summary and the JSON block the review programs write.
@@ -886,7 +1193,7 @@ inline Json drc_json(const ChipLayout& L) {
     j.set("placement_clean", L.problems.empty()); j.set("placement_problems", int(L.problems.size()));
     j.set("etch_min_width_um", L.rules.etch_min_width_um); j.set("etch_min_space_um", L.rules.etch_min_space_um);
     j.set("etch_width_violations", L.drc_count("width")); j.set("etch_space_violations", L.drc_count("space"));
-    j.set("metric", "projection"); j.set("clean", L.drc_clean());
+    j.set("metric", "projection"); j.set("ground_sliver_fills", L.slivers_filled); j.set("clean", L.drc_clean());
     return j;
 }
 
@@ -935,7 +1242,7 @@ inline Json cells_json(const CellSet& c, const LayoutMetrics& m, const LayoutTar
     Json g = Json::object();
     g.set("tbar_gap_um", c.cg.g_c); g.set("tbar_thickness_um", c.cg.t_w); g.set("offset_um", c.cg.y1); g.set("coupler_tbar_um", c.cg.l_c);
     g.set("body_width_um", c.cg.w_body); g.set("gap_um", c.cg.gap); g.set("pad_um", c.cg.pad); g.set("bus_tbar_um", c.cg.l_b);
-    g.set("bus_width_um", c.cg.w_bus); g.set("bus_gap_um", c.cg.gap_bus);
+    g.set("bus_width_um", c.cg.w_bus); g.set("bus_gap_um", c.cg.gap_bus); g.set("bus_end_gap_um", c.cg.bus_gap());
     j.set("coupler", g);
     Json a = Json::object();
     a.set("EC_measure_GHz", m.EC_m); a.set("EC_data_GHz", m.EC_d); a.set("EC_coupler_GHz", m.EC_c);
@@ -964,7 +1271,7 @@ inline CellSet cells_from_json(const Json& j) {
     c.cg.g_c = g.get("tbar_gap_um", c.cg.g_c); c.cg.t_w = g.get("tbar_thickness_um", c.cg.t_w); c.cg.y1 = g.get("offset_um", c.cg.y1);
     c.cg.l_c = g.get("coupler_tbar_um", c.cg.l_c); c.cg.w_body = g.get("body_width_um", c.cg.w_body); c.cg.gap = g.get("gap_um", c.cg.gap);
     c.cg.pad = g.get("pad_um", c.cg.pad); c.cg.l_b = g.get("bus_tbar_um", c.cg.l_b); c.cg.w_bus = g.get("bus_width_um", c.cg.w_bus);
-    c.cg.gap_bus = g.get("bus_gap_um", c.cg.gap_bus);
+    c.cg.gap_bus = g.get("bus_gap_um", c.cg.gap_bus); c.cg.g_b = g.get("bus_end_gap_um", c.cg.g_b);
     return c;
 }
 

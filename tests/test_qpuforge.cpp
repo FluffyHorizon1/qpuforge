@@ -736,6 +736,63 @@ static void test_flux_predistortion() {
         bool threw = false;
         try { (void)flux_line_output(ch, awg, {p1, FluxPulse{30.0, 1.0, 7, 26}}, e); } catch (const std::invalid_argument&) { threw = true; }
         CHECK(threw, "overlapping pulses must be refused");
+        // a train built by arithmetic, as a caller builds it: start = round * period + k * duration. A start then falls
+        // before the end of the pulse ahead of it by rounding; such a train must be accepted and must superpose.
+        const double tf = 26.1037246895, dur = 14 + tf, period = 924.286;
+        std::vector<FluxPulse> train;
+        for (int r = 0; r < 50; ++r) for (int k = 0; k < 4; ++k) train.push_back({r * period + k * dur, 0.2, 7, tf});
+        int early = 0;
+        for (std::size_t i = 1; i < train.size(); ++i) if (train[i].t0 < train[i - 1].end()) ++early;
+        std::vector<double> w;                           // the last round and the idle time after it
+        for (int k = 0; k <= 400; ++k) w.push_back(49 * period + k * 0.5);
+        const auto yt = flux_line_output(ch, awg, train, w);
+        std::vector<double> ys(yt.size(), 0.0);
+        for (const auto& q : train) { const auto y = flux_line_output(ch, awg, {q}, w); for (std::size_t i = 0; i < y.size(); ++i) ys[i] += y[i]; }
+        double st = 0;
+        for (std::size_t i = 0; i < yt.size(); ++i) st = std::max(st, std::abs(yt[i] - ys[i]));
+        std::printf("  200 pulses at start = round * period + k * duration: %d start before the previous end by rounding; train vs sum of its pulses %.1e\n", early, st);
+        CHECK(early > 0, "the train must contain starts that precede the previous end by rounding");
+        CHECK(st < 1e-12, "a train with rounded starts does not superpose: %.2e", st);
+        threw = false;
+        try { (void)flux_line_output(ch, awg, {FluxPulse{std::nan(""), 1.0, 7, 26}}, e); } catch (const std::invalid_argument&) { threw = true; }
+        CHECK(threw, "a pulse with a start that is not a number must be refused");
+    }
+    // (c2) sample-and-hold, DAC, low-pass, two sections and a delay together, against a step-by-step integration of the
+    // held samples through the low-pass and the sections in sequence (no partial fractions, no closed forms per interval)
+    {
+        FluxChannel ch; ch.line.sections = {{0.03, 40}, {-0.015, 250}}; ch.line.rise_ns = 0.8; ch.line.delay_ns = 1.3;
+        FluxAwg awg; awg.sample_ns = 1.0; awg.bits = 10; awg.full_scale = 1.0;
+        const std::vector<FluxPulse> train{{4.5, 0.2, 7, 21}, {51.75, -0.1, 7, 15}};   // starts off the sample grid
+        std::vector<double> e;
+        for (int k = 0; k <= 150; ++k) e.push_back(0.3 + k * 1.0);
+        const auto y = flux_line_output(ch, awg, train, e);
+        const double lsb = awg.full_scale / 1024, pl = std::log(9.0) / ch.line.rise_ns;
+        auto held = [&](double t) {                      // the sample that drives the line at time t
+            const double tm = (std::floor((t - ch.line.delay_ns) / awg.sample_ns) + 0.5) * awg.sample_ns;
+            double x = 0;
+            for (const auto& q : train) if (tm > q.t0 && tm < q.end()) x = q.amp * cz_pulse_shape(tm - q.t0, q.t_rise, q.t_flat);
+            return lsb * std::round(x / lsb);
+        };
+        double worst = 0;
+        for (double h : {4e-3, 2e-3}) {                  // two step sizes: the difference to the line model shrinks with the step
+            double wl = 0, w1 = 0, w2 = 0;
+            auto value = [&] { const double y1 = wl + 0.03 * (wl - w1); return y1 - 0.015 * (y1 - w2); };
+            std::vector<double> acc(y.size(), 0.0);
+            const long n = std::lround(e.back() / h);
+            for (long i = 0; i < n; ++i) {
+                const double tmid = (i + 0.5) * h, before = value();
+                wl += (held(tmid) - wl) * -std::expm1(-pl * h);
+                const double y1 = wl + 0.03 * (wl - w1);
+                w1 += (wl - w1) * -std::expm1(-h / 40.0);
+                w2 += (y1 - w2) * -std::expm1(-h / 250.0);
+                const long bin = long(std::floor(tmid - 0.3));
+                if (tmid > 0.3 && bin >= 0 && bin < long(acc.size())) acc[std::size_t(bin)] += 0.5 * (before + value()) * h;
+            }
+            worst = 0;
+            for (std::size_t i = 0; i < y.size(); ++i) worst = std::max(worst, std::abs(acc[i] - y[i]));
+            std::printf("  1 GS/s, 10 bits, 0.8 ns rise, two sections, 1.3 ns delay: line model vs integration in %.0f ps steps: %.1e\n", 1e3 * h, worst);
+        }
+        CHECK(worst < 2e-6, "sampled, quantised, low-passed and delayed pulses differ from a step-by-step integration by %.2e", worst);
     }
     // (d) predistortion at 1 GS/s: exact for one section; two sections; a 10 % amplitude misfit leaves 10 % of the tail; DAC
     {

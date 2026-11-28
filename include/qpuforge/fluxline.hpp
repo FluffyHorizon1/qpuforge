@@ -19,6 +19,7 @@
 #pragma once
 #include "compiler.hpp"
 #include "pulse.hpp"
+#include <cmath>
 #include <numeric>
 #include <stdexcept>
 
@@ -143,23 +144,24 @@ struct FluxChannel {
 class Predistorter {
 public:
     Predistorter(const std::vector<FluxSection>& fit, double sample_ns) {
+        if (!(sample_ns > 0)) throw std::invalid_argument("Predistorter: the sample period must be positive");
         for (const auto& t : fit) {
             if (t.a == 0) continue;
             if (!(t.tau_ns > 0) || !(t.a > -1)) throw std::invalid_argument("Predistorter: a section needs tau > 0 and a > -1");
-            const double al = std::exp(-sample_ns / t.tau_ns);
-            s_.push_back({-t.a * std::expm1(-sample_ns / t.tau_ns) * t.tau_ns / sample_ns, al, 0.0});
+            const double e = -std::expm1(-sample_ns / t.tau_ns);       // 1 - exp(-Ts / tau), without cancellation for Ts << tau
+            s_.push_back({t.a * e * t.tau_ns / sample_ns, e, 0.0});
         }
     }
     bool active() const { return !s_.empty(); }
     double operator()(double x) {
         for (auto& s : s_) {
             x = (x + s.ak * s.w) / (1 + s.ak);
-            s.w = s.al * s.w + (1 - s.al) * x;
+            s.w += s.e * (x - s.w);
         }
         return x;
     }
 private:
-    struct Section { double ak, al, w; };   // a * (mean weight of the tail over one sample), exp(-Ts / tau), low-pass state
+    struct Section { double ak, e, w; };    // a * (mean weight of the tail over one sample), 1 - exp(-Ts / tau), low-pass state
     std::vector<Section> s_;
 };
 
@@ -169,7 +171,11 @@ private:
 inline std::vector<double> flux_line_output(const FluxChannel& ch, const FluxAwg& awg, const std::vector<FluxPulse>& train,
                                             const std::vector<double>& edges) {
     if (edges.size() < 2) return {};
-    for (std::size_t i = 1; i < edges.size(); ++i) if (edges[i] < edges[i - 1]) throw std::invalid_argument("flux_line_output: edges must ascend");
+    if (!std::isfinite(edges.front()) || !std::isfinite(edges.back())) throw std::invalid_argument("flux_line_output: edges must be finite");
+    for (std::size_t i = 1; i < edges.size(); ++i) if (!(edges[i] >= edges[i - 1])) throw std::invalid_argument("flux_line_output: edges must ascend");
+    for (const auto& p : train)
+        if (!std::isfinite(p.t0) || !std::isfinite(p.amp) || !(p.t_rise >= 0) || !(p.t_flat >= 0) || !std::isfinite(p.end()))
+            throw std::invalid_argument("flux_line_output: a pulse needs a finite start and amplitude and non-negative ramp and flat-top times");
     // pulses that follow one another without a gap may overlap by rounding: allow 1e-9 ns
     for (std::size_t i = 1; i < train.size(); ++i) if (train[i].t0 < train[i - 1].end() - 1e-9) throw std::invalid_argument("flux_line_output: pulses overlap or are out of order");
     std::vector<double> out(edges.size() - 1, 0.0);
@@ -178,8 +184,9 @@ inline std::vector<double> flux_line_output(const FluxChannel& ch, const FluxAwg
     const double lsb = awg.bits > 0 ? awg.full_scale / std::ldexp(1.0, awg.bits) : 0.0;
     FluxLineFilter filt(ch.line);
     Predistorter pre(ch.correction, Ts);
-    const long n0 = long(std::floor(train.front().t0 / Ts));
-    const long n1 = std::max(n0, long(std::ceil((edges.back() - delay) / Ts)));
+    using Index = long long;                               // sample index: 64 bits on every platform
+    const Index n0 = Index(std::floor(train.front().t0 / Ts));
+    const Index n1 = std::max(n0, Index(std::ceil((edges.back() - delay) / Ts)));
     double t = std::min(edges.front(), double(n0) * Ts + delay);
     std::size_t ie = 0;                                    // first edge after t
     auto hold = [&](double x, double t_to) {               // drive x from t to t_to, split at the edges
@@ -193,14 +200,14 @@ inline std::vector<double> flux_line_output(const FluxChannel& ch, const FluxAwg
     };
     hold(0.0, double(n0) * Ts + delay);
     std::size_t ip = 0;
-    for (long n = n0; n < n1; ++n) {
+    for (Index n = n0; n < n1; ++n) {
         const double tm = (double(n) + 0.5) * Ts;
         while (ip < train.size() && tm >= train[ip].end()) ++ip;
         double x = 0;
         if (ip < train.size() && tm > train[ip].t0) x = train[ip].amp * cz_pulse_shape(tm - train[ip].t0, train[ip].t_rise, train[ip].t_flat);
         if (x == 0 && !pre.active()) {                     // nothing is played until the next pulse: one closed-form step
-            long nn = n1;
-            if (ip < train.size()) nn = std::min(n1, std::max(n + 1, long(std::floor(train[ip].t0 / Ts + 0.5))));
+            Index nn = n1;
+            if (ip < train.size()) nn = std::min(n1, std::max(n + 1, Index(std::floor(train[ip].t0 / Ts + 0.5))));
             hold(0.0, double(nn) * Ts + delay);
             n = nn - 1;
             continue;
@@ -240,6 +247,7 @@ inline CZDrive cz_ideal_drive(const CZSystem& S, const CZPulse& P, double dt = C
 // corrections). The time after the pulse counts as part of the gate.
 inline CZResult simulate_cz_drive(const CZSystem& S, const CZDrive& W) {
     if (W.h.size() != W.f1.size() || W.h.size() != W.fc.size()) throw std::invalid_argument("simulate_cz_drive: drive arrays differ in length");
+    for (double tau : W.h) if (!(tau >= 0)) throw std::invalid_argument("simulate_cz_drive: a step length is negative or not a number");
     const int D = S.dim();
     const auto d0 = S.dressed(S.flux1_idle, S.fluxc_idle, S.flux2_idle);
     std::array<std::vector<cplx>, 4> psi;

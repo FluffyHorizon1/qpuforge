@@ -330,10 +330,6 @@ inline std::pair<CZPulse, CZResult> optimize_cz(const CZSystem& S, double fluxc_
 
 // ---------------------------------------------------------------- chip-level calibration
 
-// Pair system for a physical coupler parked at its sweet spot. The direct coupling g12 (set per pair by layout) is
-// chosen so that the residual |11>-|20> coupling with the coupler parked vanishes: the qubits are then exchange-free
-// at idle, and a measure qubit sweeping past a spectator's |11>-|20> point while its other couplers are parked sees
-// (almost) no avoided crossing.
 // The pair system for a given direct coupling g12 (GHz), coupler parked at its sweet spot.
 inline CZSystem pair_system(double f_hi, double a_hi, double f_lo, double a_lo, const CouplerElement& ce, double g12) {
     const double g = ce.g_qc_MHz * 1e-3;
@@ -341,6 +337,10 @@ inline CZSystem pair_system(double f_hi, double a_hi, double f_lo, double a_lo, 
     S.fluxc_idle = 0.0;
     return S;
 }
+// Pair system for a physical coupler parked at its sweet spot. The direct coupling g12 (set per pair by layout) is
+// chosen so that the residual |11>-|20> coupling with the coupler parked vanishes: the qubits are then exchange-free
+// at idle, and a measure qubit sweeping past a spectator's |11>-|20> point while its other couplers are parked sees
+// (almost) no avoided crossing.
 inline CZSystem design_pair_system(double f_hi, double a_hi, double f_lo, double a_lo, const CouplerElement& ce, double* g12_out = nullptr,
                                    double* gap_out = nullptr) {
     auto build = [&](double g12) { return pair_system(f_hi, a_hi, f_lo, a_lo, ce, g12); };

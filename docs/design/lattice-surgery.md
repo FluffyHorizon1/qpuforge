@@ -124,15 +124,26 @@ patch with `beta1` the chip equals `beta1(3)` qubit for qubit (tested).
 - `check_surgery_noiseless` runs the logical circuit on a stabiliser tableau (Aaronson–Gottesman) with random
   measurement outcomes: no detector of either type fires, every observable takes its expected value and every bit marked
   deterministic is deterministic with that value. The tests cover ZZ and XX on |00⟩ |01⟩ |10⟩ |11⟩ |++⟩ |+−⟩ |−+⟩ |−−⟩
-  at d = 3 and 5, and the CNOT on the Z- and X-basis inputs at d = 3 and 5 and on Bell-pair inputs at d = 3. Two
-  negative controls (an X_A X_B observable without the split's gap qubit, and an inserted X error) must be caught.
+  at d = 3 and 5, and the CNOT on the Z- and X-basis inputs at d = 3 and 5 and on Bell-pair inputs at d = 3, each
+  with its own seed; at d = 3 also with the merge starting in the first round (`pre = 0`). Two negative controls (an
+  X_A X_B observable without the split's gap qubit, and an inserted X error) must be caught.
+- Process check with reference qubits (`surgery_cnot_reference`): two extra qubits start in Bell pairs with C and T
+  (a controlled logical X, or a controlled logical Z followed by H on the reference), so every patch logical is random.
+  After the CNOT, Z_RC Z_C, Z_RT Z_C Z_T, X_RC X_C X_T and X_RT X_T must all be +1, with the corrected output logicals,
+  for Z- and X-basis patches at d = 3 and 5. This sees frame-assembly errors that fixed logical inputs hide: adding
+  the control's round-0 faces of the readout type to its corrected logical is caught.
 - A single patch through the surgery engine gives the same logical errors and detection rate as
-  `memory_experiment`/`run_memory_frame` in both bases.
-- The d = 3 detector error models of ZZ, XX and the CNOT have no undetectable logical faults. With uniform edge weights
-  every single fault is corrected by every observable's decoder (circuit distance at least 3). Mechanisms below 1e-7
-  are left out of that check: the coherent-ZZ twirl places a long idle window's phase at the window's end, and for
-  measure qubits that idle until a merge a few such mechanisms (about 1e-8) end up parallel to a time-boundary edge,
-  where uniform weights would tie with it.
+  `memory_experiment`/`run_memory_frame` in both bases, after every prefix of 1 to 120 shots (so shot by shot) and over
+  6000 shots, with plain noise and with leakage on (CZ leakage, a plain or a leakage-removing reset, DQLR).
+- The d = 3 detector error models of ZZ, XX and the CNOT have no undetectable logical faults, and `prepare_surgery`
+  refuses an observable that a single fault can flip without a decoded detector (a mis-typed observable). Distance
+  check with uniform edge weights, built from every mechanism (parallel edges keep the observable flag with the larger
+  probability) and decoding every mechanism, hyperedges included: on the Beta-1 chip every fault is corrected except a
+  few coherent-ZZ twirl terms, 2 for the ZZ measurement's Z-type decoders (total p 6.7e-8), 3 for the CNOT's Z-type
+  decoders (2.1e-7, one of them a hyperedge) and 1 for its X-type decoders (3.3e-8). They come from as-soon-as-possible
+  scheduling: a seam measure qubit can start the next round while a neighbouring gap qubit is still in the CZ steps of
+  the previous one, so a twirled conditional phase between them straddles two rounds and acts as a weight-2 error. The
+  test allows twirl terms only, and bounds their total probability.
 - The noiseless frame run of a ZZ measurement has no defects and no errors.
 
 ## Results
@@ -165,5 +176,7 @@ split; ± is the 1σ Monte Carlo error). Logical error per operation:
   is no general router.
 - Corrections are applied in post-processing; real-time feed-forward is not modelled.
 - Independent decoders per observable (see Decoding).
+- Rounds are scheduled as soon as possible, not in lockstep, so a few coherent-ZZ twirl terms straddle two rounds
+  (see Verification; total probability at most 2.1e-7 on the Beta-1 chip at d = 3).
 - The CNOT's coherent-ZZ twirls leave a few hyperedge mechanisms in the Z-basis model, of total probability 1.2e-6
   at d = 3 and 2.4e-6 at d = 5 (reported in the study), which the matching graph does not contain.

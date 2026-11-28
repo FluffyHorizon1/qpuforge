@@ -210,8 +210,10 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   tuned anharmonicity (1–2.5 MHz above the idle-anharmonicity estimate).
 * Lattice surgery: on a stabiliser tableau, no detector fires and every logical outcome is right for ZZ and XX
   measurement on |00⟩ |01⟩ |10⟩ |11⟩ |++⟩ |+−⟩ |−+⟩ |−−⟩ (d = 3, 5) and for the CNOT on Z-, X-basis and Bell-pair inputs.
-  A single patch through the surgery engine reproduces the memory experiment shot for shot, and its chip equals Beta-1
-  at d = 3. The d = 3 detector error models have no undetectable logical faults and every single fault is corrected.
+  A reference-qubit process check passes for Z- and X-basis patches. A single patch through the surgery engine
+  reproduces the memory experiment shot for shot, with and without leakage, and its chip equals Beta-1 at d = 3. The
+  d = 3 detector error models have no undetectable logical faults, and every single fault is corrected except a few
+  coherent-ZZ crosstalk terms that straddle two rounds (total probability at most 2.1e-7).
 * Materials sidecar (`forge.materials.v0`, `materials.hpp`, [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md)): the
   placeholder file exactly as atomforge writes it leaves Alpha-1 v1.1 unchanged. Sidecar values of Q_dielectric and the
   junction gap reach `analyze()`: T1_diel matches 2πf/Q to 1e-12 and E_J scales with the gap. The loss tangent becomes

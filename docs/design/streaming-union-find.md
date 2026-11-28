@@ -55,11 +55,26 @@ which is what has to stay below the round time.
   | 6 / 3 | 5 | 855 | 1.05 | 2.40 | 0.80 |
   | 10 / 5 | 3 | 819 | 1.00 | 4.19 | 0.84 |
 
-  The test requires less than 1.25× for windows of at least 4 rounds with C ≤ W/2. A one-round buffer (2/1) is not
+  The test requires less than 1.25× for windows of at least 4 rounds with C ≤ W/2 at this distance; at d = 7 the
+  buffer must grow with the distance (below). A one-round buffer (2/1) is not
   enough: defects at the window's end escape to the future boundary instead of pairing across it.
 - The thread-count determinism digest includes a streaming run.
 
-Gamma-1 at d = 7, 50 rounds: `results/decoder_study.txt`, section 5.
+Gamma-1, d = 7, 50 rounds, memory-Z, 50,000 shots, same syndromes (`results/decoder_study.txt`, section 5). Exact
+matching gives 95 failures and batch union-find 94:
+
+| window / commit | failures | × batch | µs per committed round |
+|---|---|---|---|
+| 2 / 1 | 2217 | 23.6 | 1.78 |
+| 4 / 2 | 356 | 3.79 | 1.72 |
+| 6 / 3 | 168 | 1.79 | 1.53 |
+| 10 / 5 | 109 | 1.16 | 1.73 |
+| 20 / 10 | 99 | 1.05 | 1.84 |
+
+The window that d = 5 tolerates is far too short at d = 7. The rounds beyond the commit region (W − C) must be
+comparable to the code distance: an error chain can stretch over about d rounds before its two ends meet. With
+W − C ≥ d (10/5 and 20/10 here) the cost is 5–16%. On one core in software, the time per committed round (1.5–1.8 µs)
+is about twice the 0.73 µs round time, so this implementation would not keep up as it stands.
 
 ## Limits
 

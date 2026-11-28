@@ -4,20 +4,20 @@
       "rounds": 25,
       "faults": 2850523,
       "time_slices": 10019,
-      "t_sparse_s": 7.483713998,
-      "t_linear_s": 0.655014031,
+      "t_sparse_s": 8.485078616,
+      "t_linear_s": 0.612000677,
       "signatures_differ": 0,
-      "t_setup_s": 1.327636721,
+      "t_setup_s": 1.374317024,
       "dem_edges": 3418
     },
     {
       "rounds": 50,
       "faults": 5967552,
       "time_slices": 21044,
-      "t_sparse_s": 41.370932467,
-      "t_linear_s": 1.295206311,
+      "t_sparse_s": 43.915931856,
+      "t_linear_s": 1.396933688,
       "signatures_differ": 0,
-      "t_setup_s": 3.762336394,
+      "t_setup_s": 3.913126973,
       "dem_edges": 6793
     }
   ],
@@ -30,8 +30,8 @@
         "failures_exact": 1214,
         "failures_uf": 1289,
         "ratio": 1.06253451481,
-        "decode_us_per_round_exact": 0.111764037857,
-        "decode_us_per_round_uf": 0.0627126135714,
+        "decode_us_per_round_exact": 0.122365406429,
+        "decode_us_per_round_uf": 0.0486107021429,
         "mean_defects": 1.71447
       },
       "X": {
@@ -41,8 +41,8 @@
         "failures_exact": 1123,
         "failures_uf": 1135,
         "ratio": 1.01080042096,
-        "decode_us_per_round_exact": 0.0255732464286,
-        "decode_us_per_round_uf": 0.06211564,
+        "decode_us_per_round_exact": 0.020447665,
+        "decode_us_per_round_uf": 0.0603271507143,
         "mean_defects": 1.73236
       }
     },
@@ -54,8 +54,8 @@
         "failures_exact": 230,
         "failures_uf": 241,
         "ratio": 1.04793353625,
-        "decode_us_per_round_exact": 0.29236864,
-        "decode_us_per_round_uf": 0.370494558571,
+        "decode_us_per_round_exact": 0.297857190714,
+        "decode_us_per_round_uf": 0.397183935714,
         "mean_defects": 5.56861
       },
       "X": {
@@ -65,8 +65,8 @@
         "failures_exact": 235,
         "failures_uf": 259,
         "ratio": 1.10237430528,
-        "decode_us_per_round_exact": 0.27311667,
-        "decode_us_per_round_uf": 0.380819131429,
+        "decode_us_per_round_exact": 0.291184397857,
+        "decode_us_per_round_uf": 0.369706318571,
         "mean_defects": 5.57832
       }
     },
@@ -78,8 +78,8 @@
         "failures_exact": 102,
         "failures_uf": 100,
         "ratio": 0.980383045705,
-        "decode_us_per_round_exact": 0.865191576071,
-        "decode_us_per_round_uf": 0.779267796786,
+        "decode_us_per_round_exact": 0.960336714286,
+        "decode_us_per_round_uf": 0.808303883929,
         "mean_defects": 11.576365
       },
       "X": {
@@ -89,8 +89,8 @@
         "failures_exact": 98,
         "failures_uf": 102,
         "ratio": 1.04083567205,
-        "decode_us_per_round_exact": 0.879184090357,
-        "decode_us_per_round_uf": 0.7523339575,
+        "decode_us_per_round_exact": 1.00137159143,
+        "decode_us_per_round_uf": 0.822517821071,
         "mean_defects": 11.559535
       }
     }
@@ -207,15 +207,28 @@
       ]
     }
   },
+  "streaming_uf_d7": {
+    "rounds": 50,
+    "shots": 50000,
+    "failures_exact": 95,
+    "failures_batch_uf": 94,
+    "windows": [
+      {"window": 2, "commit": 1, "failures": 2217, "ratio_to_batch_uf": 23.585106383, "window_us_mean": 1.782753952, "us_per_committed_round": 1.782753952},
+      {"window": 4, "commit": 2, "failures": 356, "ratio_to_batch_uf": 3.78723404255, "window_us_mean": 3.43491394, "us_per_committed_round": 1.71745697},
+      {"window": 6, "commit": 3, "failures": 168, "ratio_to_batch_uf": 1.78723404255, "window_us_mean": 4.59720881, "us_per_committed_round": 1.53240293667},
+      {"window": 10, "commit": 5, "failures": 109, "ratio_to_batch_uf": 1.15957446809, "window_us_mean": 8.662610332, "us_per_committed_round": 1.7325220664},
+      {"window": 20, "commit": 10, "failures": 99, "ratio_to_batch_uf": 1.05319148936, "window_us_mean": 18.432198236, "us_per_committed_round": 1.8432198236}
+    ]
+  },
   "shots": 100000,
-  "runtime_s": 1903.56645646,
+  "runtime_s": 2670.97596299,
   "provenance": {
-    "source_commit": "f9c704cd9a0ca427f1b1a3d5b5d75d56a47893f9",
+    "source_commit": "86bfdab97c68960fa308e82c6ca28d914abf1a47",
     "source_tree_dirty": false,
     "compiler": "g++ 13.3.0",
     "openmp_threads": 4,
-    "date_utc": "2026-11-28T00:27:08Z",
-    "seeds": "union-find: 11 + rounds (memory-X adds 7919, as the Gamma-1 review); heralds: 300 + d; veto: 401 (calibration), 403 (injection), 505 (burst ladders)",
+    "date_utc": "2026-11-28T02:28:50Z",
+    "seeds": "union-find: 11 + rounds (memory-X adds 7919, as the Gamma-1 review); heralds: 300 + d; veto: 401 (calibration), 403 (injection), 505 (burst ladders); streaming: 601",
     "cz_model_version": 2,
     "cz_cache": "results/cz_cache.json",
     "arguments": "100000",

@@ -793,7 +793,8 @@ static void test_layout() {
         double worst = 0; for (const auto& r : L.resonators) worst = std::max(worst, std::abs(r.drawn_um - r.target_um));
         CHECK(L.problems.empty(), "chip placement/spacing: %s", L.problems.empty() ? "" : L.problems.front().c_str());
         std::printf("  AF-17 mask DRC: %s\n", drc_summary(L).c_str());
-        CHECK(L.drc.empty(), "AF-17 mask DRC: %d width + %d space violations", L.drc_count("width"), L.drc_count("space"));
+        CHECK(L.drc_count("width") == 0 && L.drc_count("space") == L.conn.fills_reverted, "AF-17 mask DRC: %d width + %d space violations",
+              L.drc_count("width"), L.drc_count("space"));
         CHECK(worst < 1.0 && L.resonators.size() == 17, "resonator lengths");
         const std::string gds_path = temp_path("af17.gds");
         write_gds(L, gds_path, "T");
@@ -1509,7 +1510,7 @@ static void test_designs_v04() {
 
 // ---------------------------------------------------------------- layout_geometry: DRC-aware cell and mask clean-up logic
 static void test_layout_geometry() {
-    std::puts("[layout_geometry] bus knob continuity, shorted staircase end, ground-sliver fill (merges ground only, never island metal)");
+    std::puts("[layout_geometry] bus knob continuity, shorted staircase end, ground-sliver fill (merges ground only, never island metal), metal connectivity, guarded fill");
     using namespace layout;
     auto count = [](const std::vector<DrcMarker>& m, const char* rule) { int n = 0; for (const auto& x : m) n += x.rule.find(rule) != std::string::npos; return n; };
     {   // bus knob: T-bar length above w_bus, retraction below it, continuous at u = w_bus, round trip, never narrower than the strip
@@ -1553,6 +1554,31 @@ static void test_layout_geometry() {
         const int added2 = detail::fill_ground_slivers(h2, island, 4.0);
         CHECK(added2 == 0 && h2.size() == 2, "fill touched a gap containing island metal (%d added)", added2);
     }
+    {   // metal connectivity: a closed ring of cut-outs encloses a floating ground pocket; an island inside a cut-out is
+        // its own component; etch and points outside the outline have none
+        const Rect outline{0, 0, 100, 100};
+        const std::vector<Rect> ring{{20, 20, 80, 30}, {20, 70, 80, 80}, {20, 30, 30, 70}, {70, 30, 80, 70}};
+        auto M = detail::metal_map(outline, ring, 37);       // columns narrower than the ring: joins across column edges
+        std::printf("  metal map of a closed ring: %d components (plane %d, pocket %d, etch %d)\n", M.n_comp, M.at(5, 5), M.at(50, 50), M.at(25, 50));
+        CHECK(M.n_comp == 2 && M.at(5, 5) != M.at(50, 50) && M.at(25, 50) == -1 && M.at(95, 95) == M.at(5, 5) && M.at(-1, 5) == -1,
+              "closed ring: %d components", M.n_comp);
+        std::vector<Rect> open = ring; open[3] = {70, 30, 80, 45}; open.push_back({70, 55, 80, 70});      // 10 um opening
+        CHECK(detail::metal_map(outline, open, 37).n_comp == 1, "ring with an opening must leave one component");
+    }
+    {   // guarded sliver fill: a pocket joined to the plane only by a 3 um neck keeps the neck (the DRC reports it); an
+        // ordinary 2 um sliver between two cut-outs elsewhere is still merged
+        const Rect outline{0, 0, 200, 100};
+        std::vector<Rect> holes{{20, 20, 80, 30}, {20, 70, 80, 80}, {20, 30, 30, 70}, {70, 30, 80, 48}, {70, 51, 80, 70},   // neck y 48..51
+                                {120, 20, 150, 80}, {152, 20, 180, 80}};                                                 // 2 um sliver
+        const auto G = detail::guarded_fill(outline, holes, {}, 4.0);
+        const auto mk = detail::width_space_check(detail::etch_of(holes, {}), 4, 4, "g");
+        std::printf("  guarded fill: %d kept, %d undone; pocket on the plane: %s; %zu DRC marker(s) left\n", G.kept, G.undone,
+                    G.map.at(50, 50) == G.map.at(5, 5) ? "yes" : "no", mk.size());
+        CHECK(G.map.at(50, 50) == G.map.at(5, 5), "guarded fill cut the pocket off the plane");
+        CHECK(G.undone >= 1 && G.kept >= 1 && mk.size() == 1, "guarded fill: kept %d, undone %d, markers %zu", G.kept, G.undone, mk.size());
+        bool merged = false; for (const auto& h : holes) merged |= h.contains(151, 50);
+        CHECK(merged, "the 2 um sliver away from the pocket was not merged");
+    }
 }
 
 // ---------------------------------------------------------------- layout_presets: the committed chips are mask-clean and on target
@@ -1560,7 +1586,7 @@ static void test_layout_geometry() {
 #define QPUFORGE_SOURCE_DIR "."
 #endif
 static void test_layout_presets() {
-    std::puts("[layout_presets] AF-17, BF-49, GF-97 from the committed cell files: placement + mask DRC clean, extraction on target, re-nullable");
+    std::puts("[layout_presets] AF-17, BF-49, GF-97 from the committed cell files: placement clean, mask DRC, connectivity report, extraction on target, re-nullable");
     using namespace layout;
     struct Chip { const char* name; ChipDesign D; const char* cells; };
     const std::vector<Chip> chips{{"AF-17", alpha1_v11(3), "designs/alpha1-v11/layout_cells.json"},
@@ -1583,10 +1609,16 @@ static void test_layout_presets() {
         const double ec = std::max({rel(m.EC_m, T.EC_m), rel(m.EC_d, T.EC_d), rel(m.EC_c, T.EC_c)});
         const double g = std::max({rel(m.G_mc, T.G_mc), rel(m.G_cd, T.G_cd), rel(m.G_md, T.G_md)});
         const double cr = rel(m.C_qr_fF, T.C_qr_fF);
-        std::printf("  %s: %s; %d sliver fills; E_C within %.2f%%, couplings within %.2f%%, readout C within %.2f%%, re-nulled gap %.1e MHz\n", c.name,
-                    drc_summary(L).c_str(), L.slivers_filled, 100 * ec, 100 * g, 100 * cr, P.park_gap_MHz);
+        std::printf("  %s: %s; %d sliver fills; E_C within %.2f%%, couplings within %.2f%%, readout C within %.2f%%, re-nulled gap %.1e MHz\n    %s\n", c.name,
+                    drc_summary(L).c_str(), L.slivers_filled, 100 * ec, 100 * g, 100 * cr, P.park_gap_MHz, connectivity_summary(L).c_str());
         CHECK(L.problems.empty(), "%s placement: %s", c.name, L.problems.empty() ? "" : L.problems.front().c_str());
-        CHECK(L.drc.empty(), "%s mask DRC: %d width + %d space violations", c.name, L.drc_count("width"), L.drc_count("space"));
+        // the only DRC markers left are the ground necks the connectivity guard kept (one per undone fill)
+        CHECK(L.drc_count("width") == 0 && L.drc_count("space") == L.conn.fills_reverted, "%s mask DRC: %d width + %d space violations, %d fills undone",
+              c.name, L.drc_count("width"), L.drc_count("space"), L.conn.fills_reverted);
+        // connectivity is reported, not gated (floating ground, shorted lines and junction landing are open); what must
+        // hold already: no two conductors share metal and no conductor is shorted to the plane
+        CHECK(L.conn.islands_merged == 0 && L.conn.islands_on_plane == 0, "%s: %d conductors merged, %d on the plane", c.name, L.conn.islands_merged,
+              L.conn.islands_on_plane);
         CHECK(ec <= 0.03 && g <= 0.06 && cr <= 0.06, "%s extraction off target (E_C %.3f, G %.3f, C_qr %.3f)", c.name, ec, g, cr);
         CHECK(std::abs(P.park_gap_MHz) < 0.05, "%s parked exchange not re-nullable (%.3f MHz)", c.name, P.park_gap_MHz);
     }

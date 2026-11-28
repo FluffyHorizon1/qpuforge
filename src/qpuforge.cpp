@@ -80,10 +80,15 @@ static const UsageBlock kUsageCommands[] = {
     {"surgery",
      "  qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input 00|01|++|+-|..] [--readout Z|X] [--chip beta1|alpha1_v11]\n"
      "                [--shots N] [--seed S] [--merge-rounds R] [--pre R] [--post R] [--samples N] [--cache file]\n"
-     "                (--readout: cnot only; --pre 0 merges from the first round; --merge-rounds 0 = d rounds)\n"
+     "                [--gap G] [--decoder separate|joint|uf|joint-uf|correlated|all]\n"
+     "                (--readout: cnot only; --pre 0 merges from the first round; --merge-rounds 0 = d rounds;\n"
+     "                 --gap: length of the routing strip between the patches, odd, 1 = adjacent patches)\n"
      "                lattice surgery: logical ZZ / XX measurement between two patches or the three-patch CNOT;\n"
      "                noiseless tableau check of detectors and observables, then logical error per operation\n"
-     "                (Pauli-frame Monte Carlo, exact matching per observable); --shots 0 runs the check only\n"},
+     "                (Pauli-frame Monte Carlo); --shots 0 runs the check only\n"
+     "                --decoder: separate = one exact matching per observable (default); joint = one matching for all\n"
+     "                observables; uf, joint-uf = union-find; correlated = two passes using both detector types;\n"
+     "                all = every decoder on the same shots, with decode times\n"},
     {"materials",
      "  qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]\n"
      "                writes a copy of the chip with the sidecar's accepted values and a materials_source block\n"
@@ -1023,9 +1028,19 @@ static int cmd_surgery(const Args& a) {
     rr.merge = int(a.integer("--merge-rounds", 0));
     rr.pre = int(a.integer("--pre", 1));
     rr.post = int(a.integer("--post", 1));
+    const int gap = int(a.integer("--gap", 1));
+    if (gap % 2 == 0) throw UsageError("--gap expects an odd strip length from 1 to 15, got " + std::to_string(gap));
+    const std::string dsel = a.text("--decoder", "separate");   // checked
+    std::vector<SurgeryDecoder> modes;
+    if (dsel == "separate" || dsel == "all") modes.push_back(SurgeryDecoder::Separate);
+    if (dsel == "joint" || dsel == "all") modes.push_back(SurgeryDecoder::Joint);
+    if (dsel == "uf" || dsel == "all") modes.push_back(SurgeryDecoder::SeparateUF);
+    if (dsel == "joint-uf" || dsel == "all") modes.push_back(SurgeryDecoder::JointUF);
+    if (dsel == "correlated" || dsel == "all") modes.push_back(SurgeryDecoder::Correlated);
+    const bool correlated = dsel == "correlated" || dsel == "all";
     int bad = 0;
     for (int d : ds) {
-        const auto E = surgery_experiment(op, d, input, ro.empty() ? char(0) : ro[0], rr);
+        const auto E = surgery_experiment(op, d, input, ro.empty() ? char(0) : ro[0], rr, gap);
         const auto c = check_surgery_noiseless(E, samples, seed);
         int nz = 0; for (char t : E.detector_type) nz += t == 'Z';
         std::printf("\n%s: %d qubits, %d rounds (", E.sched.name.c_str(), E.circuit.n, E.total_rounds);
@@ -1042,14 +1057,25 @@ static int cmd_surgery(const Args& a) {
         auto R = analyze(D);
         if (D.coupler.physical) calibrate_chip_cz(D, R, false, a.text("--cache"));
         const auto nm = noise_model(D, R);
-        const auto M = prepare_surgery(D, R, nm, E, basis);
-        const auto r = run_surgery_frame(M, shots, seed);
+        const auto M = prepare_surgery(D, R, nm, E, basis, correlated);
+        const auto rs = run_surgery_decoders(M, shots, seed, modes);
+        const auto& r = rs[0];
         std::printf("  %s, Pauli-frame Monte Carlo, %ld shots, %c-type detectors (%d), duration %.2f us\n", D.name.c_str(), shots, basis, r.n_detectors, r.total_ns / 1e3);
         std::printf("    detection %.4f, defects/shot %.2f (max %d); DEM: %zu fault mechanisms, %d hyperedge (p %.1e), %d undetectable logical\n",
                     r.detection_rate, r.mean_defects, r.max_defects, M.n_faults, r.hyperedge_faults, r.hyperedge_p, r.undetectable_logical);
-        for (std::size_t k = 0; k < r.names.size(); ++k)
-            std::printf("    logical error %-8s %.5f +- %.5f\n", r.names[k].c_str(), r.p[k], r.p_sem[k]);
-        std::printf("    any observable wrong  %.5f +- %.5f\n", r.p_any, r.p_any_sem);
+        if (dsel != "separate" && dsel != "uf")
+            std::printf("    joint graph: %zu edges, %d with mechanisms of different observable masks (minority p %.1e)\n", M.jdem.edges.size(), M.jdem.mixed_edges, M.jdem.minority_p);
+        if (correlated)
+            std::printf("    correlated decoding: %zu detectors of the other type, %d correlated edge pairs\n", M.other_detectors.size(), M.correlated_pairs);
+        for (const auto& q : rs) {
+            if (dsel != "separate") std::printf("    decoder: %s (%.2f us per shot)\n", surgery_decoder_name(q.decoder), q.decode_ns / 1e3);
+            for (std::size_t k = 0; k < q.names.size(); ++k)
+                std::printf("    logical error %-8s %.5f +- %.5f\n", q.names[k].c_str(), q.p[k], q.p_sem[k]);
+            std::printf("    any observable wrong  %.5f +- %.5f\n", q.p_any, q.p_any_sem);
+            if (&q != &rs[0])
+                std::printf("    against %s on the same shots: %ld predictions differ; any wrong fixed in %ld shots, broken in %ld\n", surgery_decoder_name(rs[0].decoder), q.differ,
+                            q.any_fixed, q.any_broken);
+        }
     }
     return bad ? 3 : 0;
 }
@@ -1106,7 +1132,8 @@ static const std::vector<Command>& commands() {
          {choice("--op", "zz|xx|cnot"), int_list("--d", 3), text("--input"), choice("--readout", "Z|X"),
           choice("--chip", "beta1|alpha1_v11"), integer("--shots", 0, 1000000000L),
           seed("--seed", std::numeric_limits<std::uint64_t>::max()), integer("--merge-rounds", 0, 1000),
-          integer("--pre", 0, 1000), integer("--post", 1, 1000), integer("--samples", 1, 1000), text("--cache")}},
+          integer("--pre", 0, 1000), integer("--post", 1, 1000), integer("--samples", 1, 1000), text("--cache"),
+          integer("--gap", 1, 15), choice("--decoder", "separate|joint|uf|joint-uf|correlated|all")}},
     };
     return table;
 }

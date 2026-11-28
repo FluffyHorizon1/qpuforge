@@ -12,7 +12,9 @@
 // streaming), with heralded leakage (fixed factors, weights derived from the leakage model, DQLR with heralding), with
 // the streaming decoder's operation profile, and with per-shot impact injection and a calibrated veto; run_surgery_frame on a
 // d = 3 lattice-surgery ZZ measurement and a d = 3 three-patch CNOT with leakage on (each observable has its own decoder);
-// and the trajectory emulator's sampled XEB (a double reduction).
+// the ZZ shots again through run_surgery_decoders with every surgery decoder (joint matching, union-find, two-pass
+// correlated), and an XX measurement through a routing strip decoded jointly; and the trajectory emulator's sampled XEB
+// (a double reduction).
 #include "qpuforge/qpuforge.hpp"
 #include <cstdio>
 #include <cstring>
@@ -113,7 +115,7 @@ static std::string xeb_digest() {
 }
 
 // the noise model of the surgery digests: Alpha-1 v1.1 physics with leakage on
-static std::shared_ptr<SurgerySetup> surgery_setup(const SurgeryExperiment& E) {
+static std::shared_ptr<SurgerySetup> surgery_setup(const SurgeryExperiment& E, bool correlated = false) {
     const auto D = surgery_chip(E.sched.lat, "alpha1_v11");
     const auto R = analyze(D);
     auto nm = noise_model(D, R);
@@ -123,7 +125,7 @@ static std::shared_ptr<SurgerySetup> surgery_setup(const SurgeryExperiment& E) {
         const int mover = D.qubits[std::size_t(a)].role == "data" ? b : a;
         nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, 2e-3};
     }
-    return std::make_shared<SurgerySetup>(prepare_surgery(D, R, nm, E, surgery_decode_basis(E)));
+    return std::make_shared<SurgerySetup>(prepare_surgery(D, R, nm, E, surgery_decode_basis(E), correlated));
 }
 
 static std::string surgery_line(const char* name, const SurgerySetup& setup) {
@@ -134,12 +136,29 @@ static std::string surgery_line(const char* name, const SurgerySetup& setup) {
     return out;
 }
 
+// every surgery decoder on the same shots (decode_ns is wall time and is left out), with the setup's joint model
+static std::string surgery_decoders_line(const SurgerySetup& setup) {
+    double pj = 0; for (const auto& e : setup.jdem.edges) pj += e.p;
+    std::string out = "jdem=" + std::to_string(setup.jdem.edges.size()) + ":" + hex(pj) + ":" + std::to_string(setup.correlated_pairs) + " dec=";
+    for (const auto& q : run_surgery_decoders(setup, 3000, 29, {SurgeryDecoder::Separate, SurgeryDecoder::Joint, SurgeryDecoder::SeparateUF, SurgeryDecoder::JointUF,
+                                                               SurgeryDecoder::Correlated})) {
+        for (long e : q.errors) out += std::to_string(e) + ",";
+        out += std::to_string(q.any_errors) + "/" + std::to_string(q.differ) + "/" + std::to_string(q.any_fixed) + "/" + std::to_string(q.any_broken) + ";";
+    }
+    return out + " ";
+}
+
 static std::string surgery_digest() {
     // the chips and the decoders are built once per process; only the Monte Carlo is repeated per thread count.
     // The ZZ measurement has three observables; the three-patch CNOT has hyperedges in its DEM and a different observable count.
-    static const auto zz = surgery_setup(surgery_parity(3, 'Z', '0', '1'));
+    // The ZZ setup also carries the correlated decoder's tables, which do not change the separate decoders.
+    static const auto zz = surgery_setup(surgery_parity(3, 'Z', '0', '1'), true);
     static const auto cnot = surgery_setup(surgery_cnot(3, '0', '0'));
-    return surgery_line("surgery", *zz) + surgery_line("cnot", *cnot);
+    // routing strip: XX through a strip of length 3 on Z-basis inputs (the conserved Z_A Z_B crosses the strip), joint decoder
+    static const auto routed = surgery_setup(surgery_parity(3, 'X', '0', '1', {}, 3));
+    const auto rr = run_surgery_frame(*routed, 3000, 31, SurgeryDecoder::Joint);
+    return surgery_line("surgery", *zz) + surgery_decoders_line(*zz) + surgery_line("cnot", *cnot) +
+           "strip=" + std::to_string(rr.errors[0]) + "/" + std::to_string(rr.any_errors) + "/" + hex(rr.mean_defects) + " ";
 }
 
 static std::string digest() { return frame_digest() + surgery_digest() + xeb_digest(); }

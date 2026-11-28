@@ -101,4 +101,250 @@ transversal preparation and readout; CZ-based syndrome extraction with the memor
      CNOT |00>    Z_C 4.3, Z_T 3.9; any wrong 0.02742 -> 0.00708 (3.9x)
      CNOT |++>    X_C 3.8, X_T 4.4; any wrong 0.02707 -> 0.00697 (3.9x)
 
-runtime 1005 s
+4. Decoders on the shots of section 2 (same syndromes for every decoder)
+   separate matching    one exact matching per observable, each on its own graph (the decoder of section 2)
+   joint matching       one exact matching on one graph whose edges carry a mask of the observables they flip; edge probability from all mechanisms
+                        of its detector pair, mask of the most likely class. Mechanisms flipping more than two detectors stay out of the graph (hyperedge_p above)
+   union-find           the weighted union-find decoder on the same graphs, separate and joint
+   correlated           two passes: union-find on the detectors of the other Pauli type, then joint matching with the weights of the edges that share
+                        mechanisms with that correction lowered to their conditional probability
+   differs / fixed / broken: shots whose prediction differs from separate matching; shots with some observable wrong under separate matching and none
+   under this decoder, and the reverse. decode: mean wall time per shot on one thread (informational, not reproducible)
+
+   Alpha-1 v1.1 physics, d = 3, ZZ |00>: 56 Z-type detectors + 32 of the other type; joint graph 240 edges, 2 with mixed masks (minority p 4.2e-08); 655 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           m_ZZ 0.02350, Z_A 0.01546, Z_B 0.01532               0.04109+-0.00063        0       0       0       1.39
+     joint matching              m_ZZ 0.02350, Z_A 0.01546, Z_B 0.01532               0.04109+-0.00063        0       0       0       0.61
+     separate union-find         m_ZZ 0.02467, Z_A 0.01614, Z_B 0.01601               0.04282+-0.00064      532     158     331       3.47
+     joint union-find            m_ZZ 0.02467, Z_A 0.01614, Z_B 0.01601               0.04282+-0.00064      532     158     331       0.90
+     correlated joint matching   m_ZZ 0.01999, Z_A 0.01294, Z_B 0.01296               0.03492+-0.00058     1615    1078     461       5.01
+
+   Alpha-1 v1.1 physics, d = 3, XX |++>: 56 X-type detectors + 32 of the other type; joint graph 240 edges, 1 with mixed masks (minority p 8.6e-08); 634 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           m_XX 0.02285, X_A 0.01551, X_B 0.01489               0.04045+-0.00062        0       0       0       1.26
+     joint matching              m_XX 0.02285, X_A 0.01551, X_B 0.01489               0.04045+-0.00062        0       0       0       0.58
+     separate union-find         m_XX 0.02413, X_A 0.01600, X_B 0.01527               0.04200+-0.00063      516     154     309       3.42
+     joint union-find            m_XX 0.02413, X_A 0.01600, X_B 0.01527               0.04200+-0.00063      516     154     309       1.02
+     correlated joint matching   m_XX 0.01905, X_A 0.01300, X_B 0.01253               0.03414+-0.00057     1630    1091     460       4.80
+
+   Alpha-1 v1.1 physics, d = 3, CNOT |00>: 112 Z-type detectors + 96 of the other type; joint graph 484 edges, 2 with mixed masks (minority p 4.2e-08); 1663 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           Z_C 0.02366, Z_T 0.07808                             0.09489+-0.00093        0       0       0       5.84
+     joint matching              Z_C 0.02366, Z_T 0.07808                             0.09489+-0.00093        0       0       0       2.91
+     separate union-find         Z_C 0.02424, Z_T 0.07939                             0.09652+-0.00093      773     283     446       8.02
+     joint union-find            Z_C 0.02424, Z_T 0.07939                             0.09652+-0.00093      773     283     446       2.98
+     correlated joint matching   Z_C 0.01999, Z_T 0.06365                             0.07794+-0.00085     4909    3218    1523      20.86
+
+   Alpha-1 v1.1 physics, d = 3, CNOT |++>: 112 X-type detectors + 96 of the other type; joint graph 502 edges, 1 with mixed masks (minority p 8.6e-08); 1647 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           X_C 0.08441, X_T 0.02466                             0.09218+-0.00091        0       0       0       5.84
+     joint matching              X_C 0.08441, X_T 0.02466                             0.09218+-0.00091        0       0       0       2.87
+     separate union-find         X_C 0.08580, X_T 0.02547                             0.09403+-0.00092      629     201     386       8.10
+     joint union-find            X_C 0.08580, X_T 0.02547                             0.09403+-0.00092      629     201     386       2.98
+     correlated joint matching   X_C 0.07077, X_T 0.02081                             0.07741+-0.00085     4673    2992    1515      20.85
+
+   Alpha-1 v1.1 physics, d = 5, ZZ |00>: 216 Z-type detectors + 144 of the other type; joint graph 1088 edges, 0 with mixed masks (minority p 0.0e+00); 3532 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           m_ZZ 0.00815, Z_A 0.00621, Z_B 0.00559               0.01479+-0.00038        0       0       0      34.61
+     joint matching              m_ZZ 0.00815, Z_A 0.00621, Z_B 0.00559               0.01479+-0.00038        0       0       0      10.19
+     separate union-find         m_ZZ 0.00869, Z_A 0.00666, Z_B 0.00603               0.01588+-0.00040      398     136     245      34.43
+     joint union-find            m_ZZ 0.00869, Z_A 0.00666, Z_B 0.00603               0.01588+-0.00040      398     136     245       9.23
+     correlated joint matching   m_ZZ 0.00534, Z_A 0.00390, Z_B 0.00353               0.00976+-0.00031      969     725     222     122.54
+
+   Alpha-1 v1.1 physics, d = 5, XX |++>: 216 X-type detectors + 144 of the other type; joint graph 1087 edges, 0 with mixed masks (minority p 0.0e+00); 3528 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           m_XX 0.00799, X_A 0.00626, X_B 0.00542               0.01459+-0.00038        0       0       0      27.79
+     joint matching              m_XX 0.00799, X_A 0.00626, X_B 0.00542               0.01459+-0.00038        0       0       0       8.28
+     separate union-find         m_XX 0.00885, X_A 0.00691, X_B 0.00579               0.01591+-0.00040      395     125     257      28.35
+     joint union-find            m_XX 0.00885, X_A 0.00691, X_B 0.00579               0.01591+-0.00040      395     125     257       7.94
+     correlated joint matching   m_XX 0.00523, X_A 0.00371, X_B 0.00365               0.00949+-0.00031      978     735     225      98.52
+
+   Alpha-1 v1.1 physics, d = 5, CNOT |00>: 480 Z-type detectors + 432 of the other type; joint graph 2484 edges, 0 with mixed masks (minority p 0.0e+00); 9506 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           Z_C 0.01218, Z_T 0.03714                             0.04686+-0.00067        0       0       0     101.71
+     joint matching              Z_C 0.01218, Z_T 0.03714                             0.04686+-0.00067        0       0       0      41.51
+     separate union-find         Z_C 0.01337, Z_T 0.04012                             0.05072+-0.00069     1108     345     731      54.99
+     joint union-find            Z_C 0.01337, Z_T 0.04012                             0.05072+-0.00069     1108     345     731      22.37
+     correlated joint matching   Z_C 0.00794, Z_T 0.02229                             0.02885+-0.00053     3495    2627     826     604.31
+
+   Alpha-1 v1.1 physics, d = 5, CNOT |++>: 480 X-type detectors + 432 of the other type; joint graph 2537 edges, 0 with mixed masks (minority p 0.0e+00); 9486 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           X_C 0.04198, X_T 0.01246                             0.04468+-0.00065        0       0       0      94.61
+     joint matching              X_C 0.04198, X_T 0.01246                             0.04468+-0.00065        0       0       0      38.52
+     separate union-find         X_C 0.04552, X_T 0.01368                             0.04850+-0.00068     1060     331     713      51.75
+     joint union-find            X_C 0.04552, X_T 0.01368                             0.04850+-0.00068     1060     331     713      22.34
+     correlated joint matching   X_C 0.02569, X_T 0.00782                             0.02746+-0.00052     3369    2526     804     595.87
+
+   Beta-1 physics, d = 3, ZZ |00>: 56 Z-type detectors + 32 of the other type; joint graph 240 edges, 2 with mixed masks (minority p 4.2e-08); 710 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           m_ZZ 0.00741, Z_A 0.00421, Z_B 0.00458               0.01258+-0.00035        0       0       0       0.64
+     joint matching              m_ZZ 0.00741, Z_A 0.00421, Z_B 0.00458               0.01258+-0.00035        0       0       0       0.30
+     separate union-find         m_ZZ 0.00768, Z_A 0.00445, Z_B 0.00497               0.01324+-0.00036      135      32      98       2.19
+     joint union-find            m_ZZ 0.00768, Z_A 0.00445, Z_B 0.00497               0.01324+-0.00036      135      32      98       0.59
+     correlated joint matching   m_ZZ 0.00624, Z_A 0.00335, Z_B 0.00395               0.01063+-0.00032      475     332     137       2.34
+
+   Beta-1 physics, d = 3, XX |++>: 56 X-type detectors + 32 of the other type; joint graph 240 edges, 1 with mixed masks (minority p 8.6e-08); 715 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           m_XX 0.00759, X_A 0.00404, X_B 0.00430               0.01245+-0.00035        0       0       0       0.75
+     joint matching              m_XX 0.00759, X_A 0.00404, X_B 0.00430               0.01245+-0.00035        0       0       0       0.35
+     separate union-find         m_XX 0.00776, X_A 0.00431, X_B 0.00448               0.01294+-0.00036      134      41      90       2.45
+     joint union-find            m_XX 0.00776, X_A 0.00431, X_B 0.00448               0.01294+-0.00036      134      41      90       0.66
+     correlated joint matching   m_XX 0.00623, X_A 0.00319, X_B 0.00341               0.01018+-0.00032      473     345     118       2.74
+
+   Beta-1 physics, d = 3, CNOT |00>: 112 Z-type detectors + 96 of the other type; joint graph 484 edges, 2 with mixed masks (minority p 4.2e-08); 1833 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           Z_C 0.00688, Z_T 0.02235                             0.02742+-0.00052        0       0       0       2.82
+     joint matching              Z_C 0.00688, Z_T 0.02235                             0.02742+-0.00052        0       0       0       1.44
+     separate union-find         Z_C 0.00724, Z_T 0.02299                             0.02834+-0.00052      214      59     151       5.50
+     joint union-find            Z_C 0.00724, Z_T 0.02299                             0.02834+-0.00052      214      59     151       2.11
+     correlated joint matching   Z_C 0.00603, Z_T 0.01826                             0.02277+-0.00047     1468     962     497       9.88
+
+   Beta-1 physics, d = 3, CNOT |++>: 112 X-type detectors + 96 of the other type; joint graph 502 edges, 1 with mixed masks (minority p 8.6e-08); 1842 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           X_C 0.02449, X_T 0.00668                             0.02707+-0.00051        0       0       0       2.74
+     joint matching              X_C 0.02449, X_T 0.00668                             0.02707+-0.00051        0       0       0       1.41
+     separate union-find         X_C 0.02499, X_T 0.00681                             0.02757+-0.00052      176      60     110       5.49
+     joint union-find            X_C 0.02499, X_T 0.00681                             0.02757+-0.00052      176      60     110       2.06
+     correlated joint matching   X_C 0.01953, X_T 0.00537                             0.02167+-0.00046     1316     916     376       9.81
+
+   Beta-1 physics, d = 5, ZZ |00>: 216 Z-type detectors + 144 of the other type; joint graph 1090 edges, 0 with mixed masks (minority p 0.0e+00); 3935 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           m_ZZ 0.00140, Z_A 0.00066, Z_B 0.00094               0.00238+-0.00015        0       0       0      12.03
+     joint matching              m_ZZ 0.00140, Z_A 0.00066, Z_B 0.00094               0.00238+-0.00015        0       0       0       4.16
+     separate union-find         m_ZZ 0.00149, Z_A 0.00068, Z_B 0.00097               0.00248+-0.00016       44      16      26      16.04
+     joint union-find            m_ZZ 0.00149, Z_A 0.00068, Z_B 0.00097               0.00248+-0.00016       44      16      26       4.34
+     correlated joint matching   m_ZZ 0.00100, Z_A 0.00050, Z_B 0.00059               0.00164+-0.00013      151     112      38      35.20
+
+   Beta-1 physics, d = 5, XX |++>: 216 X-type detectors + 144 of the other type; joint graph 1087 edges, 0 with mixed masks (minority p 0.0e+00); 3937 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           m_XX 0.00156, X_A 0.00081, X_B 0.00093               0.00269+-0.00016        0       0       0      12.53
+     joint matching              m_XX 0.00156, X_A 0.00081, X_B 0.00093               0.00269+-0.00016        0       0       0       4.21
+     separate union-find         m_XX 0.00173, X_A 0.00090, X_B 0.00102               0.00294+-0.00017       43       9      34      16.09
+     joint union-find            m_XX 0.00173, X_A 0.00090, X_B 0.00102               0.00294+-0.00017       43       9      34       4.33
+     correlated joint matching   m_XX 0.00095, X_A 0.00050, X_B 0.00063               0.00173+-0.00013      177     136      40      35.43
+
+   Beta-1 physics, d = 5, CNOT |00>: 480 Z-type detectors + 432 of the other type; joint graph 2486 edges, 0 with mixed masks (minority p 0.0e+00); 10530 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           Z_C 0.00159, Z_T 0.00579                             0.00708+-0.00027        0       0       0      38.43
+     joint matching              Z_C 0.00159, Z_T 0.00579                             0.00708+-0.00027        0       0       0      15.17
+     separate union-find         Z_C 0.00172, Z_T 0.00613                             0.00750+-0.00027      125      39      81      30.34
+     joint union-find            Z_C 0.00172, Z_T 0.00613                             0.00750+-0.00027      125      39      81      12.63
+     correlated joint matching   Z_C 0.00111, Z_T 0.00328                             0.00422+-0.00020      497     389     103     184.34
+
+   Beta-1 physics, d = 5, CNOT |++>: 480 X-type detectors + 432 of the other type; joint graph 2538 edges, 0 with mixed masks (minority p 0.0e+00); 10541 correlated edge pairs
+     decoder                     logical error per observable                         any wrong          differs   fixed  broken  decode_us
+     separate matching           X_C 0.00652, X_T 0.00153                             0.00697+-0.00026        0       0       0      46.78
+     joint matching              X_C 0.00652, X_T 0.00153                             0.00697+-0.00026        0       0       0      18.07
+     separate union-find         X_C 0.00690, X_T 0.00166                             0.00739+-0.00027      116      37      79      37.84
+     joint union-find            X_C 0.00690, X_T 0.00166                             0.00739+-0.00027      116      37      79      16.94
+     correlated joint matching   X_C 0.00357, X_T 0.00086                             0.00387+-0.00020      517     412     102     224.39
+
+   summary over the 16 points (1600000 shots): joint matching differs from separate matching in 0 shots; separate / joint decode time 1.9-3.4x;
+   any wrong, joint union-find / joint matching 1.02-1.09; correlated / joint matching 0.56-0.85
+
+5. Routing: operations between patches joined through a routing strip (d wide, `strip` data rows or columns long; strip 1 = adjacent patches)
+   the strip is merged with both patches for the d rounds of the measurement and read out at the split; the CNOT has one strip between control and ancilla
+   and one between ancilla and target
+
+5a. Noiseless check (stabiliser tableau, 4 random measurement branches per experiment), strips longer than 1
+   op     d  strip  qubits  experiments  failed   inputs
+   zz     3      3      53            5       0   00 01 11 ++ +-
+   xx     3      3      53            5       0   ++ +- -- 00 01
+   cnot   3      3      89            8       0   00 10 11 ++ -+ -- +0(Z) +0(X)
+   zz     3      5      65            5       0   00 01 11 ++ +-
+   xx     3      5      65            5       0   ++ +- -- 00 01
+   cnot   3      5     113            8       0   00 10 11 ++ -+ -- +0(Z) +0(X)
+   zz     3      7      77            5       0   00 01 11 ++ +-
+   xx     3      7      77            5       0   ++ +- -- 00 01
+   cnot   3      7     137            8       0   00 10 11 ++ -+ -- +0(Z) +0(X)
+   zz     5      3     129            5       0   00 01 11 ++ +-
+   xx     5      3     129            5       0   ++ +- -- 00 01
+   cnot   5      3     209            8       0   00 10 11 ++ -+ -- +0(Z) +0(X)
+   zz     5      5     149            5       0   00 01 11 ++ +-
+   xx     5      5     149            5       0   ++ +- -- 00 01
+   cnot   5      5     249            8       0   00 10 11 ++ -+ -- +0(Z) +0(X)
+   zz     5      7     169            5       0   00 01 11 ++ +-
+   xx     5      7     169            5       0   ++ +- -- 00 01
+   cnot   5      7     289            8       0   00 10 11 ++ -+ -- +0(Z) +0(X)
+   108 experiments, 0 failed
+
+5b. Logical error per operation against the strip length, Beta-1 physics, 100000 shots per point (strip 1: the points of section 2)
+   errors with joint matching; the last column is any observable wrong with the correlated decoder on the same shots
+
+   d = 3
+   operation     strip  qubits  (data)  couplers  rounds  dur_us  detectors  defects   logical error per observable                                       any wrong          correlated
+   ZZ |00>           1      41      21        64       5    3.81         56     1.60   m_ZZ 0.00741+-0.00027, Z_A 0.00421+-0.00020, Z_B 0.00458+-0.00021  0.01258+-0.00035  0.01063+-0.00032
+   ZZ |00>           3      53      27        84       5    3.85         64     1.89   m_ZZ 0.01312+-0.00036, Z_A 0.00441+-0.00021, Z_B 0.00397+-0.00020  0.01832+-0.00042  0.01554+-0.00039
+   ZZ |00>           5      65      33       104       5    3.87         72     2.18   m_ZZ 0.01865+-0.00043, Z_A 0.00455+-0.00021, Z_B 0.00465+-0.00022  0.02417+-0.00049  0.02073+-0.00045
+   ZZ |00>           7      77      39       124       5    3.71         80     2.45   m_ZZ 0.02172+-0.00046, Z_A 0.00437+-0.00021, Z_B 0.00422+-0.00020  0.02713+-0.00051  0.02404+-0.00048
+   XX |++>           1      41      21        64       5    3.80         56     1.60   m_XX 0.00759+-0.00027, X_A 0.00404+-0.00020, X_B 0.00430+-0.00021  0.01245+-0.00035  0.01018+-0.00032
+   XX |++>           3      53      27        84       5    3.84         64     1.88   m_XX 0.01273+-0.00035, X_A 0.00418+-0.00020, X_B 0.00439+-0.00021  0.01786+-0.00042  0.01530+-0.00039
+   XX |++>           5      65      33       104       5    3.85         72     2.19   m_XX 0.01752+-0.00041, X_A 0.00458+-0.00021, X_B 0.00430+-0.00021  0.02322+-0.00048  0.02020+-0.00044
+   XX |++>           7      77      39       124       5    3.71         80     2.43   m_XX 0.02185+-0.00046, X_A 0.00441+-0.00021, X_B 0.00400+-0.00020  0.02691+-0.00051  0.02333+-0.00048
+   CNOT |00>         1      65      33       104       8    5.98        112     3.41   Z_C 0.00688+-0.00026, Z_T 0.02235+-0.00047                         0.02742+-0.00052  0.02277+-0.00047
+   CNOT |00>         3      89      45       144       8    6.03        128     4.10   Z_C 0.00659+-0.00026, Z_T 0.03495+-0.00058                         0.03990+-0.00062  0.03404+-0.00057
+   CNOT |00>         5     113      57       184       8    6.07        144     4.80   Z_C 0.00685+-0.00026, Z_T 0.04871+-0.00068                         0.05389+-0.00071  0.04482+-0.00065
+   CNOT |00>         7     137      69       224       8    5.88        160     5.43   Z_C 0.00624+-0.00025, Z_T 0.06022+-0.00075                         0.06482+-0.00078  0.05442+-0.00072
+   CNOT |++>         1      65      33       104       8    5.98        112     3.36   X_C 0.02449+-0.00049, X_T 0.00668+-0.00026                         0.02707+-0.00051  0.02167+-0.00046
+   CNOT |++>         3      89      45       144       8    6.03        128     4.03   X_C 0.03730+-0.00060, X_T 0.00670+-0.00026                         0.03978+-0.00062  0.03254+-0.00056
+   CNOT |++>         5     113      57       184       8    6.07        144     4.75   X_C 0.04955+-0.00069, X_T 0.00673+-0.00026                         0.05202+-0.00070  0.04266+-0.00064
+   CNOT |++>         7     137      69       224       8    5.88        160     5.42   X_C 0.05998+-0.00075, X_T 0.00653+-0.00025                         0.06242+-0.00077  0.05308+-0.00071
+
+   d = 5
+   operation     strip  qubits  (data)  couplers  rounds  dur_us  detectors  defects   logical error per observable                                       any wrong          correlated
+   ZZ |00>           1     109      55       188       7    5.40        216     6.70   m_ZZ 0.00140+-0.00012, Z_A 0.00066+-0.00008, Z_B 0.00094+-0.00010  0.00238+-0.00015  0.00164+-0.00013
+   ZZ |00>           3     129      65       224       7    5.44        240     7.56   m_ZZ 0.00244+-0.00016, Z_A 0.00098+-0.00010, Z_B 0.00085+-0.00009  0.00372+-0.00019  0.00240+-0.00015
+   ZZ |00>           5     149      75       260       7    5.44        264     8.47   m_ZZ 0.00348+-0.00019, Z_A 0.00087+-0.00009, Z_B 0.00077+-0.00009  0.00449+-0.00021  0.00313+-0.00018
+   ZZ |00>           7     169      85       296       7    5.44        288     9.36   m_ZZ 0.00452+-0.00021, Z_A 0.00076+-0.00009, Z_B 0.00092+-0.00010  0.00547+-0.00023  0.00351+-0.00019
+   XX |++>           1     109      55       188       7    5.39        216     6.73   m_XX 0.00156+-0.00012, X_A 0.00081+-0.00009, X_B 0.00093+-0.00010  0.00269+-0.00016  0.00173+-0.00013
+   XX |++>           3     129      65       224       7    5.40        240     7.58   m_XX 0.00249+-0.00016, X_A 0.00098+-0.00010, X_B 0.00076+-0.00009  0.00349+-0.00019  0.00227+-0.00015
+   XX |++>           5     149      75       260       7    5.40        264     8.48   m_XX 0.00386+-0.00020, X_A 0.00090+-0.00009, X_B 0.00081+-0.00009  0.00482+-0.00022  0.00330+-0.00018
+   XX |++>           7     169      85       296       7    5.40        288     9.35   m_XX 0.00487+-0.00022, X_A 0.00109+-0.00010, X_B 0.00092+-0.00010  0.00606+-0.00025  0.00430+-0.00021
+   CNOT |00>         1     169      85       296      12    9.06        480    15.60   Z_C 0.00159+-0.00013, Z_T 0.00579+-0.00024                         0.00708+-0.00027  0.00422+-0.00020
+   CNOT |00>         3     209     105       368      12    9.09        528    17.72   Z_C 0.00145+-0.00012, Z_T 0.00915+-0.00030                         0.01032+-0.00032  0.00657+-0.00026
+   CNOT |00>         5     249     125       440      12    9.13        576    19.86   Z_C 0.00153+-0.00012, Z_T 0.01322+-0.00036                         0.01440+-0.00038  0.00894+-0.00030
+   CNOT |00>         7     289     145       512      12    9.17        624    22.01   Z_C 0.00158+-0.00013, Z_T 0.01693+-0.00041                         0.01824+-0.00042  0.01106+-0.00033
+   CNOT |++>         1     169      85       296      12    9.06        480    15.35   X_C 0.00652+-0.00025, X_T 0.00153+-0.00012                         0.00697+-0.00026  0.00387+-0.00020
+   CNOT |++>         3     209     105       368      12    9.09        528    17.39   X_C 0.00881+-0.00030, X_T 0.00146+-0.00012                         0.00928+-0.00030  0.00557+-0.00024
+   CNOT |++>         5     249     125       440      12    9.13        576    19.58   X_C 0.01201+-0.00034, X_T 0.00161+-0.00013                         0.01250+-0.00035  0.00793+-0.00028
+   CNOT |++>         7     289     145       512      12    9.17        624    21.79   X_C 0.01483+-0.00038, X_T 0.00158+-0.00013                         0.01531+-0.00039  0.00979+-0.00031
+
+   any observable wrong, relative to adjacent patches (joint matching):
+     d = 3, ZZ |00>       strip 1: 1.00x  strip 3: 1.46x  strip 5: 1.92x  strip 7: 2.16x
+     d = 3, XX |++>       strip 1: 1.00x  strip 3: 1.43x  strip 5: 1.87x  strip 7: 2.16x
+     d = 3, CNOT |00>     strip 1: 1.00x  strip 3: 1.46x  strip 5: 1.97x  strip 7: 2.36x
+     d = 3, CNOT |++>     strip 1: 1.00x  strip 3: 1.47x  strip 5: 1.92x  strip 7: 2.31x
+     d = 5, ZZ |00>       strip 1: 1.00x  strip 3: 1.56x  strip 5: 1.89x  strip 7: 2.30x
+     d = 5, XX |++>       strip 1: 1.00x  strip 3: 1.30x  strip 5: 1.79x  strip 7: 2.25x
+     d = 5, CNOT |00>     strip 1: 1.00x  strip 3: 1.46x  strip 5: 2.03x  strip 7: 2.58x
+     d = 5, CNOT |++>     strip 1: 1.00x  strip 3: 1.33x  strip 5: 1.79x  strip 7: 2.20x
+
+6. Chip account for d = 5 patches and their routing region (surgery_chip with Beta-1 physics; no layout, no mask)
+   lines: one XY and one flux line per qubit, one flux line per coupler, two per feedline (as the design reviews count them); feedlines: at most 9 resonators each
+   frequencies: distinct design frequencies of the qubits (the 8-frequency plan: 4 data + 4 measure colours); collisions: pairs flagged by the collision rules;
+   CZ combinations: distinct (measure, data) frequency pairs among the couplers
+   lattice                               qubits  (data  measure)  couplers  feedlines  lines  frequencies  collisions  CZ combinations  max |ZZ| kHz
+   1 patch (Beta-1, for reference)           49     25       24         80          6    190            8           0               16           5.0
+   Gamma-1 (d = 7 memory, reference)         97     49       48        168         11    384            8           0               16           5.0
+   2 patches, ZZ (adjacent)                 109     55       54        188         13    432            8           0               16           5.0
+   2 patches, ZZ, strip 3                   129     65       64        224         15    512            8           0               16           5.0
+   2 patches, ZZ, strip 5                   149     75       74        260         17    592            8           0               16           5.0
+   2 patches, ZZ, strip 7                   169     85       84        296         19    672            8           0               16           5.0
+   2 patches, XX (adjacent)                 109     55       54        188         13    432            8           0               16           5.0
+   2 patches, XX, strip 3                   129     65       64        224         15    512            8           0               16           5.0
+   2 patches, XX, strip 5                   149     75       74        260         17    592            8           0               16           5.0
+   2 patches, XX, strip 7                   169     85       84        296         19    672            8           0               16           5.0
+   3 patches, CNOT (adjacent)               169     85       84        296         19    672            8           0               16           5.0
+   3 patches, CNOT, strips 3                209    105      104        368         24    834            8           0               16           5.0
+   3 patches, CNOT, strips 5                249    125      124        440         28    994            8           0               16           5.0
+   3 patches, CNOT, strips 7                289    145      144        512         33   1156            8           0               16           5.0
+
+   fabrication Monte Carlo (junction spread 0.5 % after trimming and 2 % as fabricated; 100 samples, seed 7; static collision rules):
+   2 patches, ZZ (adjacent)              spread 0.5 %: collision-free  99/100, frequency scatter 14 MHz rms
+   2 patches, ZZ (adjacent)              spread 2.0 %: collision-free  91/100, frequency scatter 57 MHz rms
+   2 patches, ZZ, strip 3                spread 0.5 %: collision-free  98/100, frequency scatter 14 MHz rms
+   2 patches, ZZ, strip 3                spread 2.0 %: collision-free  86/100, frequency scatter 58 MHz rms
+   3 patches, CNOT (adjacent)            spread 0.5 %: collision-free  99/100, frequency scatter 14 MHz rms
+   3 patches, CNOT (adjacent)            spread 2.0 %: collision-free  82/100, frequency scatter 58 MHz rms
+
+runtime 4342 s

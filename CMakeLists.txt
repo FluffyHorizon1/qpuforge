@@ -127,6 +127,9 @@ qpuforge_cli_test(commit_below_window "qpuforge qec: --commit \\(4\\) must be sm
   qec ${CLI_CHIP} --decoder uf-stream --window 4 --commit 4)
 qpuforge_cli_test(surgery_readout_needs_cnot "qpuforge surgery: --readout applies to --op cnot only" surgery --readout Z --shots 0)
 qpuforge_cli_test(surgery_even_distance "qpuforge surgery: --d expects odd distances from 3 to 15, got 4" surgery --d 3,4 --shots 0)
+qpuforge_cli_test(surgery_even_gap "qpuforge surgery: --gap expects an odd strip length from 1 to 15, got 2" surgery --gap 2 --shots 0)
+qpuforge_cli_test(surgery_bad_decoder "qpuforge surgery: --decoder expects separate, joint, uf, joint-uf, correlated or all, got 'jiont' \\(did you mean 'joint'\\?\\)"
+  surgery --decoder jiont --shots 0)
 qpuforge_cli_test(unknown_option_surgery "qpuforge surgery: unknown option '--shot' \\(did you mean '--shots'\\?\\)" surgery --shot 100)
 qpuforge_cli_test(bad_number_surgery_shots "qpuforge surgery: --shots expects an integer >= 0, got '1e5'" surgery --shots 1e5)
 qpuforge_cli_test(bad_seed_surgery "qpuforge surgery: --seed expects an integer from 0 to 18446744073709551615, got '-1'" surgery --shots 0 --seed -1)
@@ -175,6 +178,10 @@ qpuforge_cli_test(ok_surgery_zz "ZZ measurement d=3 \\|00>.*0 detector firings, 
 qpuforge_cli_test(ok_surgery_xx "XX measurement d=3 \\|\\+\\+>.*0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
   surgery --op xx --d 3 --shots 0)
 set_tests_properties(cli_ok_surgery cli_ok_surgery_zz cli_ok_surgery_xx PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:")
+# the routing strip and the decoder choice: 89 qubits = three d = 3 patches and two strips of length 3
+qpuforge_cli_test(ok_surgery_routing "CNOT d=3 \\|\\+\\+> strips 3: 89 qubits, .*noiseless tableau check, 2 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
+  surgery --op cnot --d 3 --input ++ --gap 3 --decoder joint --shots 0 --samples 2)
+set_tests_properties(cli_ok_surgery_routing PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:")
 qpuforge_cli_test(ok_synth_chip "wrote .*cli_synth.json: 17 qubits"
   synth-chip ${CLI_CHIP} ${CLI_OUT}_synth.json --seed 1 --shots 50 --rounds 2 --z-only --hidden-dephasing-us 0 --cache ${CLI_OUT}_unused_cache.json)
 qpuforge_cli_test(ok_hwgate "wrote .*cli_gate.json"   # exit 3 (gate not passed) is ignored by the pass regex
@@ -305,6 +312,7 @@ set(QPUFORGE_TESTS
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse" "flux_predistortion:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
+  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "surgery:qec" "surgery_cnot:qec" "surgery_joint:qec" "surgery_routing:qec")
   "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "herald_weights:qec" "dqlr_herald:qec" "stream_ops:qec" "surgery:qec" "surgery_cnot:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")

@@ -704,16 +704,20 @@ struct DecodeScratch {
 
 class MatchingDecoder {
 public:
-    explicit MatchingDecoder(const DetectorErrorModel& M) : N_(M.n_det), V_(M.n_det + 1), uf_(M.n_det, M.edges) {
+    explicit MatchingDecoder(const DetectorErrorModel& M) : MatchingDecoder(M.n_det, M.edges) {}
+    // From an edge list (a, b or -1 for the boundary, obs, p). obs may be a mask of up to 8 observables instead of one
+    // flag: decode() then returns the XOR of the masks along the matching, one bit per observable (surgery.hpp).
+    template <class EdgeList>
+    MatchingDecoder(int n_det, const EdgeList& edges) : N_(n_det), V_(n_det + 1), uf_(n_det, edges) {
         const double INF = 1e300;
         dist_.assign(std::size_t(V_) * V_, INF);
         par_.assign(std::size_t(V_) * V_, 0);
         for (int i = 0; i < V_; ++i) dist_[idx(i, i)] = 0;
-        for (const auto& e : M.edges) {
+        for (const auto& e : edges) {
             const double p = std::clamp(e.p, 1e-15, 0.5 - 1e-12);
             const double w = std::log((1 - p) / p);
             const int u = e.a, v = e.b < 0 ? N_ : e.b;
-            if (w < dist_[idx(u, v)]) { dist_[idx(u, v)] = dist_[idx(v, u)] = w; par_[idx(u, v)] = par_[idx(v, u)] = e.obs; }
+            if (w < dist_[idx(u, v)]) { dist_[idx(u, v)] = dist_[idx(v, u)] = w; par_[idx(u, v)] = par_[idx(v, u)] = std::uint8_t(e.obs); }
         }
         for (int k = 0; k < V_; ++k) for (int i = 0; i < V_; ++i) {
             const double dik = dist_[idx(i, k)];

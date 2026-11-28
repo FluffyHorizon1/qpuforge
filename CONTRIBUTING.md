@@ -21,11 +21,11 @@ By contributing, you confirm that you have the right to submit the change and th
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge                 # 370 validation checks; or:
+./build/test_qpuforge                 # 500 validation checks; or:
 ctest --test-dir build -LE smoke      # one CTest entry per group, excluding end-to-end smokes
 ```
 
-`ctest` labels are `unit`, `physics`, `pulse`, `qec`, `layout` and `smoke`. The three `smoke` entries run the Alpha-1 v1.1, Beta-1 and Gamma-1 review programs with 200 shots; they write into the build tree and leave committed outputs untouched.
+`ctest` labels are `unit`, `physics`, `pulse`, `qec`, `layout` and `smoke`. The four `smoke` entries run the Alpha-1 v1.1, Beta-1 and Gamma-1 review programs and the lattice-surgery study with 200 shots; they write into the build tree and leave committed outputs untouched.
 
 Please run `./build/test_qpuforge` or `ctest --test-dir build -LE smoke` before opening a pull request. Mention any tests you could not run, and why.
 

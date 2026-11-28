@@ -77,7 +77,7 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
   guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
-- 370 validation checks in all (346 on `main` before the decoding work, plus 24 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
+- 500 validation checks in all, summed over the per-group ctest runs (`ctest -LE smoke`): 346 on `main` before the decoding work, 24 from it, 48 from the fabrication-readiness work (418 on `main`), and 82 from lattice surgery. The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
   `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
 
@@ -143,7 +143,8 @@ Phase Gamma logical operations: lattice surgery between surface-code patches.
 - CLI: `qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input ..] [--readout Z|X] [--chip beta1|alpha1_v11] ...`.
 - `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
 - Tests: `surgery` and `surgery_cnot` groups (82 checks); the determinism guard also covers
-  `run_surgery_frame`; a smoke entry for the study.
+  `run_surgery_frame` (the ZZ measurement and the three-patch CNOT); a smoke entry for the study; `cli_surgery_*` and
+  `cli_usage_exit_status` guards for the command line (outside the validation checks).
 
 ### Known issues
 - **The masks are not fabrication-ready.** Metal connectivity (`layout.connectivity` in the reviews):

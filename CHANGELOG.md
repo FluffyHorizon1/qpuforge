@@ -153,6 +153,24 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
   four `pulse_cz` checks and one `layout` check, the decoding work two `fault_enumeration` checks. The strict CLI (#24)
   adds CTest guards, not validation checks.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
+- `materials.hpp`: `provenance` is an enumerated field on `forge.materials.v0` (decision D4, Finnian Bond,
+  2026-11-28): `placeholder`, `assumed`, `literature`, `measured`, `dft-loss-tangent`, `participation-weighted`. A
+  number must carry one, and `literature` / `measured` must name their source in `reference` (new member
+  `MaterialsQuantity::reference`, printed on the report line). Values must lie in a physical range (`Q_dielectric`
+  1e3–1e10, `loss_tangent` 1e-10–1e-3, `junction_gap_ueV` 10–3000 µeV). `produced_by.tool` is required, every
+  `placeholders` entry must name a quantity in the file, and `contains_placeholders` must agree with the quantities.
+  atomforge's writer already meets every rule. The `materials` group has 29 checks (4 new), 504 validation checks in
+  all; `results/test_output.txt` still records the 500-check run of `main` named in `results/PROVENANCE.md`.
+- CLI: `qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]` (decision D2) writes
+  a copy of the chip with the sidecar's accepted values and a `materials_source` block: the sidecar's file name and
+  SHA-256, its `produced_by` and `system`, the loss-tangent opt-in, the gap policy and one entry per quantity (applied,
+  before, after, provenance, reference). Each qubit keeps its `Rn_kOhm` (D1), so a new gap moves `f01`, as it does in
+  memory. A chip that already has a `materials_source` keeps it as `previous`. `design_from_json` ignores the block, so
+  the copy loads anywhere; `--out` naming an input file, a missing `--out` or another action than `apply` is refused,
+  and nothing is written when a check fails. `materials.hpp` gains `materials_apply_file`, `materials_source_json`,
+  `MaterialsApplyResult` and `materials_detail::sha256_hex` / `read_file`. The `materials` group has 34 checks (5 new),
+  509 in all; CLI guards `cli_materials_apply*` and new `cli_exit_status` / `cli_help_command` lines.
+- The `layout` / `gds` refusal of `--materials` now points at `qpuforge materials apply`.
 
 ### Fixed
 - CLI: each command accepts only the options it reads. An unknown or misspelt option (`--shot 1000`, `-grid`, or another
@@ -249,6 +267,9 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
   written; they used to return as if it had been written.
 - The materials reader changes nothing else: chip JSON files and the output of `qpuforge analyze` without
   `--materials` are as before.
+- Stricter sidecar validation (D4): a hand-written sidecar whose numbers have no `provenance`, an unknown one, or a
+  `literature` / `measured` value without `reference` is now rejected (`std::runtime_error`), as is a value outside the
+  ranges above, a sidecar without `produced_by.tool`, or inconsistent `placeholders` / `contains_placeholders`.
 
 ### Known issues
 - **The masks are not fabrication-ready.** Metal connectivity (`layout.connectivity` in the reviews):

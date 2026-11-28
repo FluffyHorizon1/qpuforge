@@ -51,7 +51,8 @@ static const UsageBlock kUsageCommands[] = {
      "                [--off SRC,..] [--decoder exact|uf|uf-stream|legacy|greedy [--window R] [--commit R]]\n"
      "                [--leakage-removal lrr|dqlr|lrr+dqlr|none]\n"
      "                [--cache file] [--herald [--herald-fidelity F] [--herald-false P] [--herald-factor X]\n"
-     "                [--herald-rule footprint|detector]] [--bursts [--burst-rate Hz] [--burst-tau-ms T] [--burst-t1-us T]\n"
+     "                [--herald-rule footprint|detector] [--herald-weights fixed|derived] [--dqlr-herald]]\n"
+     "                [--bursts [--burst-rate Hz] [--burst-tau-ms T] [--burst-t1-us T]\n"
      "                [--burst-tphi-us T] [--veto [--veto-window R] [--veto-radius L] [--veto-false P] [--impact-p P]\n"
      "                [--burst-radius L]]]\n"
      "                surface-code memory experiment: logical error per round (needs a surface layout);\n"
@@ -59,7 +60,10 @@ static const UsageBlock kUsageCommands[] = {
      "                injected per shot and detected by a sliding-window veto (residual floor, discard fraction);\n"
      "                --decoder legacy reproduces the pre-v0.4 decoder (greedy above 22 defects) on the same syndromes;\n"
      "                --decoder uf-stream: union-find over a sliding window of --window rounds (6), committing --commit (3);\n"
-     "                --herald: 3-state readout heralds leaked measure qubits; decoded with and without them\n"},
+     "                --herald: 3-state readout heralds leaked measure qubits; decoded with and without them, both by\n"
+     "                the chosen decoder; --herald-weights derived takes the edge weights from the leakage model\n"
+     "                instead of the fixed factors; --dqlr-herald (with --leakage-removal lrr+dqlr): the removal pulse\n"
+     "                leaves a data qubit's leakage on its measure qubit, whose next readout heralds it\n"},
     {"synth-chip",
      "  qpuforge synth-chip <chip.json> <data.json> [--seed S] [--shots N] [--rounds 5,15,25] [--z-only]\n"
      "                [--hidden-dephasing-us T] [--cache file]   virtual chip -> characterisation file (to test the chain)\n"},
@@ -755,8 +759,13 @@ static int cmd_qec(const Args& a) {
         for (const char* o : {"--veto-window", "--veto-radius", "--veto-false", "--impact-p", "--burst-radius"})
             if (a.has(o)) throw UsageError(std::string(o) + " needs --veto");
     if (!a.flag("--herald"))
-        for (const char* o : {"--herald-fidelity", "--herald-false", "--herald-factor", "--herald-rule"})
+        for (const char* o : {"--herald-fidelity", "--herald-false", "--herald-factor", "--herald-rule", "--herald-weights", "--dqlr-herald"})
             if (a.has(o)) throw UsageError(std::string(o) + " needs --herald");
+    if (a.text("--herald-weights", "fixed") == "derived")
+        for (const char* o : {"--herald-factor", "--herald-rule"})
+            if (a.has(o)) throw UsageError(std::string(o) + " applies to --herald-weights fixed only");
+    if (a.flag("--dqlr-herald") && a.text("--leakage-removal") != "lrr+dqlr")
+        throw UsageError("--dqlr-herald needs --leakage-removal lrr+dqlr");
     if (a.text("--decoder", "exact") != "uf-stream")
         for (const char* o : {"--window", "--commit"})
             if (a.has(o)) throw UsageError(std::string(o) + " needs --decoder uf-stream");
@@ -768,6 +777,7 @@ static int cmd_qec(const Args& a) {
         D.leakage.reset_removes_leakage = v == "lrr" || v == "lrr+dqlr";
         D.leakage.dqlr = v == "dqlr" || v == "lrr+dqlr";
     }
+    if (a.flag("--dqlr-herald")) D.leakage.dqlr_transfer = true;
     auto R = analyze(D);
     if (D.coupler.physical) calibrate_chip_cz(D, R, true, a.text("--cache"));
     auto nm = noise_model(D, R);
@@ -802,9 +812,16 @@ static int cmd_qec(const Args& a) {
         const std::string rule = a.text("--herald-rule", "footprint");   // footprint or detector (checked)
         fro.herald.footprint = rule == "footprint";
         if (!fro.herald.footprint) fro.herald.touch_factor = fro.herald.footprint_factor;
-        std::printf("heralded leakage: 3-state readout of the measure qubits, fidelity %.3f, false-herald rate %.1e; %s rule, factor %.2f%s\n",
-                    fro.herald.fidelity, fro.herald.false_rate, rule.c_str(), fro.herald.footprint_factor,
-                    nm.leakage ? (nm.reset_removes_leakage ? "" : " (the reset does not remove leakage)") : " (leakage is not simulated: only false heralds)");
+        fro.herald.derived = a.text("--herald-weights", "fixed") == "derived";
+        const char* note = nm.leakage ? (nm.reset_removes_leakage ? "" : " (the reset does not remove leakage)") : " (leakage is not simulated: only false heralds)";
+        if (fro.herald.derived)
+            std::printf("heralded leakage: 3-state readout of the measure qubits, fidelity %.3f, false-herald rate %.1e; weights derived from the leakage model%s\n",
+                        fro.herald.fidelity, fro.herald.false_rate, note);
+        else
+            std::printf("heralded leakage: 3-state readout of the measure qubits, fidelity %.3f, false-herald rate %.1e; %s rule, factor %.2f%s\n",
+                        fro.herald.fidelity, fro.herald.false_rate, rule.c_str(), fro.herald.footprint_factor, note);
+        if (D.leakage.dqlr_transfer)
+            std::printf("  DQLR with heralding: a data qubit's leakage is moved onto its measure qubit and heralded by that qubit's next readout\n");
     }
     double best_T1 = 0, best_T2 = 0;
     for (const auto& q : R.q) { best_T1 = std::max(best_T1, q.T1_us); best_T2 = std::max(best_T2, q.T2_us); }
@@ -813,7 +830,8 @@ static int cmd_qec(const Args& a) {
         std::printf("  rounds   round_ns   detection   P_L                eps/round   defects/shot (max)   decode us/shot\n");
         std::vector<MemoryResult> all;
         for (int r : rounds) {
-            const auto M = prepare_memory(D, R, nm, r, basis);
+            auto M = prepare_memory(D, R, nm, r, basis);
+            if (fro.herald.on && fro.herald.derived) prepare_herald_model(M);
             FrameRunOptions fr = fro;
             std::unique_ptr<StreamingUnionFind> stream;
             if (a.text("--decoder", "exact") == "uf-stream") {
@@ -828,10 +846,12 @@ static int cmd_qec(const Args& a) {
             if (M.frame.leakage) std::printf("   leaked: data %.1e meas %.1e", res.leak_frac_data, res.leak_frac_meas);
             std::printf("\n");
             if (herald) {
-                FrameRunOptions blind = fro; blind.herald.use_in_decoder = false;
+                // the comparison run: the same options (so the same decoder, streaming included), heralds ignored
+                FrameRunOptions blind = fr; blind.herald.use_in_decoder = false;
                 const auto nb = run_memory_frame(M, shots, seed + unsigned(r) + (basis == 'X' ? 7919u : 0u), blind);
-                std::printf("          heralds %.2f per shot (%.0f%% leaked); same syndromes decoded without heralds: P_L %.5f, eps %.5f (with: %.5f)\n",
-                            res.heralds_per_shot, 100 * res.herald_true_frac, nb.p_logical, nb.eps_per_round, res.eps_per_round);
+                std::printf("          heralds %.2f per shot (%.0f%% leaked); same syndromes decoded without heralds%s: P_L %.5f, eps %.5f (with: %.5f)\n",
+                            res.heralds_per_shot, 100 * res.herald_true_frac, fr.stream ? " (streaming union-find)" : "", nb.p_logical, nb.eps_per_round,
+                            res.eps_per_round);
             }
             if (res.ignored_exchange_pairs) std::printf("    ! %d near-degenerate exchange pair(s) not modelled by the Pauli-frame simulator\n", res.ignored_exchange_pairs);
             if (sv_shots > 0 && r == rounds.front()) {
@@ -1027,6 +1047,7 @@ static const std::vector<Command>& commands() {
           choice("--leakage-removal", "lrr|dqlr|lrr+dqlr|none"),
           text("--cache"), flag("--herald"), real("--herald-fidelity", 0, 1), real("--herald-false", 0, 1),
           real("--herald-factor", 0, 1), choice("--herald-rule", "footprint|detector"),
+          choice("--herald-weights", "fixed|derived"), flag("--dqlr-herald"),
           flag("--bursts"), real("--burst-rate", 0), real("--burst-tau-ms", 0), real("--burst-t1-us"), real("--burst-tphi-us"),
           flag("--veto"), integer("--veto-window", 1), real("--veto-radius", 0), real("--veto-false", 0, 1),
           real("--impact-p", 0, 1), real("--burst-radius", 0)}},

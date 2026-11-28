@@ -14,7 +14,7 @@ assumptions listed in each design spec. They are design targets, not measured pe
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
 | 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (500 validation checks on `main`) | n/a |
-| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11); mask not fabrication-ready: metal connectivity open | open: fabricate and characterise |
+| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11); mask not fabrication-ready: 4 DRC space violations, metal connectivity open | open: fabricate and characterise |
 | **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/beta1) | open |
 | **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/gamma1). Lattice-surgery ZZ, XX and CNOT simulated at d = 3, 5 (results/surgery_study.txt) | planned |
 | Delta | modular | Several logical qubits linked between modules; logical-level benchmarks | planned | planned |
@@ -187,14 +187,14 @@ the chip in the same data file.
   leakage-removing reset. See `docs/design/heralded-leakage.md` and `results/decoder_study.txt`.
 - An impact veto: per-shot impact injection, a sliding space-time window veto calibrated to a false-veto rate, and the
   floor with shot-by-shot discard or a latched hold. See `docs/design/impact-veto.md`.
-- Linear-time fault enumeration: setup cost linear in the number of rounds (Gamma-1, d = 7, 50 rounds: 1.3 s against
-  41 s for the 0.4 routine on four threads).
+- Linear-time fault enumeration: setup cost linear in the number of rounds (Gamma-1, d = 7, 50 rounds: 1.4 s against
+  44 s for the 0.4 routine on four threads).
 
 **Main risks.**
 - Wiring scale (above).
 - High-energy impacts set a floor that distance does not remove. It is far below the distance-7 error, and becomes
-  the limit near distance 16 at the simulated Λ. Gap-engineered junctions shorten each event; they should be in the
-  process by Delta, together with an impact veto.
+  the limit from about distance 15 at the simulated Λ. Gap-engineered junctions shorten each event; they should be in
+  the process by Delta, together with an impact veto.
 - Calibration time for 168 couplers.
 
 ## Phase Delta — modular scale-out (planned)

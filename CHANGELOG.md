@@ -14,6 +14,17 @@ The decoding items of Phase Gamma: a union-find decoder, leakage-aware decoding 
 injection with an impact veto, and linear-time fault enumeration. Study: `examples/decoder_study.cpp` ->
 `results/decoder_study.{txt,json}`.
 
+A streaming union-find decoder for real-time decoding: it decodes a sliding window of rounds, commits the corrections
+in the window's first rounds and moves on (`qpuforge qec --decoder uf-stream`). `decoder_study` section 5 compares it
+with the batch decoder on the same syndromes.
+
+Phase Gamma logical operations: lattice surgery between surface-code patches (logical Z_A Z_B and X_A X_B measurement,
+and a three-patch CNOT). Each operation is checked noiselessly with a stabiliser tableau and simulated with the
+Pauli-frame Monte Carlo. Study: `examples/surgery_study.cpp` -> `results/surgery_study.{txt,json}` (CZ model version 4).
+
+A strict command line: each command accepts only its own options, and an unknown, misspelt or repeated option, a
+missing value or a malformed number is a usage error (exit 1), reported before any file is read.
+
 The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_CONTRACT.md`): a reader for the
 `forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
 
@@ -22,7 +33,8 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   - `detail::fill_ground_slivers`: mask clean-up that merges two cut-outs separated by a strip of ground narrower than
     the minimum (projection metric). It removes ground only; a gap that touches island metal is left to the DRC.
   - `detail::guarded_fill`: the clean-up as `assemble_chip` runs it, with a connectivity guard: a fill that would cut
-    ground off the ground plane is undone, and the DRC reports the neck it leaves.
+    ground off the ground plane is undone, and the DRC reports the neck it leaves. `ChipLayout::slivers_filled` counts
+    the fills kept (`layout.drc.ground_sliver_fills` in the reviews).
   - `detail::metal_map` (`MetalMap`): exact connected components of the metal (outline minus etch) by scanline and
     union-find.
   - `ConnectivityReport` (`ChipLayout::conn`), `connectivity_summary`, `connectivity_json` (LVS-lite): conductors
@@ -42,26 +54,54 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   conductor shorted or merged, extraction on target, exchange re-nullable; connectivity printed; label `layout`, about
   3 minutes). `pulse_cz` checks the two pair classes with the most leakage with and without the fallback.
 - `docs/design/cz-leakage.md`.
-
 - `unionfind.hpp`: `UnionFindDecoder`, Delfosse-Nickerson union-find with weighted growth and peeling
-  (docs/design/union-find-decoder.md). `DecodeMethod::UnionFind`; `qpuforge qec --decoder uf`.
-- `unionfind.hpp`: `StreamingUnionFind` and `StreamScratch`, sliding-window decoding over rounds with a commit region
-  (docs/design/streaming-union-find.md); `FrameRunOptions::stream`; `MemoryResult::stream_window_us_mean` and
-  `stream_window_us_max`. `qpuforge qec --decoder uf-stream [--window W] [--commit C]`. Test group `streaming_uf`;
-  `decoder_study` section 5 (d = 7, 50 rounds).
+  (docs/design/union-find-decoder.md), with its work arrays `UFScratch`. `DecodeMethod::UnionFind`,
+  `MatchingDecoder::union_find()`, `DecodeScratch::uf`; `qpuforge qec --decoder uf`.
 - `qec.hpp`:
   - Heralded leakage (docs/design/heralded-leakage.md): `HeraldSpec` in `FrameRunOptions` (3-state readout of the
     measure qubits with a herald fidelity and a false-herald rate), `MatchingDecoder::decode_scaled` (exact matching on
     a per-shot re-weighted graph), `herald_touch_edges`, `herald_footprints`, `MemorySetup::herald_edges`.
     `qpuforge qec --herald [--herald-fidelity F] [--herald-false P] [--herald-factor X] [--herald-rule footprint|detector]`.
+    The herald options need `--herald`; `--herald-fidelity`, `--herald-false` and `--herald-factor` are in [0, 1].
   - Impact injection and veto (docs/design/impact-veto.md): `ImpactSpec` and `VetoSpec` in `FrameRunOptions`,
     `BurstSpec::radius`, `impact_shot_seed`, `calibrate_veto`, `burst_floor_veto`. `qpuforge qec --bursts --veto
-    [--veto-window R] [--veto-radius L] [--veto-false P] [--impact-p P] [--burst-radius L]`.
+    [--veto-window R] [--veto-radius L] [--veto-false P] [--impact-p P] [--burst-radius L]`. `--veto` needs `--bursts`
+    and these options need `--veto`; `--veto-false` and `--impact-p` are in [0, 1], `--veto-window` >= 1, and
+    `--veto-radius` and `--burst-radius` >= 0.
   - `MemoryResult`: herald counts, impact and discard counts, `p_logical_kept`, `eps_kept`, `veto_hist`.
   - `MemorySetup::sim_xy`, `det_xy` (lattice positions); `FrameProgram::FMoment::known` (known basis state per slice).
   - `enumerate_faults_direct`: the 0.4 sparse enumeration, kept for timing comparisons.
 - Tests: groups `union_find`, `heralds`, `impact_veto` (label qec); `fault_enumeration` now also checks the linear-time
-  version and its scaling (a deterministic work count: the optional `steps` output of both enumerations); the thread-count determinism digest covers union-find, heralds, and impacts with the veto.
+  version and its scaling (a deterministic work count: the optional `steps` output of both enumerations); the
+  thread-count determinism digest covers union-find, heralds, and impacts with the veto.
+- `unionfind.hpp`: `StreamingUnionFind` and `StreamScratch`, sliding-window decoding over rounds with a commit region
+  (docs/design/streaming-union-find.md); `FrameRunOptions::stream`; `DecodeScratch::stream`;
+  `MemoryResult::stream_window_us_mean` and `stream_window_us_max`. `qpuforge qec --decoder uf-stream [--window W]
+  [--commit C]` (6 and 3 rounds by default; both need `--decoder uf-stream`, and `--commit` must be smaller than
+  `--window`). Test group `streaming_uf`; `decoder_study` section 5 (d = 7, 50 rounds).
+- `surgery.hpp`:
+  - Multi-patch geometry: `SurgeryLattice` (patches and merged regions on one qubit lattice), `region_faces`.
+  - Schedules: `SurgerySchedule` / `SurgeryPhase`; `build_surgery` writes the circuit and derives the detectors across
+    merges and splits, the reference bits and the classical-bit bookkeeping.
+  - Protocols: `surgery_parity` (logical Z_A Z_B or X_A X_B measurement), `surgery_cnot` (three-patch CNOT with
+    Pauli-frame corrections), `surgery_memory` (one patch), `surgery_experiment` (by name).
+  - `StabilizerTableau`, `tableau_records` and `check_surgery_noiseless`: noiseless verification of detectors and
+    observables on random measurement branches.
+  - `surgery_chip`: a chip for the lattice with Alpha-1 v1.1 or Beta-1 physics.
+  - `prepare_surgery`, `surgery_fault_signatures`, `run_surgery_frame`: one detector error model and exact matching
+    decoder per observable, and the Pauli-frame Monte Carlo (thread-count independent).
+- CLI: `qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input ..] [--readout Z|X] [--chip beta1|alpha1_v11] ...`.
+  `--op`, `--readout` and `--chip` are choices, `--d` takes odd distances from 3 to 15, and `--readout` applies to
+  `--op cnot` only. Exit status 3 when a noiseless check fails.
+- `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
+- Tests: `surgery` and `surgery_cnot` groups (82 checks); the determinism guard also covers
+  `run_surgery_frame`; a smoke entry for the study.
+- Tests: `cli_*` guards (label `unit`) for unknown options, missing values, malformed numbers and choices, repeated and
+  extra arguments, one accepted invocation per command with every option given (two for `new`, a topology and
+  `--preset`; three for `qec`: the burst options, then the decoding options and the streaming decoder at non-default
+  values, matched against what the run echoes), the materials options, failed writes and the exit statuses;
+  `cli_exit_status` also checks every option dependency and value range of `qec` and `analyze` on a chip file that does
+  not exist (exit 1 before any file is read).
 - `materials.hpp`: `load_materials` / `materials_from_json` read and check a `forge.materials.v0` sidecar, and
   `apply_materials` writes it into a `ChipDesign`. The sidecar's `Q_dielectric` (unit `dimensionless`) sets
   `ChipDesign::Q_dielectric` and its `junction_gap_ueV` (unit `ueV`) sets `ChipDesign::gap_ueV`; a value must be
@@ -76,12 +116,14 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `--materials` value, are usage errors (exit 1), reported before any file is read.
 - Tests: the `materials` group (label `unit`, 25 checks), with sidecar fixtures in `tests/data/`, among them
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
-  `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
-  guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
-- 500 validation checks in all: 346 on `main` before this release's work, plus 21 from the decoding work (#20), 48 from
-  fabrication readiness (#19), 3 from the streaming decoder (#27) and 82 from lattice surgery (#21)
-  (`results/test_output.txt`). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
-  `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
+  `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_loss_tangent_opt_in`,
+  `cli_materials_refused` and `cli_usage_materials` CLI guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the
+  path of `tests/data`.
+- 500 validation checks in all (`results/test_output.txt`): 346 on `main` before the decoding work (the 321 of 0.4.0
+  plus 25 in `materials`), plus 21 from the decoding work (#20), 48 from fabrication readiness (#19), 3 from the
+  streaming decoder (#27) and 82 from lattice surgery (#21). The 0.4 groups now give 328: fabrication readiness added
+  four `pulse_cz` checks and one `layout` check, the decoding work two `fault_enumeration` checks. The strict CLI (#24)
+  adds CTest guards, not validation checks.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
 
 ### Fixed
@@ -92,16 +134,10 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `--shots 1e5`, which `std::stoi` read as 1), a count out of range (`fab --samples 0` crashed, `run --traj 0` reported
   a fidelity of 1), a negative seed (`std::stoul` wrapped it) and an unknown choice (`--arch tunabel` gave a
   fixed-coupling chip; `--off contrl` and `--leakage-removal lrrr` did nothing). `new --preset` rejects the generator
-  options it ignored, `new` takes one topology, `qec` rejects `--burst-*` and `--veto` without `--bursts`, the veto
-  options without `--veto` and the herald options without `--herald`, and `budget` no longer accepts `--shots`, which it
-  never used. `--window` and `--commit` need `--decoder uf-stream`, and `--commit` must be smaller than `--window`
-  (the streaming decoder threw at run time). `surgery` takes the strict options too (`--op`, `--readout` and `--chip`
-  are choices, `--d` odd distances from 3 to 15; exit 3 when a noiseless check fails). The `qec` decoding options are
-  range-checked: `--herald-fidelity`, `--herald-false`, `--veto-false`,
-  `--impact-p` and `--herald-factor` in [0, 1] (the decoder ignored a herald factor above 1), `--veto-window` >= 1, and
-  `--veto-radius`, `--burst-radius`, `--burst-rate` and `--burst-tau-ms` >= 0.
-- CLI: a misspelt option that is a unique prefix of one option is completed to it, not to a closer-looking shorter name
-  (`--burst-rad` -> `--burst-radius`, not `--burst-rate`; `--herald-r` -> `--herald-rule`, not `--herald`).
+  options it ignored, `new` takes one topology, `qec` rejects the `--burst-*` options without `--bursts` and a negative
+  `--burst-rate` or `--burst-tau-ms`, and `budget` no longer accepts `--shots`, which it never used. For a misspelling
+  that is a unique prefix of one option, the error names that option (`--burst-rad`: `--burst-radius`, not
+  `--burst-rate`).
 - CLI: `hwgate --out`, `cz --out`, the `synth-chip` data file and the `gds --cells` write-back fail with "cannot write"
   (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
   `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
@@ -138,52 +174,37 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   to the next measurement cut and finished with precomputed per-qubit tails. Output unchanged, fault by fault.
 - The matching decoder's DP, blossom and greedy paths read distances through an oracle, so that `decode_scaled` can
   reuse them; results of `decode` are unchanged.
-- **Behaviour change:** a malformed number, an unknown circuit (`ghz:x`), an unknown `--basis`, `--decoder`,
-  `--preset`, `--phase` or `--herald-rule` value and `analyze --loss-tangent` without `--materials` are usage errors
-  (exit 1); they used to exit 2, numbers with "error: stoi". The usage
+- **Behaviour change:** a malformed number, an unknown circuit (`ghz:x`) and an unknown `--basis`, `--decoder`,
+  `--preset` or `--phase` value are usage errors (exit 1); they used to exit 2, numbers with "error: stoi". The usage
   text and README document the exit statuses: 0 done, 1 usage error, 2 error while running (also `gds`: layout not
-  DRC-clean), 3 `hwgate`: gate not passed.
+  DRC-clean), 3 `hwgate`: gate not passed, `surgery`: a noiseless check failed.
 - CLI: the usage text lists every option of every command (`budget --seed`, `qec --seed --cache --leakage-removal`,
   `synth-chip --cache`, `hwgate --seed --cache` and most `new` options were missing), and a usage error prints the
   usage of its command only. Options may come before the positional arguments.
-- Tests: `cli_*` guards (label `unit`) for unknown options, missing values, malformed numbers and choices, repeated and
-  extra arguments, one accepted invocation per command with every option given (two for `qec`: the burst options, and
-  the decoding options at non-default values, matched against what the run echoes), the materials options, failed
-  writes and the exit statuses; `cli_exit_status` also checks every option dependency and value range of `qec` and
-  `analyze` on a chip file that does not exist (exit 1 before any file is read).
 
 ### API changes
 - `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
 - `frame_detail::FaultDesc` (internal) gained `owner`.
+- `enumerate_faults(F, E, long* steps = nullptr)` and `optimize_cz(S, fluxc_on, t_rise, dt, max_eval, leak_weight = 0,
+  leak_limit = 1, coh_limit = 1)` gain optional arguments. 0.4 calls compile unchanged; `optimize_cz` called without
+  them has no leakage fallback (`calibrate_cz_pair` passes the `CZModel` values).
+- `CZModel::kVersion` is 4 (was 2): a CZ cache of another model version, such as one written by 0.4, is ignored with a
+  warning and its calibrations are re-simulated.
 - New header `include/qpuforge/materials.hpp`, included by `qpuforge.hpp`. It adds `MaterialsQuantity`,
   `MaterialsProducer`, `MaterialsSidecar`, `MaterialsApplyOptions`, `MaterialsReportLine`, `MaterialsReport`,
   `materials_from_json`, `load_materials`, `apply_materials` and the `materials_detail` namespace to `qpuforge`. Code
   that includes `qpuforge.hpp`, defines one of these names itself and uses `using namespace qpuforge` can now hit an
   ambiguity.
+- New headers `include/qpuforge/unionfind.hpp`, included by `qec.hpp`, and `include/qpuforge/surgery.hpp`, included by
+  `qpuforge.hpp`. They add `UFScratch`, `UnionFindDecoder`, `StreamScratch`, `StreamingUnionFind` and the
+  lattice-surgery names (`Surgery*`, `StabilizerTableau`, `make_surgery_lattice`, `region_faces`, `build_surgery`,
+  `surgery_*`, `tableau_records`, `check_surgery_noiseless`, `prepare_surgery`, `run_surgery_frame` and the
+  `surgery_detail` namespace) to `qpuforge`, with the same possible ambiguity; for the union-find names, also in code
+  that includes only `qec.hpp`.
 - `save_design` and `write_layout_svg` (`device.hpp`) throw `std::runtime_error` when the file cannot be opened or
   written; they used to return as if it had been written.
 - The materials reader changes nothing else: chip JSON files and the output of `qpuforge analyze` without
   `--materials` are as before.
-
-### Added: lattice surgery
-
-Phase Gamma logical operations: lattice surgery between surface-code patches.
-
-- `surgery.hpp`:
-  - Multi-patch geometry: `SurgeryLattice` (patches and merged regions on one qubit lattice), `region_faces`.
-  - Schedules: `SurgerySchedule` / `SurgeryPhase`; `build_surgery` writes the circuit and derives the detectors across
-    merges and splits, the reference bits and the classical-bit bookkeeping.
-  - Protocols: `surgery_parity` (logical Z_A Z_B or X_A X_B measurement), `surgery_cnot` (three-patch CNOT with
-    Pauli-frame corrections), `surgery_memory` (one patch), `surgery_experiment` (by name).
-  - `StabilizerTableau`, `tableau_records` and `check_surgery_noiseless`: noiseless verification of detectors and
-    observables on random measurement branches.
-  - `surgery_chip`: a chip for the lattice with Alpha-1 v1.1 or Beta-1 physics.
-  - `prepare_surgery`, `surgery_fault_signatures`, `run_surgery_frame`: one detector error model and exact matching
-    decoder per observable, and the Pauli-frame Monte Carlo (thread-count independent).
-- CLI: `qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input ..] [--readout Z|X] [--chip beta1|alpha1_v11] ...`.
-- `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
-- Tests: `surgery` and `surgery_cnot` groups (82 checks); the determinism guard also covers
-  `run_surgery_frame`; a smoke entry for the study.
 
 ### Known issues
 - **The masks are not fabrication-ready.** Metal connectivity (`layout.connectivity` in the reviews):
@@ -194,6 +215,7 @@ Phase Gamma logical operations: lattice surgery between surface-code patches.
   - the XY and flux lines' capacitance to the qubits, and the resulting T1 limit, are not modelled;
   - the extraction treats every enclosed ground fragment as grounded.
 - AF-17 keeps four DRC space violations (ground necks below 4 µm), one each at Q7, Q10, Q13 and Q16.
+
 ## [0.4.0] (unreleased)
 
 Finishes the software side of Phases Alpha and Beta and starts Phase Gamma: an exact decoder at any number of defects,
@@ -292,6 +314,9 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - CLI: the usage text lists `--version` / `-V`.
 
 ### Known issues
+- CZ leakage: the worst frequency combination leaks 2.3e-04 per gate, above the 2e-4 limit of the Alpha
+  simulation gate (mean 5.7e-05). Alpha-1, Beta-1 and Gamma-1 share the same 16 frequency combinations, so the
+  pair class appears on all three chips (Q8–Q11 on AF-17).
 - No layout passes the merged-etch width/space DRC (4 µm / 4 µm, projection metric): AF-17 has 34 width + 202 space violations,
   BF-49 rev C 98 width + 504 space violations, and GF-97 194 width + 1,016 space violations. The
   masks are not fabrication-ready.

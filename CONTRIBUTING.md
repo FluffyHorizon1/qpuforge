@@ -25,7 +25,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ctest --test-dir build -LE smoke      # one CTest entry per group, excluding end-to-end smokes
 ```
 
-`ctest` labels are `unit`, `physics`, `pulse`, `qec`, `layout` and `smoke`. The three `smoke` entries run the Alpha-1 v1.1, Beta-1 and Gamma-1 review programs with 200 shots; they write into the build tree and leave committed outputs untouched.
+`ctest` labels are `unit`, `physics`, `pulse`, `qec`, `layout` and `smoke`. The four `smoke` entries run the Alpha-1 v1.1, Beta-1 and Gamma-1 review programs and the lattice-surgery study (`surgery_study`) with 200 shots; they write into the build tree and leave committed outputs untouched.
 
 Please run `./build/test_qpuforge` or `ctest --test-dir build -LE smoke` before opening a pull request. Mention any tests you could not run, and why.
 

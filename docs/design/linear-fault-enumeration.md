@@ -40,8 +40,10 @@ affects speed, not the result.
 `fault_enumeration` (tests/test_qpuforge.cpp) compares the reference, the 0.4 sparse version (now
 `enumerate_faults_direct`) and the linear-time version fault by fault on ten experiments: d = 3 and 5, both bases,
 1 to 8 rounds, with DQLR faults, and with unequal CZ durations (twice the time slices). Result: 188,932 faults,
-0 differences. Time per fault on d = 5: 0.121 µs at 10 rounds and 0.180 µs at 40 rounds (best of three). The test
-allows a factor of 2.5; the quadratic version takes about 4× longer per fault at 40 rounds.
+0 differences. Scaling is checked with a deterministic work count, the time slices processed (an optional output of
+both enumerations), because wall-clock time on a loaded test runner is not reliable: on d = 5, 0.85 slices per fault
+at both 10 and 40 rounds for the linear-time version, against 33.65 and 141.94 for the sparse one. The test requires
+less than 1.25× growth for the first and more than 2.5× for the second.
 
 Gamma-1 (d = 7, memory-Z; `results/decoder_study.txt`, section 1, four threads):
 

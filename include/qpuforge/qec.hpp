@@ -443,6 +443,7 @@ struct SparseFrame {
     std::vector<int> sup, cb_touched, det_touched, pending, extra;
     int cur{0};                                              // the last moment processed
     std::uint8_t obs{0};
+    long steps{0};                                           // moments processed (a work count for tests)
     SparseFrame(const FrameProgram& F_, const SparseIndex& I_)
         : F(&F_), I(&I_), x(I_.nq, 0), z(I_.nq, 0), flips(I_.ncl, 0), dpar(I_.ndet, 0), in_sup(I_.nq, 0), next_of(I_.nq, 0) {}
     void add(int q) {
@@ -467,6 +468,7 @@ struct SparseFrame {
             }
             if (nxt == none || nxt > stop) { cur = std::max(cur, stop); return; }
             cur = nxt;
+            ++steps;
             const std::size_t m = std::size_t(cur);
             // operations of this moment on the qubits that carry a Pauli, in program order; a CZ can bring its
             // partner in, whose later operations in the same moment then join the list
@@ -525,11 +527,13 @@ struct SparseFrame {
 // A data-qubit Pauli survives every later round, so each fault still costs time proportional to the rounds after it
 // and the whole enumeration is quadratic in the number of rounds. Kept for timing comparisons (enumerate_faults is
 // the linear-time version).
-inline std::vector<FaultSignature> enumerate_faults_direct(const FrameProgram& F, const MemoryExperiment& E) {
+// steps (optional): total time slices processed, a deterministic work count.
+inline std::vector<FaultSignature> enumerate_faults_direct(const FrameProgram& F, const MemoryExperiment& E, long* steps = nullptr) {
     const auto list = frame_detail::list_faults(F);
     const frame_detail::SparseIndex I(F, E);
     std::vector<FaultSignature> out(list.size());
-#pragma omp parallel
+    long total = 0;
+#pragma omp parallel reduction(+ : total)
     {
         frame_detail::SparseFrame S(F, I);
 #pragma omp for schedule(dynamic, 256)
@@ -549,7 +553,9 @@ inline std::vector<FaultSignature> enumerate_faults_direct(const FrameProgram& F
             S.clear_frame();
             out[std::size_t(i)] = std::move(s);
         }
+        total += S.steps;
     }
+    if (steps) *steps = total;
     return out;
 }
 
@@ -561,7 +567,8 @@ inline std::vector<FaultSignature> enumerate_faults_direct(const FrameProgram& F
 // next cut, collect the bits it flips there, and XOR in the tails of whatever frame is left. A fault is then
 // propagated only to the first cut at or after it and finished with tails. Each propagation spans one segment (about
 // one QEC round), so the enumeration costs O(rounds x faults per round) instead of O(rounds^2 x faults per round).
-inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const MemoryExperiment& E) {
+// steps (optional): total time slices processed (tails and faults), a deterministic work count.
+inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const MemoryExperiment& E, long* steps = nullptr) {
     const auto list = frame_detail::list_faults(F);
     const frame_detail::SparseIndex I(F, E);
     std::vector<int> cuts;                                       // moments that contain a measurement
@@ -592,7 +599,8 @@ inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const
     };
     // one workspace per thread for all levels (allocating it per level would cost O(rounds^2)); the implicit barrier
     // at the end of each omp for orders the levels
-#pragma omp parallel
+    long total = 0;
+#pragma omp parallel reduction(+ : total)
     {
         frame_detail::SparseFrame S(F, I);
         for (std::size_t c = nc; c-- > 0;) {
@@ -609,9 +617,10 @@ inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const
                 S.clear_frame();
             }
         }
+        total += S.steps;
     }
     std::vector<FaultSignature> out(list.size());
-#pragma omp parallel
+#pragma omp parallel reduction(+ : total)
     {
         frame_detail::SparseFrame S(F, I);
 #pragma omp for schedule(dynamic, 256)
@@ -632,7 +641,9 @@ inline std::vector<FaultSignature> enumerate_faults(const FrameProgram& F, const
             S.clear_frame();
             out[std::size_t(i)] = std::move(s);
         }
+        total += S.steps;
     }
+    if (steps) *steps = total;
     return out;
 }
 

@@ -9,6 +9,9 @@ The decoding items of Phase Gamma: a union-find decoder, leakage-aware decoding 
 injection with an impact veto, and linear-time fault enumeration. Study: `examples/decoder_study.cpp` ->
 `results/decoder_study.{txt,json}`.
 
+The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_CONTRACT.md`): a reader for the
+`forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
+
 ### Added
 - `unionfind.hpp`: `UnionFindDecoder`, Delfosse-Nickerson union-find with weighted growth and peeling
   (docs/design/union-find-decoder.md). `DecodeMethod::UnionFind`; `qpuforge qec --decoder uf`.
@@ -24,7 +27,25 @@ injection with an impact veto, and linear-time fault enumeration. Study: `exampl
   - `MemorySetup::sim_xy`, `det_xy` (lattice positions); `FrameProgram::FMoment::known` (known basis state per slice).
   - `enumerate_faults_direct`: the 0.4 sparse enumeration, kept for timing comparisons.
 - Tests: groups `union_find`, `heralds`, `impact_veto` (label qec); `fault_enumeration` now also checks the linear-time
-  version and its scaling; the thread-count determinism digest covers union-find, heralds, and impacts with the veto.
+  version and its scaling (a deterministic work count: the optional `steps` output of both enumerations); the thread-count determinism digest covers union-find, heralds, and impacts with the veto.
+- `materials.hpp`: `load_materials` / `materials_from_json` read and check a `forge.materials.v0` sidecar, and
+  `apply_materials` writes it into a `ChipDesign`. The sidecar's `Q_dielectric` (unit `dimensionless`) sets
+  `ChipDesign::Q_dielectric` and its `junction_gap_ueV` (unit `ueV`) sets `ChipDesign::gap_ueV`; a value must be
+  finite and > 0. With `MaterialsApplyOptions::use_loss_tangent`, a `loss_tangent` sets
+  `Q_dielectric = 1 / loss_tangent` (the uniform-loss model of `analyze()`) when the sidecar's `Q_dielectric` is null
+  or absent. A null value, such as each of atomforge's placeholders, changes nothing. `Rn_spread_pct` and the
+  environment fields are never taken from a sidecar. The returned `MaterialsReport` has one line per quantity, applied
+  or skipped, with the reason. A wrong schema, an unknown quantity, a wrong unit, a bad value or a mismatched `maps_to`
+  throws `std::runtime_error` before the design is changed.
+- CLI: `analyze --materials <sidecar.json> [--loss-tangent]` applies a sidecar, prints one line per quantity, then
+  prints the device report. The chip JSON file is not changed.
+- Tests: the `materials` group (label `unit`, 25 checks), with sidecar fixtures in `tests/data/`, among them
+  atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
+  `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
+  guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
+- 366 validation checks in all (346 on `main` before the decoding work, plus 20 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
+  `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
+- `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
 
 ### Changed
 - `enumerate_faults` is linear in the number of rounds (docs/design/linear-fault-enumeration.md): faults are propagated
@@ -35,6 +56,13 @@ injection with an impact veto, and linear-time fault enumeration. Study: `exampl
 ### API changes
 - `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
 - `frame_detail::FaultDesc` (internal) gained `owner`.
+- New header `include/qpuforge/materials.hpp`, included by `qpuforge.hpp`. It adds `MaterialsQuantity`,
+  `MaterialsProducer`, `MaterialsSidecar`, `MaterialsApplyOptions`, `MaterialsReportLine`, `MaterialsReport`,
+  `materials_from_json`, `load_materials`, `apply_materials` and the `materials_detail` namespace to `qpuforge`. Code
+  that includes `qpuforge.hpp`, defines one of these names itself and uses `using namespace qpuforge` can now hit an
+  ambiguity.
+- Nothing else changes: `device.hpp`, chip JSON files and the output of `qpuforge analyze` without `--materials` are
+  as before. `--loss-tangent` without `--materials` is an error.
 
 ## [0.4.0] (unreleased)
 

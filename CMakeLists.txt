@@ -112,7 +112,7 @@ set(QPUFORGE_TESTS
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
-  "union_find:qec" "heralds:qec" "impact_veto:qec" "surgery:qec" "surgery_cnot:qec")
+  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "surgery:qec" "surgery_cnot:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 # forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data

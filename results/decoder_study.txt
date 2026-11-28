@@ -1,16 +1,16 @@
 Decoder study, Gamma-1 (GF-97): 100000 shots per point, 14-round memories unless stated
 
 1. Single-fault enumeration at d = 7 (setup of the detector error model)
-   25 rounds: 2850523 faults, 10019 time slices; sparse 7.48 s, linear-time 0.66 s (11.4x), 0 signatures differ; full setup 1.33 s
-   50 rounds: 5967552 faults, 21044 time slices; sparse 41.37 s, linear-time 1.30 s (31.9x), 0 signatures differ; full setup 3.76 s
+   25 rounds: 2850523 faults, 10019 time slices; sparse 8.49 s, linear-time 0.61 s (13.9x), 0 signatures differ; full setup 1.37 s
+   50 rounds: 5967552 faults, 21044 time slices; sparse 43.92 s, linear-time 1.40 s (31.4x), 0 signatures differ; full setup 3.91 s
 
 2. Union-find decoder against exact matching (same syndromes; seeds as in the Gamma-1 review)
-   d=3 memory-Z: exact eps 8.771e-04 (1214 failures / 100000), union-find eps 9.319e-04 (1289), ratio 1.06; decode 0.11 vs 0.06 us per round (1.7 defects per shot)
-   d=3 memory-X: exact eps 8.106e-04 (1123 failures / 100000), union-find eps 8.194e-04 (1135), ratio 1.01; decode 0.03 vs 0.06 us per round (1.7 defects per shot)
-   d=5 memory-Z: exact eps 1.646e-04 (230 failures / 100000), union-find eps 1.725e-04 (241), ratio 1.05; decode 0.29 vs 0.37 us per round (5.6 defects per shot)
-   d=5 memory-X: exact eps 1.682e-04 (235 failures / 100000), union-find eps 1.854e-04 (259), ratio 1.10; decode 0.27 vs 0.38 us per round (5.6 defects per shot)
-   d=7 memory-Z: exact eps 3.645e-05 (102 failures / 200000), union-find eps 3.573e-05 (100), ratio 0.98; decode 0.87 vs 0.78 us per round (11.6 defects per shot)
-   d=7 memory-X: exact eps 3.502e-05 (98 failures / 200000), union-find eps 3.645e-05 (102), ratio 1.04; decode 0.88 vs 0.75 us per round (11.6 defects per shot)
+   d=3 memory-Z: exact eps 8.771e-04 (1214 failures / 100000), union-find eps 9.319e-04 (1289), ratio 1.06; decode 0.12 vs 0.05 us per round (1.7 defects per shot)
+   d=3 memory-X: exact eps 8.106e-04 (1123 failures / 100000), union-find eps 8.194e-04 (1135), ratio 1.01; decode 0.02 vs 0.06 us per round (1.7 defects per shot)
+   d=5 memory-Z: exact eps 1.646e-04 (230 failures / 100000), union-find eps 1.725e-04 (241), ratio 1.05; decode 0.30 vs 0.40 us per round (5.6 defects per shot)
+   d=5 memory-X: exact eps 1.682e-04 (235 failures / 100000), union-find eps 1.854e-04 (259), ratio 1.10; decode 0.29 vs 0.37 us per round (5.6 defects per shot)
+   d=7 memory-Z: exact eps 3.645e-05 (102 failures / 200000), union-find eps 3.573e-05 (100), ratio 0.98; decode 0.96 vs 0.81 us per round (11.6 defects per shot)
+   d=7 memory-X: exact eps 3.502e-05 (98 failures / 200000), union-find eps 3.645e-05 (102), ratio 1.04; decode 1.00 vs 0.82 us per round (11.6 defects per shot)
 
 3. Heralded leakage (3-state readout of the measure qubits; leakage-removing reset; footprint rule, factor 0.4)
    d=5, CZ leakage x1  (0.07 events, 0.40 heralds per shot, 16% leaked), exact     : eps 1.675e-04 without heralds (234 failures), 1.567e-04 with (219): -6%
@@ -38,4 +38,12 @@ Decoder study, Gamma-1 (GF-97): 100000 shots per point, 14-round memories unless
      latched veto, hold after the onset: 1 tau 3.7e-08 (dead 1.0e-04) 2 tau 3.7e-08 (dead 2.0e-04) 3 tau 3.7e-08 (dead 3.0e-04) 5 tau 3.7e-08 (dead 5.0e-04) 7 tau 3.2e-09 (dead 7.0e-04) 10 tau 0.0e+00 (dead 1.0e-03) 15 tau 0.0e+00 (dead 1.5e-03) 20 tau 0.0e+00 (dead 2.0e-03)
      ladder: s 1.0e+00 eps 5.00e-01 veto 1.00; s 3.2e-01 eps 5.00e-01 veto 1.00; s 1.0e-01 eps 5.00e-01 veto 1.00; s 3.2e-02 eps 5.00e-01 veto 0.99; s 1.0e-02 eps 6.46e-03 veto 0.21; s 3.2e-03 eps 4.60e-04 veto 0.01; s 1.0e-03 eps 6.43e-05 veto 0.00; s 3.2e-04 eps 4.29e-05 veto 0.00; s 1.0e-04 eps 2.50e-05 veto 0.00;
 
-study complete in 1904 s
+5. Streaming (sliding-window) union-find at d = 7, 50 rounds, memory-Z (same syndromes; window / commit in rounds)
+   50000 shots: exact matching 95 failures (eps 3.807e-05), batch union-find 94 (eps 3.767e-05), 1.04 us per round
+   window  2 / commit  1: 2217 failures (x23.59 of batch union-find); 1.78 us per window on average -> 1.78 us per committed round (round 0.73 us)
+   window  4 / commit  2: 356 failures (x3.79 of batch union-find); 3.43 us per window on average -> 1.72 us per committed round (round 0.73 us)
+   window  6 / commit  3: 168 failures (x1.79 of batch union-find); 4.60 us per window on average -> 1.53 us per committed round (round 0.73 us)
+   window 10 / commit  5: 109 failures (x1.16 of batch union-find); 8.66 us per window on average -> 1.73 us per committed round (round 0.73 us)
+   window 20 / commit 10: 99 failures (x1.05 of batch union-find); 18.43 us per window on average -> 1.84 us per committed round (round 0.73 us)
+
+study complete in 2671 s

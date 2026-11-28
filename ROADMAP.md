@@ -174,8 +174,10 @@ the chip in the same data file.
   real-time feed-forward of the corrections, and a joint decoder for all observables.
 - Real-time decoding at < 1 µs per round: FPGA first, then an ASIC. The exact software decoder is the reference.
   Done in software: a weighted union-find decoder (`DecodeMethod::UnionFind`), within 1.1× of the exact decoder's
-  logical error at d = 3 and 5 (`results/decoder_study.txt` for Gamma-1). Open: a streaming (sliding-window) version
-  and the hardware.
+  logical error at d = 3 and 5 (`results/decoder_study.txt` for Gamma-1), and its streaming (sliding-window)
+  version (`StreamingUnionFind`): at d = 7 it is within 1.16x of batch union-find once the window extends about d
+  rounds past the commit region. In software it takes 1.5-1.8 us per committed round against a 0.73 us round. Open:
+  the hardware (and a faster, pipelined window scheme).
 - Wiring: about 380 coaxial lines at distance 7. High-density flex lines or multiplexed flux control are needed before
   this chip can be operated.
 

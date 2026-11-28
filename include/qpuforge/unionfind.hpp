@@ -19,6 +19,8 @@
 // See docs/design/union-find-decoder.md.
 #pragma once
 #include <algorithm>
+#include <chrono>
+#include <stdexcept>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -235,6 +237,97 @@ private:
         ws.members_next[std::size_t(ws.members_tail[std::size_t(a)])] = ws.members_head[std::size_t(b)];
         ws.members_tail[std::size_t(a)] = ws.members_tail[std::size_t(b)];
     }
+};
+
+// ================================================================== streaming (sliding-window) union-find
+// The syndrome arrives round by round. A window of `window` rounds is decoded with the union-find decoder above, with
+// the rounds after the window treated as a boundary (edges into them go to the boundary vertex; edges into rounds
+// already committed are dropped). The correction edges that touch the first `commit` rounds of the window are
+// committed: their logical bits enter the prediction and their far ends are toggled in the carried syndrome. The
+// rest is discarded and the window moves on by `commit` rounds. The last window commits everything. The decoder
+// needs window > commit, so that a committed edge never reaches past the window (edges span at most one round).
+// See docs/design/streaming-union-find.md.
+struct StreamScratch {
+    std::vector<UFScratch> uf;                     // one per window: a scratch caches its graph's edge lengths
+    std::vector<std::uint8_t> syn;
+    std::vector<int> def;
+    std::vector<std::pair<int, int>> committed;   // global (a, b) of every committed edge; b = -1: the boundary
+    double window_s_max{0}, window_s_sum{0};       // wall-clock time per window decode, this call
+    int windows{0};
+};
+
+class StreamingUnionFind {
+public:
+    // det_round: round of each detector (0 .. max_round; the final data readout has the largest round)
+    template <class EdgeList>
+    StreamingUnionFind(int n_det, const EdgeList& edges, const std::vector<int>& det_round, int window, int commit)
+        : N_(n_det), W_(window), C_(commit), round_(det_round) {
+        if (commit < 1 || window <= commit) throw std::runtime_error("StreamingUnionFind: needs 1 <= commit < window");
+        if (int(det_round.size()) != n_det) throw std::runtime_error("StreamingUnionFind: det_round size");
+        R_ = 0; for (int r : det_round) R_ = std::max(R_, r);
+        struct E { int a, b; bool obs; double p; };
+        for (int t = 0;; t += C_) {
+            Win w; w.t = t; w.last = t + W_ > R_;
+            const int end = w.last ? R_ + 1 : t + W_;
+            std::vector<int> local(std::size_t(n_det), -1);
+            for (int d = 0; d < n_det; ++d) if (det_round[std::size_t(d)] >= t && det_round[std::size_t(d)] < end) { local[std::size_t(d)] = int(w.glob.size()); w.glob.push_back(d); }
+            std::vector<E> le;
+            for (const auto& e : edges) {
+                const int la = local[std::size_t(e.a)];
+                const bool b_bnd = e.b < 0;
+                const int lb = b_bnd ? -1 : local[std::size_t(e.b)];
+                const bool a_fut = la < 0 && det_round[std::size_t(e.a)] >= end, b_fut = !b_bnd && lb < 0 && det_round[std::size_t(e.b)] >= end;
+                if (la >= 0 && (b_bnd || b_fut)) le.push_back({la, -1, e.obs, e.p});
+                else if (lb >= 0 && a_fut) le.push_back({lb, -1, e.obs, e.p});
+                else if (la >= 0 && lb >= 0) le.push_back({la, lb, e.obs, e.p});
+            }
+            w.uf = UnionFindDecoder(int(w.glob.size()), le);
+            win_.push_back(std::move(w));
+            if (win_.back().last) break;
+        }
+    }
+    int window() const { return W_; }
+    int commit() const { return C_; }
+    int n_windows() const { return int(win_.size()); }
+
+    // predicted logical flip; the committed correction is left in ws.committed
+    int decode(const std::vector<int>& defects, StreamScratch& ws) const {
+        ws.syn.assign(std::size_t(N_), 0);
+        for (int d : defects) ws.syn[std::size_t(d)] ^= 1;
+        ws.committed.clear(); ws.window_s_max = 0; ws.window_s_sum = 0; ws.windows = 0;
+        int parity = 0;
+        if (ws.uf.size() != win_.size()) ws.uf.assign(win_.size(), UFScratch{});
+        for (std::size_t wi = 0; wi < win_.size(); ++wi) {
+            const Win& w = win_[wi];
+            UFScratch& us = ws.uf[wi];
+            const auto t0 = std::chrono::steady_clock::now();
+            ws.def.clear();
+            for (std::size_t i = 0; i < w.glob.size(); ++i) if (ws.syn[std::size_t(w.glob[i])]) ws.def.push_back(int(i));
+            if (!ws.def.empty()) {
+                w.uf.decode(ws.def, us);
+                const int nl = int(w.glob.size());
+                for (int k : us.correction) {
+                    const auto& e = w.uf.edge[std::size_t(k)];
+                    const int ga = e.u < nl ? w.glob[std::size_t(e.u)] : -1, gb = e.v < nl ? w.glob[std::size_t(e.v)] : -1;
+                    bool commit = w.last;
+                    for (int g : {ga, gb}) if (g >= 0 && round_[std::size_t(g)] < w.t + C_) commit = true;
+                    if (!commit) continue;
+                    parity ^= e.obs;
+                    for (int g : {ga, gb}) if (g >= 0) ws.syn[std::size_t(g)] ^= 1;
+                    ws.committed.push_back({ga >= 0 ? ga : gb, ga >= 0 ? gb : -1});
+                }
+            }
+            const double dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            ws.window_s_max = std::max(ws.window_s_max, dt); ws.window_s_sum += dt; ++ws.windows;
+        }
+        return parity;
+    }
+
+private:
+    struct Win { int t{0}; bool last{false}; std::vector<int> glob; UnionFindDecoder uf; };
+    int N_, W_, C_, R_{0};
+    std::vector<int> round_;
+    std::vector<Win> win_;
 };
 
 } // namespace qpuforge

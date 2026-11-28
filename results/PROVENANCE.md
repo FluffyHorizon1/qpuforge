@@ -20,7 +20,7 @@ the commands below to reproduce them.
 | `results/surgery_study.{txt,json}` | `OMP_NUM_THREADS=4 surgery_study 100000` (CZ model v4) | `d837044b0be6318f911a621d4a2c44c82fe8f4eb` (`scs-bot/lattice-surgery` with `main` 0629252 merged; clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T04:36:26Z | 1005 s |
 | `results/cz_cache.json` | `qpuforge cz designs/alpha1-v11/alpha1_v11.json --cache results/cz_cache.json` from an empty cache (16 calibrations simulated); every review reuses it (0 simulated, 16 cached) | CZ model version 4 (`pulse.hpp` and `src/` as committed with this file) | g++ 13.3.0 | 2 | 2026-11-28T01:32:18Z | 259 s |
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
-| `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `f9c704cd9a0ca427f1b1a3d5b5d75d56a47893f9` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T00:27:08Z | 1904 s |
+| `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `86bfdab97c68960fa308e82c6ca28d914abf1a47` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:28:50Z | 2671 s |
 | `results/decoder_sweeps.{json,txt}` | `decoder_sweeps` (`OMP_NUM_THREADS=4 ./build/decoder_sweeps`) | `5e69544f153985be9ae2b042b467f762f06f85d2` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:30:44Z | 57 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
@@ -31,7 +31,7 @@ the commands below to reproduce them.
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
   - gamma: frame Monte Carlo seeds 11 + rounds (distance scaling; memory-X adds 7919), 77 (decoder comparison), 505 (impacts), 21 + rounds (long runs); fab Monte Carlo seed 7.
-  - decoder study: 11 + rounds (union-find against exact; memory-X adds 7919), 300 + d (heralds), 401 (veto calibration), 403 (impact injection), 505 (burst ladders, with and without the veto).
+  - decoder study: 11 + rounds (union-find against exact; memory-X adds 7919), 300 + d (heralds), 401 (veto calibration), 403 (impact injection), 505 (burst ladders, with and without the veto), 601 (streaming union-find).
   - decoder sweeps: 77 (herald rules), 3 / 9 / 5 (veto windows: calibration, injection, severity runs), 3 / 505 (hold: calibration, ladder).
     Section 1 (fault enumeration) and the decode times are wall-clock measurements on four threads.
   - surgery: frame Monte Carlo seed 1000 + 100 d + 10 k (+5 for Beta-1), k = 0 ZZ, 1 XX, 2 CNOT Z basis, 3 CNOT X basis; tableau check seed 77. The study reuses `results/cz_cache.json` (no new calibrations).

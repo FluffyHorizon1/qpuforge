@@ -208,6 +208,10 @@ struct LeakageSpec {
     bool reset_removes_leakage{false};// measure-qubit reset also returns |2> -> |0> (multi-level reset)
     bool dqlr{false};                 // data-qubit leakage removal each round (leakage iSWAP to the reset measure qubit)
     double dqlr_ns{30}, dqlr_eff{0.98}, dqlr_err{5e-4};
+    // DQLR with heralding (docs/design/data-leakage-herald.md): the removal pulse leaves the leakage on the measure
+    // qubit as |2> instead of dumping it, so that qubit's next 3-state readout can herald it. Needs the
+    // leakage-removing reset, which then clears it.
+    bool dqlr_transfer{false};
     double leak_1q{1e-6};             // per single-qubit gate (DRAG-level)
     double transport{0.05};           // probability a CZ with a leaked partner moves the leakage (|21> -> |12>)
 };
@@ -286,6 +290,7 @@ inline ChipDesign design_from_json(const Json& j) {
     D.leakage.dqlr_ns = lk.get("dqlr_ns", D.leakage.dqlr_ns);
     D.leakage.dqlr_eff = lk.get("dqlr_eff", D.leakage.dqlr_eff);
     D.leakage.dqlr_err = lk.get("dqlr_err", D.leakage.dqlr_err);
+    D.leakage.dqlr_transfer = lk.get("dqlr_transfer", D.leakage.dqlr_transfer);
     D.leakage.leak_1q = lk.get("leak_1q", D.leakage.leak_1q);
     D.leakage.transport = lk.get("transport", D.leakage.transport);
     const Json& qs = j["qubits"];
@@ -347,6 +352,7 @@ inline Json design_to_json(const ChipDesign& D) {
     lk.set("model", D.leakage.model); lk.set("reset_removes_leakage", D.leakage.reset_removes_leakage); lk.set("dqlr", D.leakage.dqlr);
     lk.set("dqlr_ns", D.leakage.dqlr_ns); lk.set("dqlr_eff", D.leakage.dqlr_eff); lk.set("dqlr_err", D.leakage.dqlr_err);
     lk.set("leak_1q", D.leakage.leak_1q); lk.set("transport", D.leakage.transport);
+    if (D.leakage.dqlr_transfer) lk.set("dqlr_transfer", true);   // written only when set: design files without it are unchanged
     j.set("leakage", lk);
     Json qs = Json::array();
     for (const auto& q : D.qubits) {

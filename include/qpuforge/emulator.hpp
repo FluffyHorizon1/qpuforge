@@ -36,6 +36,7 @@ struct NoiseModel {
     bool leakage{false};
     double leak_1q{0}, leak_transport{0}, dqlr_eff{0}, dqlr_err{0};
     bool reset_removes_leakage{false}, dqlr{false};
+    bool dqlr_transfer{false};   // DQLR leaves the leakage on the measure qubit for its next readout (LeakageSpec::dqlr_transfer)
 
     // switch a named source off ("T1", "Tphi", "thermal", "zz", "control", "readout", "all")
     void disable(const std::string& s) {
@@ -69,6 +70,7 @@ inline NoiseModel noise_model(const ChipDesign& D, const ChipReport& R) {
     N.leak_1q = D.leakage.leak_1q; N.leak_transport = D.leakage.transport;
     N.reset_removes_leakage = D.leakage.reset_removes_leakage;
     N.dqlr = D.leakage.dqlr; N.dqlr_eff = D.leakage.dqlr_eff; N.dqlr_err = D.leakage.dqlr_err;
+    N.dqlr_transfer = D.leakage.dqlr_transfer;
     for (const auto& p : R.pairs) {
         const int a = D.index_of(p.a), b = D.index_of(p.b);
         N.zz_GHz[{std::min(a, b), std::max(a, b)}] = p.zz_idle_kHz * 1e-6;

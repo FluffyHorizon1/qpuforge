@@ -141,6 +141,16 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `placeholders` entry must name a quantity in the file, and `contains_placeholders` must agree with the quantities.
   atomforge's writer already meets every rule. The `materials` group has 29 checks (4 new), 504 validation checks in
   all; `results/test_output.txt` still records the 500-check run of `main` named in `results/PROVENANCE.md`.
+- CLI: `qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]` (decision D2) writes
+  a copy of the chip with the sidecar's accepted values and a `materials_source` block: the sidecar's file name and
+  SHA-256, its `produced_by` and `system`, the loss-tangent opt-in, the gap policy and one entry per quantity (applied,
+  before, after, provenance, reference). Each qubit keeps its `Rn_kOhm` (D1), so a new gap moves `f01`, as it does in
+  memory. A chip that already has a `materials_source` keeps it as `previous`. `design_from_json` ignores the block, so
+  the copy loads anywhere; `--out` naming an input file, a missing `--out` or another action than `apply` is refused,
+  and nothing is written when a check fails. `materials.hpp` gains `materials_apply_file`, `materials_source_json`,
+  `MaterialsApplyResult` and `materials_detail::sha256_hex` / `read_file`. The `materials` group has 34 checks (5 new),
+  509 in all; CLI guards `cli_materials_apply*` and new `cli_exit_status` / `cli_help_command` lines.
+- The `layout` / `gds` refusal of `--materials` now points at `qpuforge materials apply`.
 
 ### Fixed
 - CLI: each command accepts only the options it reads. An unknown or misspelt option (`--shot 1000`, `-grid`, or another

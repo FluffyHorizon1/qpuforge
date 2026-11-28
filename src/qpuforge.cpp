@@ -80,6 +80,10 @@ static const UsageBlock kUsageCommands[] = {
      "                lattice surgery: logical ZZ / XX measurement between two patches or the three-patch CNOT;\n"
      "                noiseless tableau check of detectors and observables, then logical error per operation\n"
      "                (Pauli-frame Monte Carlo, exact matching per observable); --shots 0 runs the check only\n"},
+    {"materials",
+     "  qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]\n"
+     "                writes a copy of the chip with the sidecar's accepted values and a materials_source block\n"
+     "                (sidecar SHA-256, producer, provenance per quantity); each qubit keeps its Rn_kOhm, so a new gap moves f01\n"},
     {"new", "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gamma1|gen0 [--distance D]   named designs\n"},
     {"new", "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"},
     {"", "  qpuforge --version | -V                           print the version and exit (first argument only)\n"},
@@ -91,7 +95,8 @@ static const UsageBlock kUsageNotes[] = {
     {"run budget fab qec cz synth-chip hwgate",
      "  --materials <sidecar.json> [--loss-tangent] is also accepted by run, budget, fab, qec, cz, synth-chip and hwgate (as for\n"
      "                analyze; not layout or gds, which refuse it); the sidecar is applied in memory, the chip JSON file is not changed\n"},
-    {"layout gds", "  --materials and --loss-tangent are refused here: the layout follows the chip JSON, so apply the sidecar values to a copy first\n"},
+    {"layout gds", "  --materials and --loss-tangent are refused here: the layout follows the chip JSON, so write a copy with the sidecar\n"
+                   "                applied first (qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json>)\n"},
     {"run budget", "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"},
     {"run qec", "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage (all: every source)\n"},
     {"qec cz synth-chip hwgate surgery", "  qec/cz/synth-chip/hwgate/surgery on a chip with a physical coupler calibrate CZs first (--cache file reuses them)\n"},
@@ -580,7 +585,21 @@ static ChipDesign load_design_cli(const Args& a, const std::string& path) {
 static void refuse_materials(const Args& a, const char* cmd) {
     if (a.has("--materials") || a.flag("--loss-tangent"))
         throw UsageError(std::string("--materials is not supported by `") + cmd +
-                         "`: the layout follows the chip JSON (apply the sidecar values to a copy of the chip JSON first)");
+                         "`: the layout follows the chip JSON (write a copy with `qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json>` first)");
+}
+
+// materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]: the sidecar applied and saved (D2)
+static int cmd_materials(const Args& a) {
+    if (a.pos(0) != "apply") throw UsageError("unknown materials action '" + a.pos(0) + "' (the only action is apply)");
+    if (!a.has("--out") || a.text("--out").empty()) throw UsageError("materials apply needs --out <new-chip.json> (the chip file it writes)");
+    MaterialsApplyOptions o;
+    o.use_loss_tangent = a.flag("--loss-tangent");
+    const std::string out = a.text("--out");
+    const auto r = materials_apply_file(a.pos(1), a.pos(2), out, o);
+    print_materials(a.pos(2), r.sidecar, r.report);
+    std::printf("wrote %s: %d applied, %d skipped; materials_source records the sidecar (sha256 %s)\n", out.c_str(),
+                r.report.applied(), r.report.skipped(), r.chip["materials_source"]["sidecar_sha256"].str().c_str());
+    return 0;
 }
 
 static int cmd_analyze(const Args& a) {
@@ -1072,6 +1091,7 @@ static const std::vector<Command>& commands() {
         {"cz", cmd_cz, {"<chip.json>"}, with_materials({text("--out"), text("--cache"), real("--g-qc"), real("--f-on"), real("--rise")})},
         {"gds", cmd_gds, {"<chip.json>", "<out.gds>"},
          {text("--cells"), flag("--synthesize"), text("--from"), text("--cell"), text("--materials"), flag("--loss-tangent")}},   // refused
+        {"materials", cmd_materials, {"apply", "<chip.json>", "<sidecar.json>"}, {text("--out"), flag("--loss-tangent")}},
         {"surgery", cmd_surgery, {},
          {choice("--op", "zz|xx|cnot"), int_list("--d", 3), text("--input"), choice("--readout", "Z|X"),
           choice("--chip", "beta1|alpha1_v11"), integer("--shots", 0, 1000000000L),

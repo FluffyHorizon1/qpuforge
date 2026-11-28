@@ -73,7 +73,7 @@ per-quantity lines first. `analyze`, `run`, `budget`, `fab`, `qec`, `cz`, `synth
 changed gap would move; silently ignoring was the failure, so they say no. Without `--materials` nothing changes: no
 committed output moves. The `junction_gap_ueV` report line now says the frequencies scale with the gap.
 
-### Phase 2: save an applied sidecar (G3), decided (D2: build it)
+### Phase 2: save an applied sidecar (G3), decided (D2: build it); implemented on `feat/materials-apply-out`
 
 `qpuforge materials apply chip.json sidecar.json --out chip2.json [--loss-tangent]` writes the chip with the accepted values
 and a `materials_source` block (`tool`, `commit`, `schema`, SHA-256 of the sidecar, per-quantity provenance) so a reviewed

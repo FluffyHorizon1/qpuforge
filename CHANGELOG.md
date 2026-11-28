@@ -93,7 +93,9 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   options it ignored, `new` takes one topology, `qec` rejects `--burst-*` and `--veto` without `--bursts`, the veto
   options without `--veto` and the herald options without `--herald`, and `budget` no longer accepts `--shots`, which it
   never used. `--window` and `--commit` need `--decoder uf-stream`, and `--commit` must be smaller than `--window`
-  (the streaming decoder threw at run time). The `qec` decoding options are range-checked: `--herald-fidelity`, `--herald-false`, `--veto-false`,
+  (the streaming decoder threw at run time). `surgery` takes the strict options too (`--op`, `--readout` and `--chip`
+  are choices, `--d` odd distances from 3 to 15; exit 3 when a noiseless check fails). The `qec` decoding options are
+  range-checked: `--herald-fidelity`, `--herald-false`, `--veto-false`,
   `--impact-p` and `--herald-factor` in [0, 1] (the decoder ignored a herald factor above 1), `--veto-window` >= 1, and
   `--veto-radius`, `--burst-radius`, `--burst-rate` and `--burst-tau-ms` >= 0.
 - CLI: a misspelt option that is a unique prefix of one option is completed to it, not to a closer-looking shorter name
@@ -160,6 +162,26 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   written; they used to return as if it had been written.
 - The materials reader changes nothing else: chip JSON files and the output of `qpuforge analyze` without
   `--materials` are as before.
+
+### Added: lattice surgery
+
+Phase Gamma logical operations: lattice surgery between surface-code patches.
+
+- `surgery.hpp`:
+  - Multi-patch geometry: `SurgeryLattice` (patches and merged regions on one qubit lattice), `region_faces`.
+  - Schedules: `SurgerySchedule` / `SurgeryPhase`; `build_surgery` writes the circuit and derives the detectors across
+    merges and splits, the reference bits and the classical-bit bookkeeping.
+  - Protocols: `surgery_parity` (logical Z_A Z_B or X_A X_B measurement), `surgery_cnot` (three-patch CNOT with
+    Pauli-frame corrections), `surgery_memory` (one patch), `surgery_experiment` (by name).
+  - `StabilizerTableau`, `tableau_records` and `check_surgery_noiseless`: noiseless verification of detectors and
+    observables on random measurement branches.
+  - `surgery_chip`: a chip for the lattice with Alpha-1 v1.1 or Beta-1 physics.
+  - `prepare_surgery`, `surgery_fault_signatures`, `run_surgery_frame`: one detector error model and exact matching
+    decoder per observable, and the Pauli-frame Monte Carlo (thread-count independent).
+- CLI: `qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input ..] [--readout Z|X] [--chip beta1|alpha1_v11] ...`.
+- `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
+- Tests: `surgery` and `surgery_cnot` groups (82 checks); the determinism guard also covers
+  `run_surgery_frame`; a smoke entry for the study.
 
 ### Known issues
 - **The masks are not fabrication-ready.** Metal connectivity (`layout.connectivity` in the reviews):

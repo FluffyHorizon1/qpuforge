@@ -1,6 +1,6 @@
 # CLI guard (not one of the validation checks): the exit statuses that the usage text and README document. The other
 # cli_* tests match output with PASS_REGULAR_EXPRESSION, which ignores the exit status.
-#   0 done, 1 usage error, 2 error while running, 3 hwgate: gate not passed
+#   0 done, 1 usage error, 2 error while running, 3 hwgate: gate not passed (surgery: a noiseless check failed)
 # Option dependencies and value ranges are checked on a chip file that does not exist: a usage error exits 1 before any
 # file is read, so a check that went missing (or ran after load_design) shows as exit 2, "cannot open".
 # Usage: cmake -DEXE=<qpuforge> -DCHIP=<examples/alpha1.json> -DMISSING=<a path that does not exist>
@@ -69,6 +69,12 @@ expect_status(1 qec "${MISSING}" --commit 2)
 expect_status(1 qec "${MISSING}" --decoder uf-stream --window 3 --commit 3)
 expect_status(1 qec "${MISSING}" --decoder uf-stream --window 1)
 expect_status(1 qec "${MISSING}" --decoder uf-stream --commit 0)
+# surgery (no chip file): the noiseless check alone passes; bad values are usage errors
+expect_status(0 surgery --op cnot --d 3 --shots 0 --samples 1)
+expect_status(1 surgery --op yy)
+expect_status(1 surgery --d 3,4)
+expect_status(1 surgery --readout X)                 # zz reads each patch in its input basis
+expect_status(1 surgery --post 0)
 # analyze: the materials options
 expect_status(1 analyze "${MISSING}" --loss-tangent)
 expect_status(1 analyze "${MISSING}" --materials "")

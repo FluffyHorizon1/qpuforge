@@ -33,7 +33,7 @@ endif()
 # enough to change eps from 0.01200 to 0.01223 at 8 threads (see results/PROVENANCE.md).
 # Every target, including the fp_contract guard, must use this list (see tests/check_fp_contract_flags.cmake).
 set(QPUFORGE_COMPILE_OPTIONS -Wall -Wextra -O3 -ffp-contract=off)
-foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp test_fp_contract:tests/test_fp_contract.cpp)
+foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp surgery_study:examples/surgery_study.cpp test_fp_contract:tests/test_fp_contract.cpp)
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)
   list(GET parts 1 src)
@@ -51,7 +51,7 @@ set_target_properties(qpuforge_cli PROPERTIES OUTPUT_NAME qpuforge)
 target_compile_definitions(test_qpuforge PRIVATE QPUFORGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 # `qpuforge --version` prints this (the version comes from project(... VERSION ...) above)
 target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERSION}")
-foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps)
+foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps surgery_study)
   target_compile_definitions(${name} PRIVATE QPUFORGE_GIT_SHA="${QPUFORGE_GIT_SHA}" QPUFORGE_GIT_DIRTY=${QPUFORGE_GIT_DIRTY})
 endforeach()
 # the materials group reads its forge.materials.v0 sidecar fixtures from the source tree
@@ -113,6 +113,8 @@ qpuforge_cli_test(herald_options_need_herald "qpuforge qec: --herald-rule needs 
 qpuforge_cli_test(window_needs_stream "qpuforge qec: --window needs --decoder uf-stream" qec ${CLI_CHIP} --window 4)
 qpuforge_cli_test(commit_below_window "qpuforge qec: --commit \\(4\\) must be smaller than --window \\(4\\)"
   qec ${CLI_CHIP} --decoder uf-stream --window 4 --commit 4)
+qpuforge_cli_test(surgery_readout_needs_cnot "qpuforge surgery: --readout applies to --op cnot only" surgery --readout Z --shots 0)
+qpuforge_cli_test(surgery_even_distance "qpuforge surgery: --d expects odd distances from 3 to 15, got 4" surgery --d 3,4 --shots 0)
 qpuforge_cli_test(bad_probability "qpuforge qec: --herald-fidelity expects a number from 0 to 1, got '1.5'" qec ${CLI_CHIP} --herald --herald-fidelity 1.5)
 qpuforge_cli_test(loss_tangent_needs_materials "qpuforge analyze: --loss-tangent needs --materials <sidecar.json>"   # before the chip is read
   analyze ${CLI_NO_CHIP} --loss-tangent)
@@ -142,6 +144,9 @@ qpuforge_cli_test(ok_qec_decoding
   --impact-p 0.1 --burst-radius 2)
 qpuforge_cli_test(ok_qec_stream "decoder: streaming union-find.*window 4 rounds, committing 2 per step.*logical error per round"
   qec ${CLI_CHIP} --rounds 4 --shots 50 --seed 3 --decoder uf-stream --window 4 --commit 2)
+qpuforge_cli_test(ok_surgery "CNOT d=3 .*noiseless tableau check, 2 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
+  surgery --op cnot --d 3 --input 00 --readout Z --chip beta1 --shots 0 --seed 1 --merge-rounds 0 --pre 1 --post 1 --samples 2
+  --cache ${CLI_OUT}_unused_cache.json)   # --shots 0: the noiseless check only (no CZ calibration)
 qpuforge_cli_test(ok_synth_chip "wrote .*cli_synth.json: 17 qubits"
   synth-chip ${CLI_CHIP} ${CLI_OUT}_synth.json --seed 1 --shots 50 --rounds 2 --z-only --hidden-dephasing-us 0 --cache ${CLI_OUT}_unused_cache.json)
 qpuforge_cli_test(ok_hwgate "wrote .*cli_gate.json"   # exit 3 (gate not passed) is ignored by the pass regex
@@ -212,7 +217,7 @@ set(QPUFORGE_TESTS
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
-  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec")
+  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "surgery:qec" "surgery_cnot:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 # forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data
@@ -226,7 +231,7 @@ foreach(t ${QPUFORGE_TESTS})
 endforeach()
 # End-to-end smoke runs of the review programs: 200 shots, outputs in the build tree, committed files untouched.
 # They reuse results/cz_cache.json (copied); with a stale or missing cache they re-calibrate (a few minutes).
-foreach(name alpha1_v11_review beta1_review gamma1_review)
+foreach(name alpha1_v11_review beta1_review gamma1_review surgery_study)
   add_test(NAME smoke_${name} COMMAND ${name} --smoke --out ${CMAKE_CURRENT_BINARY_DIR}/smoke_${name}
            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   set_tests_properties(smoke_${name} PROPERTIES LABELS smoke TIMEOUT 1800)

@@ -73,6 +73,13 @@ static const UsageBlock kUsageCommands[] = {
     {"gds",
      "  qpuforge gds <chip.json> <out.gds> [--cells cells.json] [--synthesize [--from cells0.json]] [--cell NAME]\n"
      "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, GDSII\n"},
+    {"surgery",
+     "  qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input 00|01|++|+-|..] [--readout Z|X] [--chip beta1|alpha1_v11]\n"
+     "                [--shots N] [--seed S] [--merge-rounds R] [--pre R] [--post R] [--samples N] [--cache file]\n"
+     "                (--readout: cnot only; --pre 0 merges from the first round; --merge-rounds 0 = d rounds)\n"
+     "                lattice surgery: logical ZZ / XX measurement between two patches or the three-patch CNOT;\n"
+     "                noiseless tableau check of detectors and observables, then logical error per operation\n"
+     "                (Pauli-frame Monte Carlo, exact matching per observable); --shots 0 runs the check only\n"},
     {"new", "  qpuforge new <chip.json> --preset alpha1|alpha1v11|beta1|gamma1|gen0 [--distance D]   named designs\n"},
     {"new", "  qpuforge new <chip.json> --surface D [--arch tunable] ...        surface-code chip\n"},
     {"", "  qpuforge --version | -V                           print the version and exit (first argument only)\n"},
@@ -81,9 +88,10 @@ static const UsageBlock kUsageCommands[] = {
 static const UsageBlock kUsageNotes[] = {
     {"run budget", "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"},
     {"run qec", "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage (all: every source)\n"},
-    {"qec cz synth-chip hwgate", "  qec/cz/synth-chip/hwgate on a chip with a physical coupler calibrate CZs first (--cache file reuses them)\n"},
+    {"qec cz synth-chip hwgate surgery", "  qec/cz/synth-chip/hwgate/surgery on a chip with a physical coupler calibrate CZs first (--cache file reuses them)\n"},
     {"*", "  each command takes only the options shown for it; an unknown option, a missing value or a bad number is an error\n"},
-    {"*", "  exit status: 0 done; 1 usage error; 2 error while running (also: gds layout not DRC-clean); 3 hwgate: gate not passed\n"},
+    {"*", "  exit status: 0 done; 1 usage error; 2 error while running (also: gds layout not DRC-clean); 3 hwgate: gate not passed,\n"
+           "               surgery: a noiseless check failed\n"},
 };
 
 static bool documents(const char* commands, const std::string& cmd) {
@@ -943,6 +951,56 @@ static int cmd_hwgate(const Args& a) {
     return G.pass ? 0 : 3;
 }
 
+// lattice surgery (surgery.hpp). No chip file: --chip picks the preset whose noise the patches get. Exit 3 when a
+// noiseless tableau check fails.
+static int cmd_surgery(const Args& a) {
+    const std::string op = a.text("--op", "zz");          // zz, xx or cnot (checked)
+    const std::string ro = a.text("--readout");           // Z or X (checked)
+    if (!ro.empty() && op != "cnot")
+        throw UsageError("--readout applies to --op cnot only (zz and xx read each patch out in its input basis)");
+    const std::vector<int> ds = a.int_list("--d", {3});
+    for (int d : ds)
+        if (d % 2 == 0 || d > 15) throw UsageError("--d expects odd distances from 3 to 15, got " + std::to_string(d));
+    const std::string input = a.text("--input", op == "xx" ? "++" : "00");   // checked by surgery_experiment
+    const std::string chip = a.text("--chip", "beta1");   // beta1 or alpha1_v11 (checked)
+    const long shots = long(a.integer("--shots", 20000));
+    const std::uint64_t seed = a.seed("--seed", 2026);
+    const int samples = int(a.integer("--samples", 4));
+    SurgeryRounds rr;
+    rr.merge = int(a.integer("--merge-rounds", 0));
+    rr.pre = int(a.integer("--pre", 1));
+    rr.post = int(a.integer("--post", 1));
+    int bad = 0;
+    for (int d : ds) {
+        const auto E = surgery_experiment(op, d, input, ro.empty() ? char(0) : ro[0], rr);
+        const auto c = check_surgery_noiseless(E, samples, seed);
+        int nz = 0; for (char t : E.detector_type) nz += t == 'Z';
+        std::printf("\n%s: %d qubits, %d rounds (", E.sched.name.c_str(), E.circuit.n, E.total_rounds);
+        for (std::size_t p = 0; p < E.sched.phases.size(); ++p) std::printf("%s%s %d", p ? ", " : "", E.sched.phases[p].label.c_str(), E.sched.phases[p].rounds);
+        std::printf("), %zu detectors (%d Z, %zu X)\n", E.detectors.size(), nz, E.detectors.size() - std::size_t(nz));
+        std::printf("  noiseless tableau check, %d random branches: %d detector firings, %d wrong observables, %d wrong reference bits%s\n",
+                    c.samples, c.fired, c.wrong_observables, c.wrong_reference + c.random_reference, (c.fired || c.wrong_observables || c.wrong_reference || c.random_reference) ? "  FAILED" : "  (ok)");
+        for (std::size_t k = 0; k < E.observables.size() && k < c.observable_values.size(); ++k)
+            std::printf("    %-8s = %d (expected %d)\n", E.observables[k].name.c_str(), c.observable_values[k], E.observables[k].expected);
+        if (c.fired || c.wrong_observables || c.wrong_reference || c.random_reference) ++bad;
+        if (shots <= 0) continue;
+        const char basis = surgery_decode_basis(E);
+        const auto D = surgery_chip(E.sched.lat, chip);
+        auto R = analyze(D);
+        if (D.coupler.physical) calibrate_chip_cz(D, R, false, a.text("--cache"));
+        const auto nm = noise_model(D, R);
+        const auto M = prepare_surgery(D, R, nm, E, basis);
+        const auto r = run_surgery_frame(M, shots, seed);
+        std::printf("  %s, Pauli-frame Monte Carlo, %ld shots, %c-type detectors (%d), duration %.2f us\n", D.name.c_str(), shots, basis, r.n_detectors, r.total_ns / 1e3);
+        std::printf("    detection %.4f, defects/shot %.2f (max %d); DEM: %zu fault mechanisms, %d hyperedge (p %.1e), %d undetectable logical\n",
+                    r.detection_rate, r.mean_defects, r.max_defects, M.n_faults, r.hyperedge_faults, r.hyperedge_p, r.undetectable_logical);
+        for (std::size_t k = 0; k < r.names.size(); ++k)
+            std::printf("    logical error %-8s %.5f +- %.5f\n", r.names[k].c_str(), r.p[k], r.p_sem[k]);
+        std::printf("    any observable wrong  %.5f +- %.5f\n", r.p_any, r.p_any_sem);
+    }
+    return bad ? 3 : 0;
+}
+
 // ================================================================== option table
 // The options each command reads. Args::parse rejects any other option, and Args refuses to look up one that is not
 // listed, so the table and the cmd_* functions above cannot drift apart unnoticed.
@@ -981,6 +1039,11 @@ static const std::vector<Command>& commands() {
         {"layout", cmd_layout, {"<chip.json>", "<out.svg>"}, {}},
         {"cz", cmd_cz, {"<chip.json>"}, {text("--out"), text("--cache"), real("--g-qc"), real("--f-on"), real("--rise")}},
         {"gds", cmd_gds, {"<chip.json>", "<out.gds>"}, {text("--cells"), flag("--synthesize"), text("--from"), text("--cell")}},
+        {"surgery", cmd_surgery, {},
+         {choice("--op", "zz|xx|cnot"), int_list("--d", 3), text("--input"), choice("--readout", "Z|X"),
+          choice("--chip", "beta1|alpha1_v11"), integer("--shots", 0, 1000000000L),
+          seed("--seed", std::numeric_limits<std::uint64_t>::max()), integer("--merge-rounds", 0, 1000),
+          integer("--pre", 0, 1000), integer("--post", 1, 1000), integer("--samples", 1, 1000), text("--cache")}},
     };
     return table;
 }

@@ -11,7 +11,7 @@ The two repositories are programme companions, not a code dependency. There is n
 
 ## Implementation status
 
-*Added Saturday 28 November 2026 on branch `scs-bot/materials-reader` (qpuforge 0.4 integration, `25139c7`). The writer it reads is atomforge's `include/atomforge/materials.hpp` (`ee734f9`). Sections 1–5 are the proposal as filed; where they say that no reader exists, this section replaces them.*
+*Added Saturday 28 November 2026 on branch `scs-bot/materials-reader` (qpuforge 0.4 integration, `25139c7`) and merged into `main` in PR #22. The writer it reads is atomforge's `include/atomforge/materials.hpp` (`ee734f9`). Sections 1–5 are the proposal as filed; where they say that no reader exists, this section replaces them.*
 
 qpuforge now reads the sidecar. The reader is `include/qpuforge/materials.hpp`, included by `qpuforge.hpp`; `device.hpp` is unchanged (§3.3). `load_materials()` / `materials_from_json()` read and check a file, and `apply_materials()` writes the accepted values into a `ChipDesign` and returns one report line per quantity: applied or skipped, and why. `qpuforge analyze chip.json --materials sidecar.json [--loss-tangent]` applies a sidecar to the design in memory, prints those lines, then prints the device report. The chip JSON file is not changed.
 
@@ -28,7 +28,7 @@ qpuforge now reads the sidecar. The reader is `include/qpuforge/materials.hpp`, 
 
 Not implemented: the `conditions` of a value are not interpreted, so Q and tanδ are not scaled to the qubit's `f01` or `T_eff_mK` (open question 3); there is no participation weighting, and a sidecar sets the one chip-wide `Q_dielectric` (question 1); only `analyze` takes `--materials`, so the other sub-commands still need the values copied into the chip JSON by hand (question 6).
 
-Tests: the `materials` group (label `unit`, 25 checks) and five CLI guards (`cli_materials*`, `cli_usage_materials`). The fixtures are in `tests/data/`. `materials-contract-CuAu.json` is byte for byte what atomforge's `materials_contract_json()` writes for the synthetic Cu–Au search result and fixed options of its `tests/test_materials_contract.cpp`.
+Tests: the `materials` group (label `unit`, 25 checks) and six CLI guards (`cli_materials*`, `cli_usage_materials`). The fixtures are in `tests/data/`. `materials-contract-CuAu.json` is byte for byte what atomforge's `materials_contract_json()` writes for the synthetic Cu–Au search result and fixed options of its `tests/test_materials_contract.cpp`.
 
 ---
 

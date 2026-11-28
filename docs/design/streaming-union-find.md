@@ -1,6 +1,6 @@
 # Design note: streaming (sliding-window) union-find decoder
 
-Status: implemented on `scs-bot/gamma-streaming` (`StreamingUnionFind` in `include/qpuforge/unionfind.hpp`).
+Status: implemented and merged into `main` in PR #27 (`StreamingUnionFind` in `include/qpuforge/unionfind.hpp`).
 
 ## Purpose
 
@@ -45,15 +45,16 @@ which is what has to stay below the round time.
   batch union-find decodes correctly are decoded correctly.
 - A single window over the whole shot is exactly the batch decoder: 815 failures in both, on the same 30,000 shots
   (d = 5, 15 rounds).
-- Logical error against batch union-find, same syndromes (d = 5, 15 rounds, 30,000 shots, 815 batch failures):
+- Logical error against batch union-find, same syndromes (d = 5, 15 rounds, 30,000 shots, 815 batch failures;
+  times from `results/test_output.txt`):
 
   | window / commit | windows | failures | × batch | µs per window (mean) | µs per committed round |
   |---|---|---|---|---|---|
-  | 2 / 1 | 15 | 1835 | 2.25 | 0.70 | 0.70 |
-  | 3 / 1 | 14 | 1102 | 1.35 | 1.06 | 1.06 |
-  | 4 / 2 | 7 | 950 | 1.17 | 1.70 | 0.85 |
-  | 6 / 3 | 5 | 855 | 1.05 | 2.40 | 0.80 |
-  | 10 / 5 | 3 | 819 | 1.00 | 4.19 | 0.84 |
+  | 2 / 1 | 15 | 1835 | 2.25 | 0.83 | 0.83 |
+  | 3 / 1 | 14 | 1102 | 1.35 | 1.32 | 1.32 |
+  | 4 / 2 | 7 | 950 | 1.17 | 1.94 | 0.97 |
+  | 6 / 3 | 5 | 855 | 1.05 | 2.72 | 0.91 |
+  | 10 / 5 | 3 | 819 | 1.00 | 4.33 | 0.87 |
 
   The test requires less than 1.25× for windows of at least 4 rounds with C ≤ W/2 at this distance; at d = 7 the
   buffer must grow with the distance (below). A one-round buffer (2/1) is not
@@ -73,8 +74,9 @@ matching gives 95 failures and batch union-find 94:
 
 The window that d = 5 tolerates is far too short at d = 7. The rounds beyond the commit region (W − C) must be
 comparable to the code distance: an error chain can stretch over about d rounds before its two ends meet. With
-W − C ≥ d (10/5 and 20/10 here) the cost is 5–16%. On one core in software, the time per committed round (1.5–1.8 µs)
-is about twice the 0.73 µs round time, so this implementation would not keep up as it stands.
+W − C = 5 (10/5) the cost is 16%, and with W − C = 10 ≥ d (20/10) it is 5%. On one core in software, the time per
+committed round (1.5–1.8 µs) is about twice the 0.73 µs round time, so this implementation would not keep up as it
+stands.
 
 ## Limits
 

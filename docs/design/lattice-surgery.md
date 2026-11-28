@@ -1,7 +1,7 @@
 # Design note: lattice surgery
 
-Status: implemented in `include/qpuforge/surgery.hpp` (Phase Gamma, ROADMAP.md). Study: `examples/surgery_study.cpp`,
-results in `results/surgery_study.{txt,json}`.
+Status: implemented in `include/qpuforge/surgery.hpp` and merged into `main` in PR #21 (Phase Gamma, ROADMAP.md).
+Study: `examples/surgery_study.cpp`, results in `results/surgery_study.{txt,json}`.
 
 ## Goal
 

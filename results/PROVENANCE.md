@@ -29,7 +29,8 @@ the commands below to reproduce them.
   code of `56ba3e4`, where an earlier run of the same three reviews gave the same output except for the machine-dependent
   fields. `results/design_study.*` does not use the pulse-level CZ or the layout and is kept from `802ceb7`.
   `results/test_output.txt` was not regenerated for PR #28: it is `main`'s, made from `8de7512` (clean tree a0a5686, which
-  `main` has after #21 and #24).
+  `main` has after #21 and #24): its 500 checks are `main`'s. With the four checks this PR adds, `test_qpuforge` runs 504
+  (the per-group counts of a full ctest run on g++ 14.2 sum to 504, 0 failed).
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.

@@ -1,6 +1,6 @@
 # Design note: linear-time single-fault enumeration
 
-Status: implemented on `scs-bot/gamma-decoding` (`enumerate_faults` in `include/qpuforge/qec.hpp`).
+Status: implemented and merged into `main` in PR #20 (`enumerate_faults` in `include/qpuforge/qec.hpp`).
 
 ## Problem
 
@@ -49,13 +49,13 @@ Gamma-1 (d = 7, memory-Z; `results/decoder_study.txt`, section 1, four threads):
 
 | rounds | faults | time slices | sparse (0.4) | linear-time | speed-up | signatures differing |
 |---|---|---|---|---|---|---|
-| 25 | 2,850,523 | 10,019 | 7.48 s | 0.66 s | 11× | 0 |
-| 50 | 5,967,552 | 21,044 | 41.37 s | 1.30 s | 32× | 0 |
+| 25 | 2,850,523 | 10,019 | 8.49 s | 0.61 s | 14× | 0 |
+| 50 | 5,967,552 | 21,044 | 43.92 s | 1.40 s | 31× | 0 |
 
-Doubling the rounds doubles the linear-time cost (0.66 → 1.30 s) and multiplies the sparse cost by 5.5. The whole
-setup (enumeration, detector error model, matching decoder with its all-pairs shortest paths, herald map) takes
-1.33 s at 25 rounds and 3.76 s at 50. Enumeration is no longer the larger part; the rest includes the decoder's
-all-pairs shortest paths, which grow as the cube of the detector count.
+Doubling the rounds multiplies the linear-time cost by 2.3 (0.61 → 1.40 s; the fault count grows 2.1×) and the sparse
+cost by 5.2 (8.49 → 43.92 s). The whole setup (enumeration, detector error model, matching decoder with its all-pairs
+shortest paths, herald map) takes 1.37 s at 25 rounds and 3.91 s at 50. Enumeration is no longer the larger part; the
+rest includes the decoder's all-pairs shortest paths, which grow as the cube of the detector count.
 
 ## API
 

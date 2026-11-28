@@ -1,6 +1,7 @@
 # Design note: CZ leakage above the Alpha limit (CZ model version 4)
 
-Status: adopted in CZ model version 4 (`CZModel::kVersion`). `results/cz_cache.json` was regenerated with it.
+Status: adopted in CZ model version 4 (`CZModel::kVersion`) and merged into `main` in PR #19. `results/cz_cache.json`
+was regenerated with it.
 
 ## Problem
 

@@ -1,7 +1,7 @@
 # Design note: per-shot impact injection and an impact veto
 
-Status: implemented on `scs-bot/gamma-decoding` (`ImpactSpec`, `VetoSpec`, `calibrate_veto`, `burst_floor_veto` in
-`include/qpuforge/qec.hpp`).
+Status: implemented and merged into `main` in PR #20 (`ImpactSpec`, `VetoSpec`, `calibrate_veto`,
+`burst_floor_veto` in `include/qpuforge/qec.hpp`).
 
 ## Background
 
@@ -88,7 +88,7 @@ with shot-by-shot discard. The floor is 0.1% of the d = 7 error, so the Gamma ga
 veto's value at d = 7 is that impacts no longer corrupt the logical qubit silently: 98–99.5% of the failures in
 impacted shots are removed. A hold of 7 τ for the T1 burst (1.75% dead time) or 10 τ for the dephasing burst
 (0.1%) brings the floor below what the ladder resolves; that is the floor that would otherwise limit the code near
-d = 14.
+d = 15 (`designs/gamma1/gamma1_review.txt`).
 
 ## Validation
 

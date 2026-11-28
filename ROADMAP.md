@@ -14,9 +14,9 @@ assumptions listed in each design spec. They are design targets, not measured pe
 | Phase | Chip | Purpose | Simulation gate | Hardware gate |
 |---|---|---|---|---|
 | 0 — Tooling | atomforge, qpuforge v0.1–v0.4 | Materials and processor emulation, validated physics | done (541 validation checks) | n/a |
-| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11); mask not fabrication-ready: 4 DRC space violations, metal connectivity open | open: fabricate and characterise |
-| **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/beta1) | open |
-| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask not fabrication-ready: metal connectivity open (designs/gamma1). Lattice-surgery ZZ, XX and CNOT simulated at d = 3, 5 (results/surgery_study.txt) | planned |
+| **Alpha** | **AF-17 (Alpha-1 v1.1)** | First error-correction-ready chip: distance-3 surface code, 17 qubits | passed (designs/alpha1-v11); mask DRC and the metal-connectivity check are clean in the model, but the connectivity has open review findings (docs/design/mask-connectivity.md) and no foundry DRC has been run: not fabrication-ready | open: fabricate and characterise |
+| **Beta** | **BF-49 (Beta-1 rev C)** | Show logical error falling with code size: distance 5, 49 qubits | criteria met in simulation; mask DRC and the metal-connectivity check clean in the model, with open review findings on the connectivity; control-line budget missed by the flux line (9.7× vs 10×); foundry DRC not yet run (designs/beta1) | open |
+| **Gamma** | **GF-97 (Gamma-1)** + 2×d5 | Distance 7; logical operations (lattice surgery); real-time decoding | memory criteria met in simulation; mask DRC and the metal-connectivity check clean in the model, with open review findings on the connectivity; control-line budget missed by the flux line (9.7× vs 10×); foundry DRC not yet run (designs/gamma1). Lattice-surgery ZZ, XX and CNOT simulated at d = 3, 5 (results/surgery_study.txt) | planned |
 | Delta | modular | Several logical qubits linked between modules; logical-level benchmarks | planned | planned |
 
 ---

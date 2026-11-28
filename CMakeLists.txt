@@ -16,7 +16,7 @@ endif()
 # enough to change eps from 0.01200 to 0.01223 at 8 threads (see results/PROVENANCE.md).
 # Every target, including the fp_contract guard, must use this list (see tests/check_fp_contract_flags.cmake).
 set(QPUFORGE_COMPILE_OPTIONS -Wall -Wextra -O3 -ffp-contract=off)
-foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp decoder_study2:examples/decoder_study2.cpp surgery_study:examples/surgery_study.cpp test_fp_contract:tests/test_fp_contract.cpp)
+foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp decoder_study2:examples/decoder_study2.cpp surgery_study:examples/surgery_study.cpp flux_distortion_study:examples/flux_distortion_study.cpp test_fp_contract:tests/test_fp_contract.cpp)
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)
   list(GET parts 1 src)
@@ -39,8 +39,8 @@ target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERS
 # (It used to be two compile definitions computed when CMake configured the build directory: a directory configured at
 # one commit and rebuilt after later commits kept writing the old commit into its outputs.)
 # qpuforge_git_stamp_update is always out of date and runs cmake/git_stamp.cmake, which rewrites git_stamp.cpp only
-# when the stamp changes. That file is the whole of the static library the six programs link, so a new commit costs
-# one small compile and six relinks, and a build with nothing new recompiles and relinks nothing.
+# when the stamp changes. That file is the whole of the static library the programs below link, so a new commit costs
+# one small compile and one relink per program, and a build with nothing new recompiles and relinks nothing.
 # One way of building does not take the stamp: the Makefile rules <target>/fast skip the dependencies of the target,
 # so a program built that way is linked with the stamp of the last ordinary build.
 find_package(Git QUIET)   # a hint for the script, which looks for git on PATH when this one is missing at build time
@@ -58,7 +58,7 @@ target_compile_definitions(qpuforge_git_stamp PUBLIC QPUFORGE_GIT_STAMP)   # git
 target_compile_options(qpuforge_git_stamp PRIVATE ${QPUFORGE_COMPILE_OPTIONS})
 # Every program that includes git_stamp.hpp (through review_io.hpp) belongs in this list. One that is left out says
 # "unknown" in its outputs; the CTest guard git_stamp_wiring fails for it.
-foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps surgery_study)
+foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps decoder_study2 surgery_study flux_distortion_study)
   target_link_libraries(${name} PRIVATE qpuforge_git_stamp)
 endforeach()
 # the materials group reads its forge.materials.v0 sidecar fixtures from the source tree
@@ -273,6 +273,22 @@ set_tests_properties(cli_materials_qec PROPERTIES FAIL_REGULAR_EXPRESSION "error
 # command line and read the chip first (the sidecar is applied after the chip has loaded, so "cannot open" comes first)
 set_tests_properties(cli_materials_cz_missing_chip cli_materials_hwgate_missing_chip PROPERTIES PASS_REGULAR_EXPRESSION "error: cannot open .*cli_no_chip.json")
 set_tests_properties(cli_materials_gds_refused cli_materials_qec cli_materials_cz_missing_chip cli_materials_hwgate_missing_chip PROPERTIES LABELS unit)
+# `materials apply --out` (decision D2): writes a copy of the chip with the sidecar applied and a materials_source block;
+# analyze then reads the copy without --materials and sees the applied values (each qubit kept its Rn_kOhm, D1)
+set(QPUFORGE_CLI_APPLIED ${CMAKE_CURRENT_BINARY_DIR}/cli_materials_applied.json)
+add_test(NAME cli_materials_apply COMMAND qpuforge_cli materials apply ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json --out ${QPUFORGE_CLI_APPLIED})
+add_test(NAME cli_materials_apply_analyze COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_APPLIED})
+add_test(NAME cli_materials_apply_no_out COMMAND qpuforge_cli materials apply ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_apply_action COMMAND qpuforge_cli materials merge ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json --out ${CMAKE_CURRENT_BINARY_DIR}/cli_materials_never.json)
+add_test(NAME cli_materials_apply_overwrite COMMAND qpuforge_cli materials apply ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json --out ${QPUFORGE_CLI_CHIP})
+set_tests_properties(cli_materials_apply PROPERTIES FIXTURES_SETUP materials_applied FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06.*applied +junction_gap_ueV .*180 -> 190.*wrote .*cli_materials_applied.json: 2 applied, 1 skipped; materials_source records the sidecar \\(sha256 [0-9a-f]+\\)")
+set_tests_properties(cli_materials_apply_analyze PROPERTIES FIXTURES_REQUIRED materials_applied FAIL_REGULAR_EXPRESSION "materials sidecar|error:" PASS_REGULAR_EXPRESSION
+  "materials: Q_diel=1e\\+06  junction gap 190 ueV.*mean T1")
+set_tests_properties(cli_materials_apply_no_out PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge materials: materials apply needs --out <new-chip.json>")
+set_tests_properties(cli_materials_apply_action PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge materials: unknown materials action 'merge' \\(the only action is apply\\)")
+set_tests_properties(cli_materials_apply_overwrite PROPERTIES PASS_REGULAR_EXPRESSION "error: materials apply: --out .*alpha1_v11.json would overwrite an input file")
+set_tests_properties(cli_materials_apply cli_materials_apply_analyze cli_materials_apply_no_out cli_materials_apply_action cli_materials_apply_overwrite PROPERTIES LABELS unit)
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)
@@ -309,13 +325,11 @@ set_tests_properties(determinism determinism_env PROPERTIES LABELS unit)
 set(QPUFORGE_TESTS
   "decomposition:unit" "transmon:physics" "coupler_and_flux:physics" "zz_and_inverse_design:physics" "qasm:unit" "compiler:unit" "decoherence:physics"
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"
-  "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
-  "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_checks:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse" "flux_predistortion:pulse"
-  "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
+  "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_checks:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
-  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "surgery:qec" "surgery_cnot:qec" "surgery_joint:qec" "surgery_routing:qec")
-  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "herald_weights:qec" "dqlr_herald:qec" "stream_ops:qec" "surgery:qec" "surgery_cnot:qec")
+  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "herald_weights:qec" "dqlr_herald:qec" "stream_ops:qec"
+  "surgery:qec" "surgery_cnot:qec" "surgery_joint:qec" "surgery_routing:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 # forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data

@@ -10,6 +10,9 @@ refuses to cut), adds a metal-connectivity check of the masks, and brings every 
 limit of the Alpha gate. **The masks are not fabrication-ready:** the connectivity check finds floating ground, shorted
 lines that do not reach the ground plane, and qubit junctions that do not land on metal (see Known issues).
 
+The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_CONTRACT.md`): a reader for the
+`forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
+
 ### Added
 - `layout.hpp`:
   - `detail::fill_ground_slivers`: mask clean-up that merges two cut-outs separated by a strip of ground narrower than
@@ -36,6 +39,25 @@ lines that do not reach the ground plane, and qubit junctions that do not land o
   3 minutes). `pulse_cz` checks the two pair classes with the most leakage with and without the fallback.
 - `docs/design/cz-leakage.md`.
 
+- `materials.hpp`: `load_materials` / `materials_from_json` read and check a `forge.materials.v0` sidecar, and
+  `apply_materials` writes it into a `ChipDesign`. The sidecar's `Q_dielectric` (unit `dimensionless`) sets
+  `ChipDesign::Q_dielectric` and its `junction_gap_ueV` (unit `ueV`) sets `ChipDesign::gap_ueV`; a value must be
+  finite and > 0. With `MaterialsApplyOptions::use_loss_tangent`, a `loss_tangent` sets
+  `Q_dielectric = 1 / loss_tangent` (the uniform-loss model of `analyze()`) when the sidecar's `Q_dielectric` is null
+  or absent. A null value, such as each of atomforge's placeholders, changes nothing. `Rn_spread_pct` and the
+  environment fields are never taken from a sidecar. The returned `MaterialsReport` has one line per quantity, applied
+  or skipped, with the reason. A wrong schema, an unknown quantity, a wrong unit, a bad value or a mismatched `maps_to`
+  throws `std::runtime_error` before the design is changed.
+- CLI: `analyze --materials <sidecar.json> [--loss-tangent]` applies a sidecar, prints one line per quantity, then
+  prints the device report. The chip JSON file is not changed.
+- Tests: the `materials` group (label `unit`, 25 checks), with sidecar fixtures in `tests/data/`, among them
+  atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
+  `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
+  guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
+- 346 validation checks in all. The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
+  `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
+- `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
+
 ### Changed
 - **Layout cells.** The bus is never drawn narrower than its strip: below that, the direct-coupling knob of the
   synthesis pulls the bus ends back from the qubits instead of shrinking the T-bar to a sliver (0.075 µm on the 0.4
@@ -61,6 +83,15 @@ lines that do not reach the ground plane, and qubit junctions that do not land o
 - The layout criteria of the Alpha, Beta and Gamma gates (ROADMAP.md) list the mask DRC and metal connectivity as
   reported, required before fabrication, and not gated in simulation.
 
+### API changes
+- New header `include/qpuforge/materials.hpp`, included by `qpuforge.hpp`. It adds `MaterialsQuantity`,
+  `MaterialsProducer`, `MaterialsSidecar`, `MaterialsApplyOptions`, `MaterialsReportLine`, `MaterialsReport`,
+  `materials_from_json`, `load_materials`, `apply_materials` and the `materials_detail` namespace to `qpuforge`. Code
+  that includes `qpuforge.hpp`, defines one of these names itself and uses `using namespace qpuforge` can now hit an
+  ambiguity.
+- Nothing else changes: `device.hpp`, chip JSON files and the output of `qpuforge analyze` without `--materials` are
+  as before. `--loss-tangent` without `--materials` is an error.
+
 ### Known issues
 - **The masks are not fabrication-ready.** Metal connectivity (`layout.connectivity` in the reviews):
   - ground enclosed by cut-outs floats: between the qubit arms (the arm and T-bar cut-outs seal the inner corners for
@@ -70,7 +101,6 @@ lines that do not reach the ground plane, and qubit junctions that do not land o
   - the XY and flux lines' capacitance to the qubits, and the resulting T1 limit, are not modelled;
   - the extraction treats every enclosed ground fragment as grounded.
 - AF-17 keeps four DRC space violations (ground necks below 4 µm), one each at Q7, Q10, Q13 and Q16.
-
 ## [0.4.0] (unreleased)
 
 Finishes the software side of Phases Alpha and Beta and starts Phase Gamma: an exact decoder at any number of defects,

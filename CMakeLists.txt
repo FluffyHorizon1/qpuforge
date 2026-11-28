@@ -54,6 +54,8 @@ target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERS
 foreach(name alpha1_v11_review beta1_review gamma1_review)
   target_compile_definitions(${name} PRIVATE QPUFORGE_GIT_SHA="${QPUFORGE_GIT_SHA}" QPUFORGE_GIT_DIRTY=${QPUFORGE_GIT_DIRTY})
 endforeach()
+# the materials group reads its forge.materials.v0 sidecar fixtures from the source tree
+target_compile_definitions(test_qpuforge PRIVATE QPUFORGE_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
 
 # One CTest entry per validation test, labelled by layer:  ctest -L unit | physics | pulse | qec | layout | smoke
 #   ctest -LE smoke    everything except the end-to-end review smoke runs
@@ -68,6 +70,25 @@ add_test(NAME cli_version_short COMMAND qpuforge_cli -V)
 set_tests_properties(cli_version cli_version_short PROPERTIES LABELS unit PASS_REGULAR_EXPRESSION "^qpuforge ${PROJECT_VERSION}")
 add_test(NAME cli_usage COMMAND qpuforge_cli)   # no arguments: prints usage and exits 1 (ignored with a pass regex)
 set_tests_properties(cli_usage PROPERTIES LABELS unit PASS_REGULAR_EXPRESSION "qpuforge --version \\| -V")
+# CLI guards for `analyze --materials` (not validation checks), on the committed Alpha-1 v1.1 design: a sidecar with
+# values is applied before the device report, atomforge's placeholder sidecar changes nothing, the loss tangent needs
+# --loss-tangent, a chip design given as the sidecar is refused, and the usage text lists the flags.
+set(QPUFORGE_CLI_CHIP ${CMAKE_CURRENT_SOURCE_DIR}/designs/alpha1-v11/alpha1_v11.json)
+set(QPUFORGE_CLI_DATA ${CMAKE_CURRENT_SOURCE_DIR}/tests/data)
+add_test(NAME cli_materials COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_DATA}/materials-values.json)
+add_test(NAME cli_materials_placeholder COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_DATA}/materials-contract-CuAu.json)
+add_test(NAME cli_materials_loss_tangent COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_DATA}/materials-loss-tangent.json --loss-tangent)
+add_test(NAME cli_materials_refused COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${QPUFORGE_CLI_CHIP})
+add_test(NAME cli_usage_materials COMMAND qpuforge_cli)
+set_tests_properties(cli_materials PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06.*applied +junction_gap_ueV +materials.junction_gap_ueV 180 -> 190.*materials: Q_diel=1e\\+06  junction gap 190 ueV.*mean T1")
+set_tests_properties(cli_materials_placeholder PROPERTIES FAIL_REGULAR_EXPRESSION "applied |error:" PASS_REGULAR_EXPRESSION
+  "skipped +Q_dielectric +placeholder.*skipped +loss_tangent +placeholder.*skipped +junction_gap_ueV +placeholder.*materials: Q_diel=3e\\+06  junction gap 180 ueV.*mean T1")
+set_tests_properties(cli_materials_loss_tangent PROPERTIES FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +loss_tangent +materials.Q_dielectric 3e\\+06 -> 4e\\+06, Q_dielectric = 1/loss_tangent.*materials: Q_diel=4e\\+06.*mean T1")
+set_tests_properties(cli_materials_refused PROPERTIES PASS_REGULAR_EXPRESSION "error: .*alpha1_v11.json: materials sidecar: schema must be")
+set_tests_properties(cli_usage_materials PROPERTIES PASS_REGULAR_EXPRESSION "analyze <chip.json> \\[--materials <sidecar.json> \\[--loss-tangent\\]\\]")
+set_tests_properties(cli_materials cli_materials_placeholder cli_materials_loss_tangent cli_materials_refused cli_usage_materials PROPERTIES LABELS unit)
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)
@@ -93,6 +114,8 @@ set(QPUFORGE_TESTS
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
+# forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data
+list(APPEND QPUFORGE_TESTS "materials:unit")
 foreach(t ${QPUFORGE_TESTS})
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)

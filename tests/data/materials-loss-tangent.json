@@ -1,0 +1,34 @@
+{
+  "schema": "forge.materials.v0",
+  "produced_by": {
+    "tool": "hand-written test fixture",
+    "commit": "none",
+    "potential_or_method": "assumed loss tangent, not a materials result",
+    "timestamp": "2026-11-27T00:00:00+00:00"
+  },
+  "system": ["Al", "O"],
+  "quantities": {
+    "Q_dielectric": {
+      "value": null,
+      "unit": "dimensionless",
+      "maps_to": "ChipDesign.materials.Q_dielectric"
+    },
+    "loss_tangent": {
+      "value": 2.5e-7,
+      "unit": "dimensionless",
+      "maps_to": null,
+      "provenance": "assumed",
+      "relation": "If the uniform-loss model in device.hpp holds, Q_dielectric = 1 / loss_tangent.",
+      "conditions": {"T_K": 0.01, "f_GHz": 5.0}
+    },
+    "junction_gap_ueV": {
+      "value": null,
+      "unit": "ueV",
+      "maps_to": "ChipDesign.materials.junction_gap_ueV",
+      "status": "placeholder",
+      "provenance": "placeholder"
+    }
+  },
+  "placeholders": ["quantities.junction_gap_ueV"],
+  "notes": ["Test fixture: Q_dielectric is null, so a reader may derive it from loss_tangent when asked to. The numbers are assumed, not computed."]
+}

@@ -255,6 +255,30 @@ inline SurgeryExperiment build_surgery(const SurgerySchedule& Sd) {
                 if (basis == 'X') C.h(q);
                 ds[std::size_t(q)] = {true, basis, t, -1, -1};
             }
+            // faces of the previous phase that end here. A face whose whole support was just read out in its basis (a
+            // face inside a routing strip) closes with those outcomes, as at the final readout. Any face that ends is
+            // forgotten: if it returns in a later phase it starts afresh, since its data were measured in between.
+            {
+                std::set<int> curf;
+                for (const auto& f : E.phase_faces[std::size_t(p)]) curf.insert(f.qubit);
+                for (const auto& f : E.phase_faces[std::size_t(p - 1)]) {
+                    if (curf.count(f.qubit)) continue;
+                    bool closes = true;
+                    for (int q : f.support) {
+                        const auto& s = ds[std::size_t(q)];
+                        if (s.live || s.meas_t != t || s.basis != f.type) closes = false;
+                    }
+                    if (closes) {
+                        std::vector<int> det{last.at(f.qubit).bit};
+                        for (int q : f.support) det.push_back(ds[std::size_t(q)].meas_bit);
+                        E.detectors.push_back(det);
+                        E.detector_type.push_back(f.type);
+                        E.detector_label.push_back(std::string(1, f.type) + "@(" + std::to_string(f.x) + "," + std::to_string(f.y) + ") split r" + std::to_string(g));
+                        E.detector_round.push_back(g);
+                    }
+                    last.erase(f.qubit);
+                }
+            }
             // face qubits of this phase: reset (those of the previous phase were reset after its last round)
             std::set<int> prevf;
             for (const auto& f : E.phase_faces[std::size_t(p - 1)]) prevf.insert(f.qubit);
@@ -417,25 +441,33 @@ inline void check_state(char s) { if (s != '0' && s != '1' && s != '+' && s != '
 
 struct SurgeryRounds { int pre{1}, merge{0}, post{1}; };   // merge = 0: d rounds; pre = 0: merge from the first round
 
+namespace surgery_detail {
+inline void check_gap(int gap) { if (gap < 1 || gap % 2 == 0) throw std::runtime_error("surgery: the gap (routing strip length) must be odd and >= 1"); }
+} // namespace surgery_detail
+
 // Logical parity measurement between two patches A and B. type 'Z': Z_A Z_B (A above B, ZZ merge); 'X': X_A X_B
 // (A left of B, XX merge). Inputs '0', '1', '+', '-'; each patch is read out in its input basis.
 // Observables (each deterministic in the noiseless circuit):
 //   inputs in the measured basis:  "m_ZZ" (or "m_XX") the merge outcome = product of the new seam faces in the first
 //                                  merged round; and each patch's logical in that basis
 //   inputs in the other basis:     the conserved product ("X_A X_B" under a ZZ merge, "Z_A Z_B" under XX), including the
-//                                  gap qubit the logical crosses at the split
-inline SurgeryExperiment surgery_parity(int d, char type, char in_a, char in_b, SurgeryRounds rr = {}) {
+//                                  gap qubits the logical crosses at the split
+// gap: rows (ZZ) or columns (XX) of routing data qubits between the patches, odd. 1: adjacent patches. More: the patches
+// are joined through a routing strip, d wide and `gap` long, which is merged with both patches for the measurement and
+// read out at the split. The seam faces are then all faces of the measured type in the strip and at its two ends;
+// their product is still Z_A Z_B (or X_A X_B).
+inline SurgeryExperiment surgery_parity(int d, char type, char in_a, char in_b, SurgeryRounds rr = {}, int gap = 1) {
     using namespace surgery_detail;
-    check_state(in_a); check_state(in_b);
+    check_state(in_a); check_state(in_b); check_gap(gap);
     if (type != 'Z' && type != 'X') throw std::runtime_error("surgery: parity type must be Z or X");
     if (basis_of(in_a) != basis_of(in_b)) throw std::runtime_error("surgery: both inputs must be in the same basis");
     const int R = rr.merge > 0 ? rr.merge : d;
     const bool zz = type == 'Z';
-    const SurgeryPatch A{"A", 0, 0}, B{"B", zz ? 0 : d + 1, zz ? d + 1 : 0};
-    const SurgeryRegion merged{0, 0, zz ? d : 2 * d + 1, zz ? 2 * d + 1 : d, type};
+    const SurgeryPatch A{"A", 0, 0}, B{"B", zz ? 0 : d + gap, zz ? d + gap : 0};
+    const SurgeryRegion merged{0, 0, zz ? d : 2 * d + gap, zz ? 2 * d + gap : d, type};
     SurgerySchedule S;
     S.lat = make_surgery_lattice(d, {A, B}, {merged});
-    S.name = std::string(zz ? "ZZ" : "XX") + " measurement d=" + std::to_string(d) + " |" + in_a + in_b + ">";
+    S.name = std::string(zz ? "ZZ" : "XX") + " measurement d=" + std::to_string(d) + " |" + in_a + in_b + ">" + (gap > 1 ? " strip " + std::to_string(gap) : "");
     S.init_basis = {basis_of(in_a), basis_of(in_b)};
     S.init_flip = {flip_of(in_a), flip_of(in_b)};
     S.final_basis = S.init_basis;
@@ -455,12 +487,14 @@ inline SurgeryExperiment surgery_parity(int d, char type, char in_a, char in_b, 
         SurgeryObservable b{std::string(1, type) + "_B", type, zz ? final_row(E, 1, 0) : final_col(E, 1, 0), flip_of(in_b)};
         E.observables.push_back(a); E.observables.push_back(b);
     } else {
-        // conserved product: logical column (ZZ merge) or row (XX merge) 0 of both patches and the gap qubit between them
+        // conserved product: logical column (ZZ merge) or row (XX merge) 0 of both patches and the gap qubits between them
         SurgeryObservable c{zz ? "X_A X_B" : "Z_A Z_B", bas, {}, flip_of(in_a) ^ flip_of(in_b)};
         append(c.bits, zz ? final_col(E, 0, 0) : final_row(E, 0, 0));
         append(c.bits, zz ? final_col(E, 1, 0) : final_row(E, 1, 0));
-        const int gq = zz ? S.lat.data_qubit(0, d) : S.lat.data_qubit(d, 0);
-        c.bits.push_back(E.data_bit.at({gq, mp + 1}));
+        for (int k = 0; k < gap; ++k) {
+            const int gq = zz ? S.lat.data_qubit(0, d + k) : S.lat.data_qubit(d + k, 0);
+            c.bits.push_back(E.data_bit.at({gq, mp + 1}));
+        }
         E.observables.push_back(c);
     }
     return E;
@@ -479,15 +513,17 @@ inline SurgeryExperiment surgery_parity(int d, char type, char in_a, char in_b, 
 //                      Z-basis target "X_C X_T" (= x_C)
 // The labels are the logical operators after the CNOT with the frame correction applied.
 // require_observable = false: allow inputs with no deterministic observable (surgery_cnot_reference supplies its own).
-inline SurgeryExperiment surgery_cnot(int d, char in_c, char in_t, char readout = 0, SurgeryRounds rr = {}, bool require_observable = true) {
+// gap: length of the routing strips between C and A and between A and T (odd; 1: adjacent patches, as surgery_parity).
+// g and h are then the gap qubits of the logical row and column in each strip.
+inline SurgeryExperiment surgery_cnot(int d, char in_c, char in_t, char readout = 0, SurgeryRounds rr = {}, bool require_observable = true, int gap = 1) {
     using namespace surgery_detail;
-    check_state(in_c); check_state(in_t);
+    check_state(in_c); check_state(in_t); check_gap(gap);
     const int R = rr.merge > 0 ? rr.merge : d;
-    const SurgeryPatch C{"C", 0, 0}, A{"A", 0, d + 1}, T{"T", d + 1, d + 1};
-    const SurgeryRegion ca{0, 0, d, 2 * d + 1, 'Z'}, at{0, d + 1, 2 * d + 1, d, 'X'};
+    const SurgeryPatch C{"C", 0, 0}, A{"A", 0, d + gap}, T{"T", d + gap, d + gap};
+    const SurgeryRegion ca{0, 0, d, 2 * d + gap, 'Z'}, at{0, d + gap, 2 * d + gap, d, 'X'};
     SurgerySchedule S;
     S.lat = make_surgery_lattice(d, {C, A, T}, {ca, at});
-    S.name = "CNOT d=" + std::to_string(d) + " |" + in_c + in_t + ">";
+    S.name = "CNOT d=" + std::to_string(d) + " |" + in_c + in_t + ">" + (gap > 1 ? " strips " + std::to_string(gap) : "");
     S.init_basis = {basis_of(in_c), 'X', basis_of(in_t)};
     S.init_flip = {flip_of(in_c), 0, flip_of(in_t)};
     const char rc = readout ? readout : basis_of(in_c), rt = readout ? readout : basis_of(in_t);
@@ -507,7 +543,7 @@ inline SurgeryExperiment surgery_cnot(int d, char in_c, char in_t, char readout 
         // Z_C(out): C's bottom row. Z_T(out) = Z_T(row 0) + Z_A(row 0) + g + a.
         std::vector<int> zc = final_row(E, 0, d - 1), zt = final_row(E, 2, 0);
         append(zt, final_row(E, 1, 0));
-        zt.push_back(E.data_bit.at({S.lat.data_qubit(d, d + 1), px + 1}));
+        for (int k = 0; k < gap; ++k) zt.push_back(E.data_bit.at({S.lat.data_qubit(d + k, d + gap), px + 1}));
         append(zt, merge_product(E, pz, 'Z'));
         E.logical_bits["Z_C"] = zc; E.logical_bits["Z_T"] = zt;
         if (bc == 'Z') E.observables.push_back({"Z_C", 'Z', zc, fc});
@@ -516,7 +552,7 @@ inline SurgeryExperiment surgery_cnot(int d, char in_c, char in_t, char readout 
     } else {
         // X_T(out): T's column 0. X_C(out) = X_C(col 0) + h + f + b.
         std::vector<int> xt = final_col(E, 2, 0), xc = final_col(E, 0, 0);
-        xc.push_back(E.data_bit.at({S.lat.data_qubit(0, d), px}));
+        for (int k = 0; k < gap; ++k) xc.push_back(E.data_bit.at({S.lat.data_qubit(0, d + k), px}));
         append(xc, patch_face_product(E, px, 1, 'X'));
         append(xc, merge_product(E, px, 'X'));
         E.logical_bits["X_C"] = xc; E.logical_bits["X_T"] = xt;
@@ -530,11 +566,11 @@ inline SurgeryExperiment surgery_cnot(int d, char in_c, char in_t, char readout 
 
 // By name: op "zz", "xx" (inputs a b) or "cnot" (inputs c t; readout 0 = input basis). The decoded basis is the
 // Pauli type of the observables.
-inline SurgeryExperiment surgery_experiment(const std::string& op, int d, const std::string& inputs, char readout = 0, SurgeryRounds rr = {}) {
+inline SurgeryExperiment surgery_experiment(const std::string& op, int d, const std::string& inputs, char readout = 0, SurgeryRounds rr = {}, int gap = 1) {
     if (inputs.size() != 2) throw std::runtime_error("surgery: inputs are two characters, e.g. 00, 01, ++, +-");
-    if (op == "zz") return surgery_parity(d, 'Z', inputs[0], inputs[1], rr);
-    if (op == "xx") return surgery_parity(d, 'X', inputs[0], inputs[1], rr);
-    if (op == "cnot") return surgery_cnot(d, inputs[0], inputs[1], readout, rr);
+    if (op == "zz") return surgery_parity(d, 'Z', inputs[0], inputs[1], rr, gap);
+    if (op == "xx") return surgery_parity(d, 'X', inputs[0], inputs[1], rr, gap);
+    if (op == "cnot") return surgery_cnot(d, inputs[0], inputs[1], readout, rr, true, gap);
     throw std::runtime_error("surgery: op must be zz, xx or cnot");
 }
 inline char surgery_decode_basis(const SurgeryExperiment& E) { return E.observables.at(0).type; }
@@ -546,10 +582,10 @@ inline char surgery_decode_basis(const SurgeryExperiment& E) { return E.observab
 //   Z_RC Z_C = +1, Z_RT Z_C Z_T = +1 (Z readout)   and   X_RC X_C X_T = +1, X_RT X_T = +1 (X readout),
 // with Z_C, Z_T, X_C, X_T the corrected output logicals of surgery_cnot. Unlike fixed logical inputs this exercises
 // the frame assembly with every patch logical random.
-inline SurgeryExperiment surgery_cnot_reference(int d, char prep, char readout, SurgeryRounds rr = {}) {
+inline SurgeryExperiment surgery_cnot_reference(int d, char prep, char readout, SurgeryRounds rr = {}, int gap = 1) {
     using namespace surgery_detail;
     if ((prep != 'Z' && prep != 'X') || (readout != 'Z' && readout != 'X')) throw std::runtime_error("surgery: prep and readout must be Z or X");
-    auto E = surgery_cnot(d, prep == 'Z' ? '0' : '+', prep == 'Z' ? '0' : '+', readout, rr, false);
+    auto E = surgery_cnot(d, prep == 'Z' ? '0' : '+', prep == 'Z' ? '0' : '+', readout, rr, false, gap);
     const auto& L = E.sched.lat;
     const int rc = E.circuit.n, rt = rc + 1;
     E.circuit.n += 2;
@@ -589,7 +625,8 @@ inline SurgeryExperiment surgery_cnot_reference(int d, char prep, char readout, 
         obs = {a, b};
     }
     E.observables = obs;
-    E.sched.name = "CNOT d=" + std::to_string(d) + " reference qubits, " + std::string(1, prep) + "-basis patches, " + std::string(1, readout) + " readout";
+    E.sched.name = "CNOT d=" + std::to_string(d) + " reference qubits, " + std::string(1, prep) + "-basis patches, " + std::string(1, readout) + " readout" +
+                   (gap > 1 ? ", strips " + std::to_string(gap) : "");
     return E;
 }
 
@@ -802,6 +839,50 @@ inline ChipDesign surgery_chip(const SurgeryLattice& L, const std::string& prese
 }
 
 // ================================================================== decoding setup and frame Monte Carlo
+// One fault mechanism seen by every decoder of a setup: the decoded detectors it flips, the decoded observables it
+// flips (bit k: observable k of SurgerySetup::obs) and, when asked for, the detectors of the other Pauli type.
+struct SurgeryFault {
+    std::vector<int> dets, other;
+    std::uint8_t mask{0};
+    double p{0};
+    int moment{0};
+    std::string what;
+};
+
+// Joint detector error model: one edge per pair of decoded detectors (b = -1: the boundary), with the total probability
+// of the mechanisms that flip exactly that pair and the observable mask of the most likely class among them.
+struct JointEdge { int a, b; std::uint8_t obs; double p; };
+struct JointDEM {
+    int n_det{0};
+    std::vector<JointEdge> edges;
+    int hyperedge_faults{0};          // mechanisms flipping > 2 decoded detectors (not in the graph, as in build_dem)
+    double hyperedge_p{0};
+    int undetectable_logical{0};      // mechanisms flipping an observable and no decoded detector
+    int mixed_edges{0};               // edges whose mechanisms do not all flip the same observables
+    double minority_p{0};             // summed probability of the mechanisms whose mask is not their edge's mask
+};
+
+inline JointDEM build_joint_dem(const std::vector<SurgeryFault>& faults, int n_det) {
+    JointDEM M; M.n_det = n_det;
+    std::map<std::pair<int, int>, std::map<int, double>> acc;   // (a, b) -> mask -> probability (odd number of them firing)
+    for (const auto& f : faults) {
+        if (f.dets.empty()) { if (f.mask) ++M.undetectable_logical; continue; }
+        if (f.dets.size() > 2) { ++M.hyperedge_faults; M.hyperedge_p += f.p; continue; }
+        double& p = acc[{f.dets[0], f.dets.size() == 2 ? f.dets[1] : -1}][int(f.mask)];
+        p = p * (1 - f.p) + f.p * (1 - p);
+    }
+    for (const auto& [k, by_mask] : acc) {
+        double tot = 0, best = -1; int mask = 0;
+        for (const auto& [m, p] : by_mask) {            // ascending mask: ties keep the smaller one
+            tot = tot * (1 - p) + p * (1 - tot);
+            if (p > best) { best = p; mask = m; }
+        }
+        if (by_mask.size() > 1) { ++M.mixed_edges; for (const auto& [m, p] : by_mask) if (m != mask) M.minority_p += p; }
+        M.edges.push_back({k.first, k.second, std::uint8_t(mask), tot});
+    }
+    return M;
+}
+
 struct SurgerySetup {
     SurgeryExperiment exp;
     char basis{'Z'};                          // detectors and observables of this type are decoded
@@ -813,29 +894,106 @@ struct SurgerySetup {
     std::vector<std::unique_ptr<MatchingDecoder>> decoder;
     std::vector<char> is_data;
     std::size_t n_faults{0};
+    // joint decoding: one graph for all decoded observables, edges carrying an observable mask
+    JointDEM jdem;
+    std::unique_ptr<MatchingDecoder> joint;   // decode() returns the mask; DecodeMethod::UnionFind for joint union-find
+    // correlated (two-pass) decoding, built by prepare_surgery(..., correlated = true): the detectors of the other
+    // Pauli type, a union-find decoder on their graph, and for each of its edges the joint-graph edges that share
+    // mechanisms with it, as (edge of joint->union_find(), weight factor given that the other edge fired)
+    std::vector<std::vector<int>> other_detectors;
+    std::unique_ptr<UnionFindDecoder> other_uf;
+    std::vector<std::vector<std::pair<int, double>>> correlated;
+    int correlated_pairs{0};                  // (other edge, joint edge) pairs with a lowered weight
+    double correlated_p{0};                   // summed probability of the mechanisms behind them
 };
 
-// Single-fault signatures for each decoded observable (decoded detectors only). One enumeration serves all of them:
-// each observable is appended to the detector list as an extra detector, then split off again.
-inline std::vector<std::vector<FaultSignature>> surgery_fault_signatures(SurgerySetup& M) {
+// Every single-fault mechanism with its decoded detectors and observable mask; with_other: also its detectors of the
+// other Pauli type (indices into M.other_detectors, which is filled here). One enumeration: the observables and the
+// other-type detectors are appended to the detector list as extra detectors, then split off again.
+inline std::vector<SurgeryFault> surgery_faults(SurgerySetup& M, bool with_other = false) {
     MemoryExperiment ext = M.view;
-    const int nd = int(M.view.detectors.size());
+    const int nd = int(M.view.detectors.size()), no = int(M.obs.size());
+    if (no > 8) throw std::runtime_error("surgery: at most 8 decoded observables");
     for (int k : M.obs) ext.detectors.push_back(M.exp.observables[std::size_t(k)].bits);
-    const auto faults = enumerate_faults(M.frame, ext);
+    if (with_other) {
+        M.other_detectors.clear();
+        for (std::size_t k = 0; k < M.exp.detectors.size(); ++k) if (M.exp.detector_type[k] != M.basis) M.other_detectors.push_back(M.exp.detectors[k]);
+        for (const auto& dt : M.other_detectors) ext.detectors.push_back(dt);
+    }
+    auto faults = enumerate_faults(M.frame, ext);
     M.n_faults = faults.size();
-    std::vector<std::vector<FaultSignature>> out(M.obs.size());
-    for (std::size_t o = 0; o < M.obs.size(); ++o) {
-        out[o].reserve(faults.size());
-        for (const auto& f : faults) {
-            FaultSignature s; s.p = f.p; s.moment = f.moment; s.obs = false; s.what = f.what;
-            for (int dt : f.dets) { if (dt < nd) s.dets.push_back(dt); else if (dt == nd + int(o)) s.obs = true; }
-            out[o].push_back(std::move(s));
+    std::vector<SurgeryFault> out(faults.size());
+    for (std::size_t i = 0; i < faults.size(); ++i) {
+        auto& f = faults[i];
+        SurgeryFault& s = out[i];
+        s.p = f.p; s.moment = f.moment; s.what = std::move(f.what);
+        for (int dt : f.dets) {
+            if (dt < nd) s.dets.push_back(dt);
+            else if (dt < nd + no) s.mask = std::uint8_t(s.mask | (1u << (dt - nd)));
+            else s.other.push_back(dt - nd - no);
         }
     }
     return out;
 }
 
-inline SurgerySetup prepare_surgery(const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, const SurgeryExperiment& E, char basis) {
+// Single-fault signatures of one decoded observable, or of each (decoded detectors only), from one enumeration.
+inline std::vector<FaultSignature> surgery_fault_signatures_of(const std::vector<SurgeryFault>& faults, std::size_t o) {
+    std::vector<FaultSignature> out;
+    out.reserve(faults.size());
+    for (const auto& f : faults) {
+        FaultSignature s; s.p = f.p; s.moment = f.moment; s.obs = (f.mask >> o) & 1; s.what = f.what; s.dets = f.dets;
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+inline std::vector<std::vector<FaultSignature>> surgery_fault_signatures(const std::vector<SurgeryFault>& faults, std::size_t n_obs) {
+    std::vector<std::vector<FaultSignature>> out(n_obs);
+    for (std::size_t o = 0; o < n_obs; ++o) out[o] = surgery_fault_signatures_of(faults, o);
+    return out;
+}
+inline std::vector<std::vector<FaultSignature>> surgery_fault_signatures(SurgerySetup& M) {
+    return surgery_fault_signatures(surgery_faults(M), M.obs.size());
+}
+
+namespace surgery_detail {
+// Correlations between the two detector types for two-pass decoding. A mechanism that flips one or two detectors of
+// each type (a Y error on a data qubit, most two-qubit errors of a CZ) is an edge e of the decoded graph and an edge o
+// of the other graph at once. If o is in the other graph's correction, e has fired with probability about
+// p(e and o) / p(o) instead of p(e); its weight is lowered to match (never raised).
+inline void build_correlations(SurgerySetup& M, const std::vector<SurgeryFault>& faults) {
+    const int n_other = int(M.other_detectors.size());
+    struct OE { int a, b; std::uint8_t obs; double p; };
+    std::map<std::pair<int, int>, double> po;                         // other edge -> probability
+    std::map<std::pair<std::pair<int, int>, std::pair<int, int>>, double> pj;   // (other edge, decoded edge) -> joint probability
+    auto key = [](const std::vector<int>& d) { return std::make_pair(d[0], d.size() == 2 ? d[1] : -1); };
+    for (const auto& f : faults) {
+        if (f.other.empty() || f.other.size() > 2) continue;
+        double& p = po[key(f.other)];
+        p = p * (1 - f.p) + f.p * (1 - p);
+        if (f.dets.empty() || f.dets.size() > 2) continue;
+        pj[{key(f.other), key(f.dets)}] += f.p;
+    }
+    std::vector<OE> oe;
+    for (const auto& [k, p] : po) oe.push_back({k.first, k.second, 0, p});
+    M.other_uf = std::make_unique<UnionFindDecoder>(n_other, oe);
+    M.correlated.assign(M.other_uf->edge.size(), {});
+    const auto& J = M.joint->union_find();
+    M.correlated_pairs = 0; M.correlated_p = 0;
+    for (const auto& [k, p] : pj) {
+        const int o = M.other_uf->edge_index(k.first.first, k.first.second), e = J.edge_index(k.second.first, k.second.second);
+        if (o < 0 || e < 0) continue;
+        const double cond = std::clamp(p / std::max(po.at(k.first), 1e-300), 1e-15, 0.5 - 1e-12);
+        const double w = std::log((1 - cond) / cond), w0 = J.edge[std::size_t(e)].w;
+        if (!(w < w0) || w0 <= 0) continue;
+        M.correlated[std::size_t(o)].push_back({e, w / w0});
+        ++M.correlated_pairs; M.correlated_p += p;
+    }
+}
+} // namespace surgery_detail
+
+// correlated = true also builds the tables of the two-pass decoder (SurgeryDecoder::Correlated).
+inline SurgerySetup prepare_surgery(const ChipDesign& D, const ChipReport& R, const NoiseModel& nm, const SurgeryExperiment& E, char basis,
+                                    bool correlated = false) {
     SurgerySetup M;
     M.exp = E; M.basis = basis;
     M.view.circuit = E.circuit; M.view.reference = E.reference; M.view.rounds = E.total_rounds; M.view.d = E.sched.lat.d; M.view.basis = basis;
@@ -869,9 +1027,9 @@ inline SurgerySetup prepare_surgery(const ChipDesign& D, const ChipReport& R, co
         for (int q = 0; q < E.circuit.n; ++q)
             if (E.sched.lat.sites[std::size_t(q)].data) { const int s = sim[std::size_t(D.index_of(q))]; if (s >= 0) M.is_data[std::size_t(s)] = 1; }
     }
-    auto fk = surgery_fault_signatures(M);
-    for (std::size_t o = 0; o < fk.size(); ++o) {
-        M.dem.push_back(build_dem(fk[o], int(M.view.detectors.size())));
+    const auto faults = surgery_faults(M, correlated);
+    for (std::size_t o = 0; o < M.obs.size(); ++o) {
+        M.dem.push_back(build_dem(surgery_fault_signatures_of(faults, o), int(M.view.detectors.size())));
         // an observable that a single fault can flip without any decoded detector is mis-typed or mis-assembled
         if (M.dem.back().undetectable_logical > 0)
             throw std::runtime_error("prepare_surgery: observable " + E.observables[std::size_t(M.obs[o])].name + " has " +
@@ -879,7 +1037,29 @@ inline SurgerySetup prepare_surgery(const ChipDesign& D, const ChipReport& R, co
                                      std::string(1, basis) + "-type detectors");
         M.decoder.push_back(std::make_unique<MatchingDecoder>(M.dem.back()));
     }
+    M.jdem = build_joint_dem(faults, int(M.view.detectors.size()));
+    M.joint = std::make_unique<MatchingDecoder>(M.jdem.n_det, M.jdem.edges);
+    if (correlated) surgery_detail::build_correlations(M, faults);
     return M;
+}
+
+// How the decoded observables are predicted from one shot's defects.
+//   Separate     one exact matching per observable, each on its own graph (the 0.5 behaviour, and the default)
+//   Joint        one exact matching on the joint graph; every observable is read off the same correction
+//   SeparateUF   union-find per observable
+//   JointUF      one union-find pass on the joint graph
+//   Correlated   two passes: union-find on the detectors of the other Pauli type, then exact matching on the joint graph
+//                with the weights of the edges correlated with that correction lowered (needs correlated = true at setup)
+enum class SurgeryDecoder { Separate, Joint, SeparateUF, JointUF, Correlated };
+inline const char* surgery_decoder_name(SurgeryDecoder m) {
+    switch (m) {
+    case SurgeryDecoder::Separate: return "separate matching";
+    case SurgeryDecoder::Joint: return "joint matching";
+    case SurgeryDecoder::SeparateUF: return "separate union-find";
+    case SurgeryDecoder::JointUF: return "joint union-find";
+    case SurgeryDecoder::Correlated: return "correlated joint matching";
+    }
+    return "?";
 }
 
 struct SurgeryResult {
@@ -896,30 +1076,42 @@ struct SurgeryResult {
     int hyperedge_faults{0}, undetectable_logical{0};
     double hyperedge_p{0};
     double leak_events_per_shot{0};
+    SurgeryDecoder decoder{SurgeryDecoder::Separate};
+    double decode_ns{0};                   // mean wall time of the decoding of one shot on one thread (not deterministic)
+    // against the first decoder of the same run (run_surgery_decoders), on the same shots:
+    long differ{0};                        // shots where the predictions differ
+    long any_fixed{0}, any_broken{0};      // shots the first decoder gets wrong and this one right, and the reverse
 };
 
-// Pauli-frame Monte Carlo of a surgery experiment. The noise sampling is run_memory_frame's (frame_detail::sample_shot,
-// shared; no heralds or impacts), and so is the determinism contract: per-shot generator from frame_shot_seed(seed, shot),
-// shots in fixed blocks of kFrameBlock whose tallies are added in block order. For a single-patch schedule this gives
-// the same logical errors as run_memory_frame shot for shot (tested). Each observable is decoded with its own exact
-// matching decoder.
-inline SurgeryResult run_surgery_frame(const SurgerySetup& M, long shots, std::uint64_t seed) {
+// Pauli-frame Monte Carlo of a surgery experiment, decoded with each of `modes` on the same shots. The noise sampling
+// is run_memory_frame's (frame_detail::sample_shot, shared; no heralds or impacts), and so is the determinism contract:
+// per-shot generator from frame_shot_seed(seed, shot), shots in fixed blocks of kFrameBlock whose tallies are added in
+// block order. Everything but decode_ns depends only on the setup, the shot count and the seed.
+inline std::vector<SurgeryResult> run_surgery_decoders(const SurgerySetup& M, long shots, std::uint64_t seed, const std::vector<SurgeryDecoder>& modes) {
     const auto& F = M.frame;
-    const std::size_t no = M.obs.size();
-    struct Tally { long any{0}, fired{0}, leak_ev{0}; int max_def{0}; std::vector<long> err; };
+    const std::size_t no = M.obs.size(), nm = modes.size();
+    if (nm == 0) throw std::runtime_error("run_surgery_decoders: no decoder");
+    for (auto m : modes) if (m == SurgeryDecoder::Correlated && !M.other_uf) throw std::runtime_error("run_surgery_decoders: correlated decoding needs prepare_surgery(..., correlated = true)");
+    struct Tally { long fired{0}, leak_ev{0}; int max_def{0}; std::vector<long> err, any, differ, fixed, broken; std::vector<double> ns; };
     const long nblocks = shots > 0 ? (shots + kFrameBlock - 1) / kFrameBlock : 0;
     std::vector<Tally> part(static_cast<std::size_t>(nblocks));
     std::vector<std::vector<int>> obs_bits;
     for (int k : M.obs) obs_bits.push_back(M.exp.observables[std::size_t(k)].bits);
+    const bool need_other = std::find(modes.begin(), modes.end(), SurgeryDecoder::Correlated) != modes.end();
 #pragma omp parallel
     {
         Xoshiro256 rng(0);
         std::vector<std::uint8_t> x(std::size_t(F.n)), z(std::size_t(F.n)), flips(std::size_t(std::max(F.nclbits, 1))), L(std::size_t(F.n));
-        std::vector<int> fired; DecodeScratch ws;
+        std::vector<int> fired, other_fired;
+        // one scratch per decoder: a union-find scratch is tied to its graph
+        std::vector<DecodeScratch> ws(nm * std::max<std::size_t>(no, 1));
+        UFScratch other_ws;
+        std::vector<std::pair<int, double>> scaled;
+        std::vector<unsigned> pred(nm);
 #pragma omp for schedule(dynamic, 1)
         for (long b = 0; b < nblocks; ++b) {
             Tally& T_ = part[std::size_t(b)];
-            T_.err.assign(no, 0);
+            T_.err.assign(nm * no, 0); T_.any.assign(nm, 0); T_.differ.assign(nm, 0); T_.fixed.assign(nm, 0); T_.broken.assign(nm, 0); T_.ns.assign(nm, 0.0);
             const long s_end = std::min(shots, (b + 1) * kFrameBlock);
             for (long s = b * kFrameBlock; s < s_end; ++s) {
                 rng = Xoshiro256(frame_shot_seed(seed, std::uint64_t(s)));
@@ -932,43 +1124,99 @@ inline SurgeryResult run_surgery_frame(const SurgerySetup& M, long shots, std::u
                     std::uint8_t v = 0; for (int c : M.view.detectors[d]) v ^= flips[std::size_t(c)];
                     if (v) fired.push_back(int(d));
                 }
+                if (need_other) {
+                    other_fired.clear();
+                    for (std::size_t d = 0; d < M.other_detectors.size(); ++d) {
+                        std::uint8_t v = 0; for (int c : M.other_detectors[d]) v ^= flips[std::size_t(c)];
+                        if (v) other_fired.push_back(int(d));
+                    }
+                }
                 T_.fired += long(fired.size());
                 T_.max_def = std::max(T_.max_def, int(fired.size()));
-                bool any = false;
+                unsigned truth = 0;
                 for (std::size_t k = 0; k < no; ++k) {
                     std::uint8_t ob = 0; for (int c : obs_bits[k]) ob ^= flips[std::size_t(c)];
-                    if (M.decoder[k]->decode(fired, ws) != ob) { ++T_.err[k]; any = true; }
+                    truth |= unsigned(ob) << k;
                 }
-                if (any) ++T_.any;
+                for (std::size_t m = 0; m < nm; ++m) {
+                    const auto t0 = std::chrono::steady_clock::now();
+                    unsigned pr = 0;
+                    switch (modes[m]) {
+                    case SurgeryDecoder::Separate:
+                        for (std::size_t k = 0; k < no; ++k) pr |= unsigned(M.decoder[k]->decode(fired, ws[m * no + k])) << k;
+                        break;
+                    case SurgeryDecoder::SeparateUF:
+                        for (std::size_t k = 0; k < no; ++k) pr |= unsigned(M.decoder[k]->decode(fired, ws[m * no + k], DecodeMethod::UnionFind)) << k;
+                        break;
+                    case SurgeryDecoder::Joint: pr = unsigned(M.joint->decode(fired, ws[m * no])); break;
+                    case SurgeryDecoder::JointUF: pr = unsigned(M.joint->decode(fired, ws[m * no], DecodeMethod::UnionFind)); break;
+                    case SurgeryDecoder::Correlated:
+                        scaled.clear();
+                        if (!other_fired.empty()) {
+                            M.other_uf->decode(other_fired, other_ws);
+                            for (int e : other_ws.correction) for (const auto& ef : M.correlated[std::size_t(e)]) scaled.push_back(ef);
+                        }
+                        pr = unsigned(M.joint->decode_scaled(fired, scaled, ws[m * no]));
+                        break;
+                    }
+                    T_.ns[m] += std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
+                    pred[m] = pr;
+                    const unsigned wrong = pr ^ truth;
+                    for (std::size_t k = 0; k < no; ++k) if ((wrong >> k) & 1) ++T_.err[m * no + k];
+                    if (wrong) ++T_.any[m];
+                    if (m > 0) {
+                        const unsigned wrong0 = pred[0] ^ truth;
+                        if (pr != pred[0]) ++T_.differ[m];
+                        if (wrong0 && !wrong) ++T_.fixed[m];
+                        if (!wrong0 && wrong) ++T_.broken[m];
+                    }
+                }
             }
         }
     }
-    SurgeryResult r;
-    r.shots = shots; r.errors.assign(no, 0);
-    long fired_tot = 0, leak_ev = 0;
-    for (const Tally& t : part) {
-        r.any_errors += t.any; fired_tot += t.fired; leak_ev += t.leak_ev; r.max_defects = std::max(r.max_defects, t.max_def);
-        for (std::size_t k = 0; k < no; ++k) r.errors[k] += t.err[k];
-    }
+    std::vector<SurgeryResult> out(nm);
+    long fired_tot = 0, leak_ev = 0; int max_def = 0;
+    for (const Tally& t : part) { fired_tot += t.fired; leak_ev += t.leak_ev; max_def = std::max(max_def, t.max_def); }
     auto sem = [&](double p) { return std::sqrt(std::max(p * (1 - p), 1e-12) / double(std::max(shots, 1L))); };
-    for (std::size_t k = 0; k < no; ++k) {
-        r.names.push_back(M.exp.observables[std::size_t(M.obs[k])].name);
-        r.p.push_back(double(r.errors[k]) / double(std::max(shots, 1L)));
-        r.p_sem.push_back(sem(r.p.back()));
+    for (std::size_t m = 0; m < nm; ++m) {
+        SurgeryResult& r = out[m];
+        r.decoder = modes[m];
+        r.shots = shots; r.errors.assign(no, 0);
+        double ns = 0;
+        for (const Tally& t : part) {
+            r.any_errors += t.any[m]; r.differ += t.differ[m]; r.any_fixed += t.fixed[m]; r.any_broken += t.broken[m]; ns += t.ns[m];
+            for (std::size_t k = 0; k < no; ++k) r.errors[k] += t.err[m * no + k];
+        }
+        r.decode_ns = ns / double(std::max(shots, 1L));
+        r.max_defects = max_def;
+        for (std::size_t k = 0; k < no; ++k) {
+            r.names.push_back(M.exp.observables[std::size_t(M.obs[k])].name);
+            r.p.push_back(double(r.errors[k]) / double(std::max(shots, 1L)));
+            r.p_sem.push_back(sem(r.p.back()));
+        }
+        r.p_any = double(r.any_errors) / double(std::max(shots, 1L)); r.p_any_sem = sem(r.p_any);
+        r.n_detectors = int(M.view.detectors.size());
+        r.mean_defects = double(fired_tot) / double(std::max(shots, 1L));
+        r.detection_rate = r.n_detectors ? r.mean_defects / r.n_detectors : 0.0;
+        r.rounds = M.exp.total_rounds;
+        r.total_ns = M.prog.duration_ns;
+        const bool joint = modes[m] != SurgeryDecoder::Separate && modes[m] != SurgeryDecoder::SeparateUF;
+        if (joint) { r.hyperedge_faults = M.jdem.hyperedge_faults; r.hyperedge_p = M.jdem.hyperedge_p; r.undetectable_logical = M.jdem.undetectable_logical; }
+        else
+            for (const auto& dm : M.dem) {
+                r.hyperedge_faults = std::max(r.hyperedge_faults, dm.hyperedge_faults);
+                r.hyperedge_p = std::max(r.hyperedge_p, dm.hyperedge_p);
+                r.undetectable_logical = std::max(r.undetectable_logical, dm.undetectable_logical);
+            }
+        r.leak_events_per_shot = double(leak_ev) / double(std::max(shots, 1L));
     }
-    r.p_any = double(r.any_errors) / double(std::max(shots, 1L)); r.p_any_sem = sem(r.p_any);
-    r.n_detectors = int(M.view.detectors.size());
-    r.mean_defects = double(fired_tot) / double(std::max(shots, 1L));
-    r.detection_rate = r.n_detectors ? r.mean_defects / r.n_detectors : 0.0;
-    r.rounds = M.exp.total_rounds;
-    r.total_ns = M.prog.duration_ns;
-    for (const auto& dm : M.dem) {
-        r.hyperedge_faults = std::max(r.hyperedge_faults, dm.hyperedge_faults);
-        r.hyperedge_p = std::max(r.hyperedge_p, dm.hyperedge_p);
-        r.undetectable_logical = std::max(r.undetectable_logical, dm.undetectable_logical);
-    }
-    r.leak_events_per_shot = double(leak_ev) / double(std::max(shots, 1L));
-    return r;
+    return out;
+}
+
+// One decoder (default: one exact matching decoder per observable). For a single-patch schedule this gives the same
+// logical errors as run_memory_frame shot for shot (tested).
+inline SurgeryResult run_surgery_frame(const SurgerySetup& M, long shots, std::uint64_t seed, SurgeryDecoder decoder = SurgeryDecoder::Separate) {
+    return run_surgery_decoders(M, shots, seed, {decoder})[0];
 }
 
 } // namespace qpuforge

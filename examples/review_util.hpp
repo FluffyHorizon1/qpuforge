@@ -74,7 +74,7 @@ inline Json wiring_json(const WiringCount& w) {
 // Chip assembly from a synthesised cell set, GDSII, the placement checks and the mask-level width/space DRC, and the
 // extracted circuit against the design's targets. `gds_path` is the committed location (redirected by --out).
 struct LayoutCheck {
-    bool found{false}, placement_clean{false}, mask_drc_clean{false}, within_tolerance{false}, renull_ok{false};
+    bool found{false}, placement_clean{false}, mask_drc_clean{false}, connectivity_clean{false}, lines_ok{false}, within_tolerance{false}, renull_ok{false};
     double max_ec_err{0}, max_g_err{0}, readout_c_err{0};
     Json json;
 };
@@ -99,19 +99,24 @@ inline LayoutCheck layout_section(const ChipDesign& D, const std::string& cells_
     out.readout_c_err = rel(m.C_qr_fF, T.C_qr_fF);
     out.placement_clean = L.problems.empty();
     out.mask_drc_clean = L.drc_clean();
+    out.connectivity_clean = L.conn.clean();
+    auto LB = line_budget(D, R, L, m, P.park_fc_GHz, g_opt.smoke ? MeshOptions{3.0, 50.0, 2.0} : MeshOptions{1.5, 50.0, 1.6});
+    if (LB.evaluated) line_budget_flux_crosstalk(LB, L, MeshOptions{3.0, 50.0, 2.0});
+    out.lines_ok = LB.ok();
     out.within_tolerance = out.max_ec_err <= 0.03 && out.max_g_err <= 0.06 && std::abs(out.readout_c_err) <= 0.06;
     out.renull_ok = std::abs(P.park_gap_MHz) < 0.05;
     std::printf("   chip %.1f x %.1f mm, %zu etch polygons, %zu junction regions, %zu bump pads -> %s\n   DRC: %s\n",
                 L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), L.jj.size(), L.bumps.size(), gds_path.c_str(), drc_summary(L).c_str());
     for (const auto& p : L.problems) std::printf("     %s\n", p.c_str());
-    std::printf("   %s (reported, not gated)\n", connectivity_summary(L).c_str());
+    std::printf("   %s\n", connectivity_summary(L).c_str());
+    std::printf("   %s\n", line_budget_summary(LB).c_str());
     std::printf("   extracted vs target: E_C within %.1f%%, couplings within %.1f%%, qubit-readout capacitance %+.1f%% (%.2f fF, target %.2f)\n",
                 100 * out.max_ec_err, 100 * out.max_g_err, 100 * out.readout_c_err, m.C_qr_fF, T.C_qr_fF);
     std::printf("   post-layout: g_qc %.1f MHz, readout g %.1f MHz (design %.1f), parked exchange re-nulled at %.3f GHz (residual gap %.3f MHz, ZZ %+.2f kHz)\n",
                 P.g_qc_MHz, P.g_r_MHz, P.g_r_target_MHz, P.park_fc_GHz, P.park_gap_MHz, P.park_zz_kHz);
     Json& j = out.json;
     j.set("width_mm", L.outline.w() / 1e3); j.set("height_mm", L.outline.h() / 1e3);
-    j.set("drc_clean", out.mask_drc_clean); j.set("placement_clean", out.placement_clean); j.set("drc", drc_json(L)); j.set("connectivity", connectivity_json(L));
+    j.set("drc_clean", out.mask_drc_clean); j.set("placement_clean", out.placement_clean); j.set("drc", drc_json(L)); j.set("connectivity", connectivity_json(L)); j.set("control_lines", line_budget_json(LB));
     j.set("etch_polygons", int(L.etch.size())); j.set("junction_regions", int(L.jj.size())); j.set("bumps", int(L.bumps.size()));
     j.set("max_EC_err", out.max_ec_err); j.set("max_coupling_err", out.max_g_err); j.set("readout_C_err", out.readout_c_err);
     j.set("readout_C_fF", m.C_qr_fF); j.set("readout_C_target_fF", T.C_qr_fF); j.set("readout_g_MHz", P.g_r_MHz); j.set("readout_g_target_MHz", P.g_r_target_MHz);

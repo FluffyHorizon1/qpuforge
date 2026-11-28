@@ -1,12 +1,12 @@
 {
   "schema": "qpuforge-surgery-study",
   "provenance": {
-    "source_commit": "d837044b0be6318f911a621d4a2c44c82fe8f4eb",
+    "source_commit": "c7728233d97bd6d44301339f3f5ea5e228671bdc",
     "source_tree_dirty": false,
     "compiler": "g++ 13.3.0",
     "openmp_threads": 4,
-    "date_utc": "2026-11-28T04:36:26Z",
-    "seeds": "frame Monte Carlo seed 1000 + 100 d + 10 k (+5 for Beta-1), k = 0 ZZ, 1 XX, 2 CNOT Z, 3 CNOT X; tableau check seed 77",
+    "date_utc": "2026-11-28T10:53:28Z",
+    "seeds": "frame Monte Carlo seed 1000 + 100 d + 10 k (+5 for Beta-1), k = 0 ZZ, 1 XX, 2 CNOT Z, 3 CNOT X; tableau check seed 77; routing strips: 3000 + 100 d + 10 k + strip length; fabrication Monte Carlo seed 7",
     "cz_model_version": 4,
     "cz_cache": "results/cz_cache.json",
     "arguments": "100000",
@@ -614,7 +614,89 @@
       },
       "any_wrong": 0.04109,
       "any_wrong_sem": 0.000627707032779,
-      "any_wrong_errors": 4109
+      "any_wrong_errors": 4109,
+      "other_type_detectors": 32,
+      "joint_edges": 240,
+      "joint_mixed_edges": 2,
+      "joint_minority_p": 4.19778906514e-08,
+      "correlated_edge_pairs": 655,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 2350, "p": 0.0235, "sem": 0.000479038098694},
+            "Z_A": {"errors": 1546, "p": 0.01546, "sem": 0.000390140851488},
+            "Z_B": {"errors": 1532, "p": 0.01532, "sem": 0.00038839796086}
+          },
+          "any_wrong": 0.04109,
+          "any_wrong_sem": 0.000627707032779,
+          "any_wrong_errors": 4109,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1389.44181
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 2350, "p": 0.0235, "sem": 0.000479038098694},
+            "Z_A": {"errors": 1546, "p": 0.01546, "sem": 0.000390140851488},
+            "Z_B": {"errors": 1532, "p": 0.01532, "sem": 0.00038839796086}
+          },
+          "any_wrong": 0.04109,
+          "any_wrong_sem": 0.000627707032779,
+          "any_wrong_errors": 4109,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 614.87839
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 2467, "p": 0.02467, "sem": 0.000490524118673},
+            "Z_A": {"errors": 1614, "p": 0.01614, "sem": 0.000398490908303},
+            "Z_B": {"errors": 1601, "p": 0.01601, "sem": 0.000396909056334}
+          },
+          "any_wrong": 0.04282,
+          "any_wrong_sem": 0.000640206588532,
+          "any_wrong_errors": 4282,
+          "differs_from_separate_matching": 532,
+          "any_wrong_fixed": 158,
+          "any_wrong_broken": 331,
+          "decode_ns_per_shot": 3470.37129
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 2467, "p": 0.02467, "sem": 0.000490524118673},
+            "Z_A": {"errors": 1614, "p": 0.01614, "sem": 0.000398490908303},
+            "Z_B": {"errors": 1601, "p": 0.01601, "sem": 0.000396909056334}
+          },
+          "any_wrong": 0.04282,
+          "any_wrong_sem": 0.000640206588532,
+          "any_wrong_errors": 4282,
+          "differs_from_separate_matching": 532,
+          "any_wrong_fixed": 158,
+          "any_wrong_broken": 331,
+          "decode_ns_per_shot": 898.14075
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 1999, "p": 0.01999, "sem": 0.000442610437066},
+            "Z_A": {"errors": 1294, "p": 0.01294, "sem": 0.000357387134631},
+            "Z_B": {"errors": 1296, "p": 0.01296, "sem": 0.00035765959235}
+          },
+          "any_wrong": 0.03492,
+          "any_wrong_sem": 0.000580522123609,
+          "any_wrong_errors": 3492,
+          "differs_from_separate_matching": 1615,
+          "any_wrong_fixed": 1078,
+          "any_wrong_broken": 461,
+          "decode_ns_per_shot": 5006.03254
+        }
+      ]
     },
     {
       "chip": "alpha1_v11",
@@ -640,7 +722,89 @@
       },
       "any_wrong": 0.04045,
       "any_wrong_sem": 0.000623007203008,
-      "any_wrong_errors": 4045
+      "any_wrong_errors": 4045,
+      "other_type_detectors": 32,
+      "joint_edges": 240,
+      "joint_mixed_edges": 1,
+      "joint_minority_p": 8.63502698877e-08,
+      "correlated_edge_pairs": 634,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 2285, "p": 0.02285, "sem": 0.000472523835378},
+            "X_A": {"errors": 1551, "p": 0.01551, "sem": 0.000390761306938},
+            "X_B": {"errors": 1489, "p": 0.01489, "sem": 0.000382992009055}
+          },
+          "any_wrong": 0.04045,
+          "any_wrong_sem": 0.000623007203008,
+          "any_wrong_errors": 4045,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1258.68725
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 2285, "p": 0.02285, "sem": 0.000472523835378},
+            "X_A": {"errors": 1551, "p": 0.01551, "sem": 0.000390761306938},
+            "X_B": {"errors": 1489, "p": 0.01489, "sem": 0.000382992009055}
+          },
+          "any_wrong": 0.04045,
+          "any_wrong_sem": 0.000623007203008,
+          "any_wrong_errors": 4045,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 581.20698
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 2413, "p": 0.02413, "sem": 0.000485260168363},
+            "X_A": {"errors": 1600, "p": 0.016, "sem": 0.000396787096564},
+            "X_B": {"errors": 1527, "p": 0.01527, "sem": 0.00038777347898}
+          },
+          "any_wrong": 0.042,
+          "any_wrong_sem": 0.00063431853197,
+          "any_wrong_errors": 4200,
+          "differs_from_separate_matching": 516,
+          "any_wrong_fixed": 154,
+          "any_wrong_broken": 309,
+          "decode_ns_per_shot": 3424.55602
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 2413, "p": 0.02413, "sem": 0.000485260168363},
+            "X_A": {"errors": 1600, "p": 0.016, "sem": 0.000396787096564},
+            "X_B": {"errors": 1527, "p": 0.01527, "sem": 0.00038777347898}
+          },
+          "any_wrong": 0.042,
+          "any_wrong_sem": 0.00063431853197,
+          "any_wrong_errors": 4200,
+          "differs_from_separate_matching": 516,
+          "any_wrong_fixed": 154,
+          "any_wrong_broken": 309,
+          "decode_ns_per_shot": 1019.26035
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 1905, "p": 0.01905, "sem": 0.000432285756184},
+            "X_A": {"errors": 1300, "p": 0.013, "sem": 0.000358203852576},
+            "X_B": {"errors": 1253, "p": 0.01253, "sem": 0.000351752741283}
+          },
+          "any_wrong": 0.03414,
+          "any_wrong_sem": 0.000574233927942,
+          "any_wrong_errors": 3414,
+          "differs_from_separate_matching": 1630,
+          "any_wrong_fixed": 1091,
+          "any_wrong_broken": 460,
+          "decode_ns_per_shot": 4802.60713
+        }
+      ]
     },
     {
       "chip": "alpha1_v11",
@@ -665,7 +829,84 @@
       },
       "any_wrong": 0.09489,
       "any_wrong_sem": 0.000926746394112,
-      "any_wrong_errors": 9489
+      "any_wrong_errors": 9489,
+      "other_type_detectors": 96,
+      "joint_edges": 484,
+      "joint_mixed_edges": 2,
+      "joint_minority_p": 4.19778906514e-08,
+      "correlated_edge_pairs": 1663,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 2366, "p": 0.02366, "sem": 0.000480626720023},
+            "Z_T": {"errors": 7808, "p": 0.07808, "sem": 0.000848430984818}
+          },
+          "any_wrong": 0.09489,
+          "any_wrong_sem": 0.000926746394112,
+          "any_wrong_errors": 9489,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 5836.13295
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 2366, "p": 0.02366, "sem": 0.000480626720023},
+            "Z_T": {"errors": 7808, "p": 0.07808, "sem": 0.000848430984818}
+          },
+          "any_wrong": 0.09489,
+          "any_wrong_sem": 0.000926746394112,
+          "any_wrong_errors": 9489,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 2906.29269
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 2424, "p": 0.02424, "sem": 0.000486337561782},
+            "Z_T": {"errors": 7939, "p": 0.07939, "sem": 0.000854910684809}
+          },
+          "any_wrong": 0.09652,
+          "any_wrong_sem": 0.000933830228682,
+          "any_wrong_errors": 9652,
+          "differs_from_separate_matching": 773,
+          "any_wrong_fixed": 283,
+          "any_wrong_broken": 446,
+          "decode_ns_per_shot": 8019.11703
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 2424, "p": 0.02424, "sem": 0.000486337561782},
+            "Z_T": {"errors": 7939, "p": 0.07939, "sem": 0.000854910684809}
+          },
+          "any_wrong": 0.09652,
+          "any_wrong_sem": 0.000933830228682,
+          "any_wrong_errors": 9652,
+          "differs_from_separate_matching": 773,
+          "any_wrong_fixed": 283,
+          "any_wrong_broken": 446,
+          "decode_ns_per_shot": 2981.67284
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 1999, "p": 0.01999, "sem": 0.000442610437066},
+            "Z_T": {"errors": 6365, "p": 0.06365, "sem": 0.000772001797278}
+          },
+          "any_wrong": 0.07794,
+          "any_wrong_sem": 0.000847734371133,
+          "any_wrong_errors": 7794,
+          "differs_from_separate_matching": 4909,
+          "any_wrong_fixed": 3218,
+          "any_wrong_broken": 1523,
+          "decode_ns_per_shot": 20862.9656
+        }
+      ]
     },
     {
       "chip": "alpha1_v11",
@@ -690,7 +931,84 @@
       },
       "any_wrong": 0.09218,
       "any_wrong_sem": 0.000914783294557,
-      "any_wrong_errors": 9218
+      "any_wrong_errors": 9218,
+      "other_type_detectors": 96,
+      "joint_edges": 502,
+      "joint_mixed_edges": 1,
+      "joint_minority_p": 8.63502698877e-08,
+      "correlated_edge_pairs": 1647,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 8441, "p": 0.08441, "sem": 0.000879118603489},
+            "X_T": {"errors": 2466, "p": 0.02466, "sem": 0.000490427205608}
+          },
+          "any_wrong": 0.09218,
+          "any_wrong_sem": 0.000914783294557,
+          "any_wrong_errors": 9218,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 5841.28941
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 8441, "p": 0.08441, "sem": 0.000879118603489},
+            "X_T": {"errors": 2466, "p": 0.02466, "sem": 0.000490427205608}
+          },
+          "any_wrong": 0.09218,
+          "any_wrong_sem": 0.000914783294557,
+          "any_wrong_errors": 9218,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 2866.13212
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 8580, "p": 0.0858, "sem": 0.000885654334377},
+            "X_T": {"errors": 2547, "p": 0.02547, "sem": 0.000498209585416}
+          },
+          "any_wrong": 0.09403,
+          "any_wrong_sem": 0.000922975401081,
+          "any_wrong_errors": 9403,
+          "differs_from_separate_matching": 629,
+          "any_wrong_fixed": 201,
+          "any_wrong_broken": 386,
+          "decode_ns_per_shot": 8096.33629
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 8580, "p": 0.0858, "sem": 0.000885654334377},
+            "X_T": {"errors": 2547, "p": 0.02547, "sem": 0.000498209585416}
+          },
+          "any_wrong": 0.09403,
+          "any_wrong_sem": 0.000922975401081,
+          "any_wrong_errors": 9403,
+          "differs_from_separate_matching": 629,
+          "any_wrong_fixed": 201,
+          "any_wrong_broken": 386,
+          "decode_ns_per_shot": 2975.51942
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 7077, "p": 0.07077, "sem": 0.000810935306298},
+            "X_T": {"errors": 2081, "p": 0.02081, "sem": 0.000451408284151}
+          },
+          "any_wrong": 0.07741,
+          "any_wrong_sem": 0.000845089888118,
+          "any_wrong_errors": 7741,
+          "differs_from_separate_matching": 4673,
+          "any_wrong_fixed": 2992,
+          "any_wrong_broken": 1515,
+          "decode_ns_per_shot": 20845.19837
+        }
+      ]
     },
     {
       "chip": "alpha1_v11",
@@ -716,7 +1034,89 @@
       },
       "any_wrong": 0.01479,
       "any_wrong_sem": 0.000381723144438,
-      "any_wrong_errors": 1479
+      "any_wrong_errors": 1479,
+      "other_type_detectors": 144,
+      "joint_edges": 1088,
+      "joint_mixed_edges": 0,
+      "joint_minority_p": 0,
+      "correlated_edge_pairs": 3532,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 815, "p": 0.00815, "sem": 0.000284316329112},
+            "Z_A": {"errors": 621, "p": 0.00621, "sem": 0.000248423748865},
+            "Z_B": {"errors": 559, "p": 0.00559, "sem": 0.000235770055351}
+          },
+          "any_wrong": 0.01479,
+          "any_wrong_sem": 0.000381723144438,
+          "any_wrong_errors": 1479,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 34613.26286
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 815, "p": 0.00815, "sem": 0.000284316329112},
+            "Z_A": {"errors": 621, "p": 0.00621, "sem": 0.000248423748865},
+            "Z_B": {"errors": 559, "p": 0.00559, "sem": 0.000235770055351}
+          },
+          "any_wrong": 0.01479,
+          "any_wrong_sem": 0.000381723144438,
+          "any_wrong_errors": 1479,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 10185.46214
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 869, "p": 0.00869, "sem": 0.000293504410529},
+            "Z_A": {"errors": 666, "p": 0.00666, "sem": 0.000257208950078},
+            "Z_B": {"errors": 603, "p": 0.00603, "sem": 0.00024481909852}
+          },
+          "any_wrong": 0.01588,
+          "any_wrong_sem": 0.000395320447232,
+          "any_wrong_errors": 1588,
+          "differs_from_separate_matching": 398,
+          "any_wrong_fixed": 136,
+          "any_wrong_broken": 245,
+          "decode_ns_per_shot": 34432.97526
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 869, "p": 0.00869, "sem": 0.000293504410529},
+            "Z_A": {"errors": 666, "p": 0.00666, "sem": 0.000257208950078},
+            "Z_B": {"errors": 603, "p": 0.00603, "sem": 0.00024481909852}
+          },
+          "any_wrong": 0.01588,
+          "any_wrong_sem": 0.000395320447232,
+          "any_wrong_errors": 1588,
+          "differs_from_separate_matching": 398,
+          "any_wrong_fixed": 136,
+          "any_wrong_broken": 245,
+          "decode_ns_per_shot": 9231.15561
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 534, "p": 0.00534, "sem": 0.000230466578922},
+            "Z_A": {"errors": 390, "p": 0.0039, "sem": 0.000197098706236},
+            "Z_B": {"errors": 353, "p": 0.00353, "sem": 0.000187551035721}
+          },
+          "any_wrong": 0.00976,
+          "any_wrong_sem": 0.000310881688107,
+          "any_wrong_errors": 976,
+          "differs_from_separate_matching": 969,
+          "any_wrong_fixed": 725,
+          "any_wrong_broken": 222,
+          "decode_ns_per_shot": 122543.90978
+        }
+      ]
     },
     {
       "chip": "alpha1_v11",
@@ -742,7 +1142,89 @@
       },
       "any_wrong": 0.01459,
       "any_wrong_sem": 0.000379171885825,
-      "any_wrong_errors": 1459
+      "any_wrong_errors": 1459,
+      "other_type_detectors": 144,
+      "joint_edges": 1087,
+      "joint_mixed_edges": 0,
+      "joint_minority_p": 0,
+      "correlated_edge_pairs": 3528,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 799, "p": 0.00799, "sem": 0.000281534365576},
+            "X_A": {"errors": 626, "p": 0.00626, "sem": 0.000249415564871},
+            "X_B": {"errors": 542, "p": 0.00542, "sem": 0.000232177165113}
+          },
+          "any_wrong": 0.01459,
+          "any_wrong_sem": 0.000379171885825,
+          "any_wrong_errors": 1459,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 27791.46837
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 799, "p": 0.00799, "sem": 0.000281534365576},
+            "X_A": {"errors": 626, "p": 0.00626, "sem": 0.000249415564871},
+            "X_B": {"errors": 542, "p": 0.00542, "sem": 0.000232177165113}
+          },
+          "any_wrong": 0.01459,
+          "any_wrong_sem": 0.000379171885825,
+          "any_wrong_errors": 1459,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 8284.86745
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 885, "p": 0.00885, "sem": 0.00029617017912},
+            "X_A": {"errors": 691, "p": 0.00691, "sem": 0.000261959002518},
+            "X_B": {"errors": 579, "p": 0.00579, "sem": 0.000239926570017}
+          },
+          "any_wrong": 0.01591,
+          "any_wrong_sem": 0.000395687653333,
+          "any_wrong_errors": 1591,
+          "differs_from_separate_matching": 395,
+          "any_wrong_fixed": 125,
+          "any_wrong_broken": 257,
+          "decode_ns_per_shot": 28351.49851
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 885, "p": 0.00885, "sem": 0.00029617017912},
+            "X_A": {"errors": 691, "p": 0.00691, "sem": 0.000261959002518},
+            "X_B": {"errors": 579, "p": 0.00579, "sem": 0.000239926570017}
+          },
+          "any_wrong": 0.01591,
+          "any_wrong_sem": 0.000395687653333,
+          "any_wrong_errors": 1591,
+          "differs_from_separate_matching": 395,
+          "any_wrong_fixed": 125,
+          "any_wrong_broken": 257,
+          "decode_ns_per_shot": 7940.49544
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 523, "p": 0.00523, "sem": 0.000228093119142},
+            "X_A": {"errors": 371, "p": 0.00371, "sem": 0.000192255972599},
+            "X_B": {"errors": 365, "p": 0.00365, "sem": 0.000190700747246}
+          },
+          "any_wrong": 0.00949,
+          "any_wrong_sem": 0.000306593214211,
+          "any_wrong_errors": 949,
+          "differs_from_separate_matching": 978,
+          "any_wrong_fixed": 735,
+          "any_wrong_broken": 225,
+          "decode_ns_per_shot": 98515.09695
+        }
+      ]
     },
     {
       "chip": "alpha1_v11",
@@ -767,7 +1249,84 @@
       },
       "any_wrong": 0.04686,
       "any_wrong_sem": 0.000668312355115,
-      "any_wrong_errors": 4686
+      "any_wrong_errors": 4686,
+      "other_type_detectors": 432,
+      "joint_edges": 2484,
+      "joint_mixed_edges": 0,
+      "joint_minority_p": 0,
+      "correlated_edge_pairs": 9506,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 1218, "p": 0.01218, "sem": 0.000346866654494},
+            "Z_T": {"errors": 3714, "p": 0.03714, "sem": 0.000598001842807}
+          },
+          "any_wrong": 0.04686,
+          "any_wrong_sem": 0.000668312355115,
+          "any_wrong_errors": 4686,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 101706.27849
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 1218, "p": 0.01218, "sem": 0.000346866654494},
+            "Z_T": {"errors": 3714, "p": 0.03714, "sem": 0.000598001842807}
+          },
+          "any_wrong": 0.04686,
+          "any_wrong_sem": 0.000668312355115,
+          "any_wrong_errors": 4686,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 41509.8778
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 1337, "p": 0.01337, "sem": 0.000363197509628},
+            "Z_T": {"errors": 4012, "p": 0.04012, "sem": 0.000620567366206}
+          },
+          "any_wrong": 0.05072,
+          "any_wrong_sem": 0.000693883863481,
+          "any_wrong_errors": 5072,
+          "differs_from_separate_matching": 1108,
+          "any_wrong_fixed": 345,
+          "any_wrong_broken": 731,
+          "decode_ns_per_shot": 54994.70121
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 1337, "p": 0.01337, "sem": 0.000363197509628},
+            "Z_T": {"errors": 4012, "p": 0.04012, "sem": 0.000620567366206}
+          },
+          "any_wrong": 0.05072,
+          "any_wrong_sem": 0.000693883863481,
+          "any_wrong_errors": 5072,
+          "differs_from_separate_matching": 1108,
+          "any_wrong_fixed": 345,
+          "any_wrong_broken": 731,
+          "decode_ns_per_shot": 22370.60057
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 794, "p": 0.00794, "sem": 0.000280659159836},
+            "Z_T": {"errors": 2229, "p": 0.02229, "sem": 0.000466831403185}
+          },
+          "any_wrong": 0.02885,
+          "any_wrong_sem": 0.000529317272531,
+          "any_wrong_errors": 2885,
+          "differs_from_separate_matching": 3495,
+          "any_wrong_fixed": 2627,
+          "any_wrong_broken": 826,
+          "decode_ns_per_shot": 604305.7056
+        }
+      ]
     },
     {
       "chip": "alpha1_v11",
@@ -792,7 +1351,84 @@
       },
       "any_wrong": 0.04468,
       "any_wrong_sem": 0.000653327617662,
-      "any_wrong_errors": 4468
+      "any_wrong_errors": 4468,
+      "other_type_detectors": 432,
+      "joint_edges": 2537,
+      "joint_mixed_edges": 0,
+      "joint_minority_p": 0,
+      "correlated_edge_pairs": 9486,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 4198, "p": 0.04198, "sem": 0.000634174105432},
+            "X_T": {"errors": 1246, "p": 0.01246, "sem": 0.000350781248073}
+          },
+          "any_wrong": 0.04468,
+          "any_wrong_sem": 0.000653327617662,
+          "any_wrong_errors": 4468,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 94606.54239
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 4198, "p": 0.04198, "sem": 0.000634174105432},
+            "X_T": {"errors": 1246, "p": 0.01246, "sem": 0.000350781248073}
+          },
+          "any_wrong": 0.04468,
+          "any_wrong_sem": 0.000653327617662,
+          "any_wrong_errors": 4468,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 38523.61425
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 4552, "p": 0.04552, "sem": 0.00065915043503},
+            "X_T": {"errors": 1368, "p": 0.01368, "sem": 0.000367326252805}
+          },
+          "any_wrong": 0.0485,
+          "any_wrong_sem": 0.000679321352528,
+          "any_wrong_errors": 4850,
+          "differs_from_separate_matching": 1060,
+          "any_wrong_fixed": 331,
+          "any_wrong_broken": 713,
+          "decode_ns_per_shot": 51751.02031
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 4552, "p": 0.04552, "sem": 0.00065915043503},
+            "X_T": {"errors": 1368, "p": 0.01368, "sem": 0.000367326252805}
+          },
+          "any_wrong": 0.0485,
+          "any_wrong_sem": 0.000679321352528,
+          "any_wrong_errors": 4850,
+          "differs_from_separate_matching": 1060,
+          "any_wrong_fixed": 331,
+          "any_wrong_broken": 713,
+          "decode_ns_per_shot": 22339.98928
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 2569, "p": 0.02569, "sem": 0.000500300148911},
+            "X_T": {"errors": 782, "p": 0.00782, "sem": 0.000278547080401}
+          },
+          "any_wrong": 0.02746,
+          "any_wrong_sem": 0.000516777983277,
+          "any_wrong_errors": 2746,
+          "differs_from_separate_matching": 3369,
+          "any_wrong_fixed": 2526,
+          "any_wrong_broken": 804,
+          "decode_ns_per_shot": 595866.75606
+        }
+      ]
     },
     {
       "chip": "beta1",
@@ -818,7 +1454,89 @@
       },
       "any_wrong": 0.01258,
       "any_wrong_sem": 0.000352444940381,
-      "any_wrong_errors": 1258
+      "any_wrong_errors": 1258,
+      "other_type_detectors": 32,
+      "joint_edges": 240,
+      "joint_mixed_edges": 2,
+      "joint_minority_p": 4.19778906514e-08,
+      "correlated_edge_pairs": 710,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 741, "p": 0.00741, "sem": 0.000271202726756},
+            "Z_A": {"errors": 421, "p": 0.00421, "sem": 0.000204750479853},
+            "Z_B": {"errors": 458, "p": 0.00458, "sem": 0.000213518701757}
+          },
+          "any_wrong": 0.01258,
+          "any_wrong_sem": 0.000352444940381,
+          "any_wrong_errors": 1258,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 637.48714
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 741, "p": 0.00741, "sem": 0.000271202726756},
+            "Z_A": {"errors": 421, "p": 0.00421, "sem": 0.000204750479853},
+            "Z_B": {"errors": 458, "p": 0.00458, "sem": 0.000213518701757}
+          },
+          "any_wrong": 0.01258,
+          "any_wrong_sem": 0.000352444940381,
+          "any_wrong_errors": 1258,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 298.11555
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 768, "p": 0.00768, "sem": 0.000276061906101},
+            "Z_A": {"errors": 445, "p": 0.00445, "sem": 0.0002104803435},
+            "Z_B": {"errors": 497, "p": 0.00497, "sem": 0.000222380284648}
+          },
+          "any_wrong": 0.01324,
+          "any_wrong_sem": 0.000361451274725,
+          "any_wrong_errors": 1324,
+          "differs_from_separate_matching": 135,
+          "any_wrong_fixed": 32,
+          "any_wrong_broken": 98,
+          "decode_ns_per_shot": 2190.39217
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 768, "p": 0.00768, "sem": 0.000276061906101},
+            "Z_A": {"errors": 445, "p": 0.00445, "sem": 0.0002104803435},
+            "Z_B": {"errors": 497, "p": 0.00497, "sem": 0.000222380284648}
+          },
+          "any_wrong": 0.01324,
+          "any_wrong_sem": 0.000361451274725,
+          "any_wrong_errors": 1324,
+          "differs_from_separate_matching": 135,
+          "any_wrong_fixed": 32,
+          "any_wrong_broken": 98,
+          "decode_ns_per_shot": 586.57674
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 624, "p": 0.00624, "sem": 0.000249019324551},
+            "Z_A": {"errors": 335, "p": 0.00335, "sem": 0.000182723219652},
+            "Z_B": {"errors": 395, "p": 0.00395, "sem": 0.000198353157273}
+          },
+          "any_wrong": 0.01063,
+          "any_wrong_sem": 0.000324299292321,
+          "any_wrong_errors": 1063,
+          "differs_from_separate_matching": 475,
+          "any_wrong_fixed": 332,
+          "any_wrong_broken": 137,
+          "decode_ns_per_shot": 2339.56548
+        }
+      ]
     },
     {
       "chip": "beta1",
@@ -844,7 +1562,89 @@
       },
       "any_wrong": 0.01245,
       "any_wrong_sem": 0.000350642232197,
-      "any_wrong_errors": 1245
+      "any_wrong_errors": 1245,
+      "other_type_detectors": 32,
+      "joint_edges": 240,
+      "joint_mixed_edges": 1,
+      "joint_minority_p": 8.63502698877e-08,
+      "correlated_edge_pairs": 715,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 759, "p": 0.00759, "sem": 0.000274452034061},
+            "X_A": {"errors": 404, "p": 0.00404, "sem": 0.000200591086542},
+            "X_B": {"errors": 430, "p": 0.0043, "sem": 0.00020691809974}
+          },
+          "any_wrong": 0.01245,
+          "any_wrong_sem": 0.000350642232197,
+          "any_wrong_errors": 1245,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 748.48969
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 759, "p": 0.00759, "sem": 0.000274452034061},
+            "X_A": {"errors": 404, "p": 0.00404, "sem": 0.000200591086542},
+            "X_B": {"errors": 430, "p": 0.0043, "sem": 0.00020691809974}
+          },
+          "any_wrong": 0.01245,
+          "any_wrong_sem": 0.000350642232197,
+          "any_wrong_errors": 1245,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 345.90596
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 776, "p": 0.00776, "sem": 0.000277484817603},
+            "X_A": {"errors": 431, "p": 0.00431, "sem": 0.00020715752219},
+            "X_B": {"errors": 448, "p": 0.00448, "sem": 0.000211185454045}
+          },
+          "any_wrong": 0.01294,
+          "any_wrong_sem": 0.000357387134631,
+          "any_wrong_errors": 1294,
+          "differs_from_separate_matching": 134,
+          "any_wrong_fixed": 41,
+          "any_wrong_broken": 90,
+          "decode_ns_per_shot": 2453.52455
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 776, "p": 0.00776, "sem": 0.000277484817603},
+            "X_A": {"errors": 431, "p": 0.00431, "sem": 0.00020715752219},
+            "X_B": {"errors": 448, "p": 0.00448, "sem": 0.000211185454045}
+          },
+          "any_wrong": 0.01294,
+          "any_wrong_sem": 0.000357387134631,
+          "any_wrong_errors": 1294,
+          "differs_from_separate_matching": 134,
+          "any_wrong_fixed": 41,
+          "any_wrong_broken": 90,
+          "decode_ns_per_shot": 656.62355
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 623, "p": 0.00623, "sem": 0.000248820961738},
+            "X_A": {"errors": 319, "p": 0.00319, "sem": 0.000178320607334},
+            "X_B": {"errors": 341, "p": 0.00341, "sem": 0.0001843467358}
+          },
+          "any_wrong": 0.01018,
+          "any_wrong_sem": 0.00031743294725,
+          "any_wrong_errors": 1018,
+          "differs_from_separate_matching": 473,
+          "any_wrong_fixed": 345,
+          "any_wrong_broken": 118,
+          "decode_ns_per_shot": 2740.14492
+        }
+      ]
     },
     {
       "chip": "beta1",
@@ -869,7 +1669,84 @@
       },
       "any_wrong": 0.02742,
       "any_wrong_sem": 0.000516412079642,
-      "any_wrong_errors": 2742
+      "any_wrong_errors": 2742,
+      "other_type_detectors": 96,
+      "joint_edges": 484,
+      "joint_mixed_edges": 2,
+      "joint_minority_p": 4.19778906514e-08,
+      "correlated_edge_pairs": 1833,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 688, "p": 0.00688, "sem": 0.000261393680107},
+            "Z_T": {"errors": 2235, "p": 0.02235, "sem": 0.000467444943282}
+          },
+          "any_wrong": 0.02742,
+          "any_wrong_sem": 0.000516412079642,
+          "any_wrong_errors": 2742,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 2819.95744
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 688, "p": 0.00688, "sem": 0.000261393680107},
+            "Z_T": {"errors": 2235, "p": 0.02235, "sem": 0.000467444943282}
+          },
+          "any_wrong": 0.02742,
+          "any_wrong_sem": 0.000516412079642,
+          "any_wrong_errors": 2742,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1444.18388
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 724, "p": 0.00724, "sem": 0.000268096669133},
+            "Z_T": {"errors": 2299, "p": 0.02299, "sem": 0.000473935226587}
+          },
+          "any_wrong": 0.02834,
+          "any_wrong_sem": 0.000524755604067,
+          "any_wrong_errors": 2834,
+          "differs_from_separate_matching": 214,
+          "any_wrong_fixed": 59,
+          "any_wrong_broken": 151,
+          "decode_ns_per_shot": 5499.02701
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 724, "p": 0.00724, "sem": 0.000268096669133},
+            "Z_T": {"errors": 2299, "p": 0.02299, "sem": 0.000473935226587}
+          },
+          "any_wrong": 0.02834,
+          "any_wrong_sem": 0.000524755604067,
+          "any_wrong_errors": 2834,
+          "differs_from_separate_matching": 214,
+          "any_wrong_fixed": 59,
+          "any_wrong_broken": 151,
+          "decode_ns_per_shot": 2107.85725
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 603, "p": 0.00603, "sem": 0.00024481909852},
+            "Z_T": {"errors": 1826, "p": 0.01826, "sem": 0.000423397831832}
+          },
+          "any_wrong": 0.02277,
+          "any_wrong_sem": 0.000471715243553,
+          "any_wrong_errors": 2277,
+          "differs_from_separate_matching": 1468,
+          "any_wrong_fixed": 962,
+          "any_wrong_broken": 497,
+          "decode_ns_per_shot": 9883.24463
+        }
+      ]
     },
     {
       "chip": "beta1",
@@ -894,7 +1771,84 @@
       },
       "any_wrong": 0.02707,
       "any_wrong_sem": 0.000513197964727,
-      "any_wrong_errors": 2707
+      "any_wrong_errors": 2707,
+      "other_type_detectors": 96,
+      "joint_edges": 502,
+      "joint_mixed_edges": 1,
+      "joint_minority_p": 8.63502698877e-08,
+      "correlated_edge_pairs": 1842,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 2449, "p": 0.02449, "sem": 0.000488776430487},
+            "X_T": {"errors": 668, "p": 0.00668, "sem": 0.000257592266965}
+          },
+          "any_wrong": 0.02707,
+          "any_wrong_sem": 0.000513197964727,
+          "any_wrong_errors": 2707,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 2737.19398
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 2449, "p": 0.02449, "sem": 0.000488776430487},
+            "X_T": {"errors": 668, "p": 0.00668, "sem": 0.000257592266965}
+          },
+          "any_wrong": 0.02707,
+          "any_wrong_sem": 0.000513197964727,
+          "any_wrong_errors": 2707,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1409.31422
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 2499, "p": 0.02499, "sem": 0.000493614220824},
+            "X_T": {"errors": 681, "p": 0.00681, "sem": 0.000260069681047}
+          },
+          "any_wrong": 0.02757,
+          "any_wrong_sem": 0.000517782725668,
+          "any_wrong_errors": 2757,
+          "differs_from_separate_matching": 176,
+          "any_wrong_fixed": 60,
+          "any_wrong_broken": 110,
+          "decode_ns_per_shot": 5494.91544
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 2499, "p": 0.02499, "sem": 0.000493614220824},
+            "X_T": {"errors": 681, "p": 0.00681, "sem": 0.000260069681047}
+          },
+          "any_wrong": 0.02757,
+          "any_wrong_sem": 0.000517782725668,
+          "any_wrong_errors": 2757,
+          "differs_from_separate_matching": 176,
+          "any_wrong_fixed": 60,
+          "any_wrong_broken": 110,
+          "decode_ns_per_shot": 2058.08247
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 1953, "p": 0.01953, "sem": 0.000437590894558},
+            "X_T": {"errors": 537, "p": 0.00537, "sem": 0.000231109564925}
+          },
+          "any_wrong": 0.02167,
+          "any_wrong_sem": 0.000460439041568,
+          "any_wrong_errors": 2167,
+          "differs_from_separate_matching": 1316,
+          "any_wrong_fixed": 916,
+          "any_wrong_broken": 376,
+          "decode_ns_per_shot": 9810.0929
+        }
+      ]
     },
     {
       "chip": "beta1",
@@ -920,7 +1874,89 @@
       },
       "any_wrong": 0.00238,
       "any_wrong_sem": 0.000154088792584,
-      "any_wrong_errors": 238
+      "any_wrong_errors": 238,
+      "other_type_detectors": 144,
+      "joint_edges": 1090,
+      "joint_mixed_edges": 0,
+      "joint_minority_p": 0,
+      "correlated_edge_pairs": 3935,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 140, "p": 0.0014, "sem": 0.000118238741536},
+            "Z_A": {"errors": 66, "p": 0.00066, "sem": 8.12135702946e-05},
+            "Z_B": {"errors": 94, "p": 0.00094, "sem": 9.69080182441e-05}
+          },
+          "any_wrong": 0.00238,
+          "any_wrong_sem": 0.000154088792584,
+          "any_wrong_errors": 238,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 12033.69471
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 140, "p": 0.0014, "sem": 0.000118238741536},
+            "Z_A": {"errors": 66, "p": 0.00066, "sem": 8.12135702946e-05},
+            "Z_B": {"errors": 94, "p": 0.00094, "sem": 9.69080182441e-05}
+          },
+          "any_wrong": 0.00238,
+          "any_wrong_sem": 0.000154088792584,
+          "any_wrong_errors": 238,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 4163.77519
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 149, "p": 0.00149, "sem": 0.000121974583418},
+            "Z_A": {"errors": 68, "p": 0.00068, "sem": 8.24340706262e-05},
+            "Z_B": {"errors": 97, "p": 0.00097, "sem": 9.84407994685e-05}
+          },
+          "any_wrong": 0.00248,
+          "any_wrong_sem": 0.000157284760864,
+          "any_wrong_errors": 248,
+          "differs_from_separate_matching": 44,
+          "any_wrong_fixed": 16,
+          "any_wrong_broken": 26,
+          "decode_ns_per_shot": 16040.66128
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 149, "p": 0.00149, "sem": 0.000121974583418},
+            "Z_A": {"errors": 68, "p": 0.00068, "sem": 8.24340706262e-05},
+            "Z_B": {"errors": 97, "p": 0.00097, "sem": 9.84407994685e-05}
+          },
+          "any_wrong": 0.00248,
+          "any_wrong_sem": 0.000157284760864,
+          "any_wrong_errors": 248,
+          "differs_from_separate_matching": 44,
+          "any_wrong_fixed": 16,
+          "any_wrong_broken": 26,
+          "decode_ns_per_shot": 4338.4893
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 100, "p": 0.001, "sem": 9.99499874937e-05},
+            "Z_A": {"errors": 50, "p": 0.0005, "sem": 7.06929982389e-05},
+            "Z_B": {"errors": 59, "p": 0.00059, "sem": 7.67887947555e-05}
+          },
+          "any_wrong": 0.00164,
+          "any_wrong_sem": 0.000127957430421,
+          "any_wrong_errors": 164,
+          "differs_from_separate_matching": 151,
+          "any_wrong_fixed": 112,
+          "any_wrong_broken": 38,
+          "decode_ns_per_shot": 35200.34865
+        }
+      ]
     },
     {
       "chip": "beta1",
@@ -946,7 +1982,89 @@
       },
       "any_wrong": 0.00269,
       "any_wrong_sem": 0.000163791449716,
-      "any_wrong_errors": 269
+      "any_wrong_errors": 269,
+      "other_type_detectors": 144,
+      "joint_edges": 1087,
+      "joint_mixed_edges": 0,
+      "joint_minority_p": 0,
+      "correlated_edge_pairs": 3937,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 156, "p": 0.00156, "sem": 0.000124802499975},
+            "X_A": {"errors": 81, "p": 0.00081, "sem": 8.99635426159e-05},
+            "X_B": {"errors": 93, "p": 0.00093, "sem": 9.6391654203e-05}
+          },
+          "any_wrong": 0.00269,
+          "any_wrong_sem": 0.000163791449716,
+          "any_wrong_errors": 269,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 12529.15672
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 156, "p": 0.00156, "sem": 0.000124802499975},
+            "X_A": {"errors": 81, "p": 0.00081, "sem": 8.99635426159e-05},
+            "X_B": {"errors": 93, "p": 0.00093, "sem": 9.6391654203e-05}
+          },
+          "any_wrong": 0.00269,
+          "any_wrong_sem": 0.000163791449716,
+          "any_wrong_errors": 269,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 4212.37127
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 173, "p": 0.00173, "sem": 0.000131415642144},
+            "X_A": {"errors": 90, "p": 0.0009, "sem": 9.48256294469e-05},
+            "X_B": {"errors": 102, "p": 0.00102, "sem": 0.000100943528767}
+          },
+          "any_wrong": 0.00294,
+          "any_wrong_sem": 0.000171212043969,
+          "any_wrong_errors": 294,
+          "differs_from_separate_matching": 43,
+          "any_wrong_fixed": 9,
+          "any_wrong_broken": 34,
+          "decode_ns_per_shot": 16092.37457
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 173, "p": 0.00173, "sem": 0.000131415642144},
+            "X_A": {"errors": 90, "p": 0.0009, "sem": 9.48256294469e-05},
+            "X_B": {"errors": 102, "p": 0.00102, "sem": 0.000100943528767}
+          },
+          "any_wrong": 0.00294,
+          "any_wrong_sem": 0.000171212043969,
+          "any_wrong_errors": 294,
+          "differs_from_separate_matching": 43,
+          "any_wrong_fixed": 9,
+          "any_wrong_broken": 34,
+          "decode_ns_per_shot": 4334.54757
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 95, "p": 0.00095, "sem": 9.74216351741e-05},
+            "X_A": {"errors": 50, "p": 0.0005, "sem": 7.06929982389e-05},
+            "X_B": {"errors": 63, "p": 0.00063, "sem": 7.93475330429e-05}
+          },
+          "any_wrong": 0.00173,
+          "any_wrong_sem": 0.000131415642144,
+          "any_wrong_errors": 173,
+          "differs_from_separate_matching": 177,
+          "any_wrong_fixed": 136,
+          "any_wrong_broken": 40,
+          "decode_ns_per_shot": 35428.70966
+        }
+      ]
     },
     {
       "chip": "beta1",
@@ -971,7 +2089,84 @@
       },
       "any_wrong": 0.00708,
       "any_wrong_sem": 0.000265139088027,
-      "any_wrong_errors": 708
+      "any_wrong_errors": 708,
+      "other_type_detectors": 432,
+      "joint_edges": 2486,
+      "joint_mixed_edges": 0,
+      "joint_minority_p": 0,
+      "correlated_edge_pairs": 10530,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 159, "p": 0.00159, "sem": 0.000125994916564},
+            "Z_T": {"errors": 579, "p": 0.00579, "sem": 0.000239926570017}
+          },
+          "any_wrong": 0.00708,
+          "any_wrong_sem": 0.000265139088027,
+          "any_wrong_errors": 708,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 38429.39746
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 159, "p": 0.00159, "sem": 0.000125994916564},
+            "Z_T": {"errors": 579, "p": 0.00579, "sem": 0.000239926570017}
+          },
+          "any_wrong": 0.00708,
+          "any_wrong_sem": 0.000265139088027,
+          "any_wrong_errors": 708,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 15166.57515
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 172, "p": 0.00172, "sem": 0.000131035934003},
+            "Z_T": {"errors": 613, "p": 0.00613, "sem": 0.000246828343186}
+          },
+          "any_wrong": 0.0075,
+          "any_wrong_sem": 0.000272832366115,
+          "any_wrong_errors": 750,
+          "differs_from_separate_matching": 125,
+          "any_wrong_fixed": 39,
+          "any_wrong_broken": 81,
+          "decode_ns_per_shot": 30337.47688
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 172, "p": 0.00172, "sem": 0.000131035934003},
+            "Z_T": {"errors": 613, "p": 0.00613, "sem": 0.000246828343186}
+          },
+          "any_wrong": 0.0075,
+          "any_wrong_sem": 0.000272832366115,
+          "any_wrong_errors": 750,
+          "differs_from_separate_matching": 125,
+          "any_wrong_fixed": 39,
+          "any_wrong_broken": 81,
+          "decode_ns_per_shot": 12630.89184
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 111, "p": 0.00111, "sem": 0.000105298048415},
+            "Z_T": {"errors": 328, "p": 0.00328, "sem": 0.000180810442176}
+          },
+          "any_wrong": 0.00422,
+          "any_wrong_sem": 0.000204992477911,
+          "any_wrong_errors": 422,
+          "differs_from_separate_matching": 497,
+          "any_wrong_fixed": 389,
+          "any_wrong_broken": 103,
+          "decode_ns_per_shot": 184336.96744
+        }
+      ]
     },
     {
       "chip": "beta1",
@@ -996,8 +2191,4710 @@
       },
       "any_wrong": 0.00697,
       "any_wrong_sem": 0.00026308590042,
-      "any_wrong_errors": 697
+      "any_wrong_errors": 697,
+      "other_type_detectors": 432,
+      "joint_edges": 2538,
+      "joint_mixed_edges": 0,
+      "joint_minority_p": 0,
+      "correlated_edge_pairs": 10541,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 652, "p": 0.00652, "sem": 0.000254509127538},
+            "X_T": {"errors": 153, "p": 0.00153, "sem": 0.000123598507273}
+          },
+          "any_wrong": 0.00697,
+          "any_wrong_sem": 0.00026308590042,
+          "any_wrong_errors": 697,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 46775.66796
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 652, "p": 0.00652, "sem": 0.000254509127538},
+            "X_T": {"errors": 153, "p": 0.00153, "sem": 0.000123598507273}
+          },
+          "any_wrong": 0.00697,
+          "any_wrong_sem": 0.00026308590042,
+          "any_wrong_errors": 697,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 18070.42492
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 690, "p": 0.0069, "sem": 0.000261770701187},
+            "X_T": {"errors": 166, "p": 0.00166, "sem": 0.000128734004832}
+          },
+          "any_wrong": 0.00739,
+          "any_wrong_sem": 0.000270839212449,
+          "any_wrong_errors": 739,
+          "differs_from_separate_matching": 116,
+          "any_wrong_fixed": 37,
+          "any_wrong_broken": 79,
+          "decode_ns_per_shot": 37837.7722
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 690, "p": 0.0069, "sem": 0.000261770701187},
+            "X_T": {"errors": 166, "p": 0.00166, "sem": 0.000128734004832}
+          },
+          "any_wrong": 0.00739,
+          "any_wrong_sem": 0.000270839212449,
+          "any_wrong_errors": 739,
+          "differs_from_separate_matching": 116,
+          "any_wrong_fixed": 37,
+          "any_wrong_broken": 79,
+          "decode_ns_per_shot": 16936.68371
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 357, "p": 0.00357, "sem": 0.00018860686891},
+            "X_T": {"errors": 86, "p": 0.00086, "sem": 9.26962998183e-05}
+          },
+          "any_wrong": 0.00387,
+          "any_wrong_sem": 0.00019634212742,
+          "any_wrong_errors": 387,
+          "differs_from_separate_matching": 517,
+          "any_wrong_fixed": 412,
+          "any_wrong_broken": 102,
+          "decode_ns_per_shot": 224386.40802
+        }
+      ]
     }
   ],
-  "runtime_s": 1004.88317219
+  "routing": [
+    {
+      "chip": "beta1",
+      "op": "zz",
+      "inputs": "00",
+      "d": 3,
+      "strip": 1,
+      "decoded_basis": "Z",
+      "seed": 1305,
+      "qubits": 41,
+      "data_qubits": 21,
+      "couplers": 64,
+      "rounds": 5,
+      "duration_ns": 3806.86761532,
+      "detectors": 56,
+      "fault_mechanisms": 83130,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0286053571429,
+      "mean_defects": 1.6019,
+      "max_defects": 12,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 741, "p": 0.00741, "sem": 0.000271202726756},
+            "Z_A": {"errors": 421, "p": 0.00421, "sem": 0.000204750479853},
+            "Z_B": {"errors": 458, "p": 0.00458, "sem": 0.000213518701757}
+          },
+          "any_wrong": 0.01258,
+          "any_wrong_sem": 0.000352444940381,
+          "any_wrong_errors": 1258,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 637.48714
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 741, "p": 0.00741, "sem": 0.000271202726756},
+            "Z_A": {"errors": 421, "p": 0.00421, "sem": 0.000204750479853},
+            "Z_B": {"errors": 458, "p": 0.00458, "sem": 0.000213518701757}
+          },
+          "any_wrong": 0.01258,
+          "any_wrong_sem": 0.000352444940381,
+          "any_wrong_errors": 1258,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 298.11555
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 768, "p": 0.00768, "sem": 0.000276061906101},
+            "Z_A": {"errors": 445, "p": 0.00445, "sem": 0.0002104803435},
+            "Z_B": {"errors": 497, "p": 0.00497, "sem": 0.000222380284648}
+          },
+          "any_wrong": 0.01324,
+          "any_wrong_sem": 0.000361451274725,
+          "any_wrong_errors": 1324,
+          "differs_from_separate_matching": 135,
+          "any_wrong_fixed": 32,
+          "any_wrong_broken": 98,
+          "decode_ns_per_shot": 2190.39217
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 768, "p": 0.00768, "sem": 0.000276061906101},
+            "Z_A": {"errors": 445, "p": 0.00445, "sem": 0.0002104803435},
+            "Z_B": {"errors": 497, "p": 0.00497, "sem": 0.000222380284648}
+          },
+          "any_wrong": 0.01324,
+          "any_wrong_sem": 0.000361451274725,
+          "any_wrong_errors": 1324,
+          "differs_from_separate_matching": 135,
+          "any_wrong_fixed": 32,
+          "any_wrong_broken": 98,
+          "decode_ns_per_shot": 586.57674
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 624, "p": 0.00624, "sem": 0.000249019324551},
+            "Z_A": {"errors": 335, "p": 0.00335, "sem": 0.000182723219652},
+            "Z_B": {"errors": 395, "p": 0.00395, "sem": 0.000198353157273}
+          },
+          "any_wrong": 0.01063,
+          "any_wrong_sem": 0.000324299292321,
+          "any_wrong_errors": 1063,
+          "differs_from_separate_matching": 475,
+          "any_wrong_fixed": 332,
+          "any_wrong_broken": 137,
+          "decode_ns_per_shot": 2339.56548
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "zz",
+      "inputs": "00",
+      "d": 3,
+      "strip": 3,
+      "decoded_basis": "Z",
+      "seed": 3303,
+      "qubits": 53,
+      "data_qubits": 27,
+      "couplers": 84,
+      "rounds": 5,
+      "duration_ns": 3845.50566579,
+      "detectors": 64,
+      "fault_mechanisms": 119235,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.02956828125,
+      "mean_defects": 1.89237,
+      "max_defects": 15,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 1312, "p": 0.01312, "sem": 0.000359831427199},
+            "Z_A": {"errors": 441, "p": 0.00441, "sem": 0.000209536438359},
+            "Z_B": {"errors": 397, "p": 0.00397, "sem": 0.00019885268668}
+          },
+          "any_wrong": 0.01832,
+          "any_wrong_sem": 0.000424079916997,
+          "any_wrong_errors": 1832,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1167.77324
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 1312, "p": 0.01312, "sem": 0.000359831427199},
+            "Z_A": {"errors": 441, "p": 0.00441, "sem": 0.000209536438359},
+            "Z_B": {"errors": 397, "p": 0.00397, "sem": 0.00019885268668}
+          },
+          "any_wrong": 0.01832,
+          "any_wrong_sem": 0.000424079916997,
+          "any_wrong_errors": 1832,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 512.15658
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 1356, "p": 0.01356, "sem": 0.000365733870458},
+            "Z_A": {"errors": 471, "p": 0.00471, "sem": 0.000216513646221},
+            "Z_B": {"errors": 423, "p": 0.00423, "sem": 0.000205234185749}
+          },
+          "any_wrong": 0.01907,
+          "any_wrong_sem": 0.000432508209171,
+          "any_wrong_errors": 1907,
+          "differs_from_separate_matching": 123,
+          "any_wrong_fixed": 21,
+          "any_wrong_broken": 96,
+          "decode_ns_per_shot": 3427.33148
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 1356, "p": 0.01356, "sem": 0.000365733870458},
+            "Z_A": {"errors": 471, "p": 0.00471, "sem": 0.000216513646221},
+            "Z_B": {"errors": 423, "p": 0.00423, "sem": 0.000205234185749}
+          },
+          "any_wrong": 0.01907,
+          "any_wrong_sem": 0.000432508209171,
+          "any_wrong_errors": 1907,
+          "differs_from_separate_matching": 123,
+          "any_wrong_fixed": 21,
+          "any_wrong_broken": 96,
+          "decode_ns_per_shot": 910.82114
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 1103, "p": 0.01103, "sem": 0.000330277748267},
+            "Z_A": {"errors": 376, "p": 0.00376, "sem": 0.000193542305453},
+            "Z_B": {"errors": 325, "p": 0.00325, "sem": 0.000179984374322}
+          },
+          "any_wrong": 0.01554,
+          "any_wrong_sem": 0.000391133077098,
+          "any_wrong_errors": 1554,
+          "differs_from_separate_matching": 693,
+          "any_wrong_fixed": 482,
+          "any_wrong_broken": 204,
+          "decode_ns_per_shot": 3828.26384
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "zz",
+      "inputs": "00",
+      "d": 3,
+      "strip": 5,
+      "decoded_basis": "Z",
+      "seed": 3305,
+      "qubits": 65,
+      "data_qubits": 33,
+      "couplers": 104,
+      "rounds": 5,
+      "duration_ns": 3870.21422907,
+      "detectors": 72,
+      "fault_mechanisms": 153418,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0302847222222,
+      "mean_defects": 2.1805,
+      "max_defects": 15,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 1865, "p": 0.01865, "sem": 0.000427810442837},
+            "Z_A": {"errors": 455, "p": 0.00455, "sem": 0.000212821462733},
+            "Z_B": {"errors": 465, "p": 0.00465, "sem": 0.000215136642625}
+          },
+          "any_wrong": 0.02417,
+          "any_wrong_sem": 0.000485652253161,
+          "any_wrong_errors": 2417,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1564.54189
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 1865, "p": 0.01865, "sem": 0.000427810442837},
+            "Z_A": {"errors": 455, "p": 0.00455, "sem": 0.000212821462733},
+            "Z_B": {"errors": 465, "p": 0.00465, "sem": 0.000215136642625}
+          },
+          "any_wrong": 0.02417,
+          "any_wrong_sem": 0.000485652253161,
+          "any_wrong_errors": 2417,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 620.99909
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 1904, "p": 0.01904, "sem": 0.000432174483282},
+            "Z_A": {"errors": 475, "p": 0.00475, "sem": 0.00021742671179},
+            "Z_B": {"errors": 489, "p": 0.00489, "sem": 0.000220592110013}
+          },
+          "any_wrong": 0.02487,
+          "any_wrong_sem": 0.000492457948459,
+          "any_wrong_errors": 2487,
+          "differs_from_separate_matching": 156,
+          "any_wrong_fixed": 39,
+          "any_wrong_broken": 109,
+          "decode_ns_per_shot": 4398.87366
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 1904, "p": 0.01904, "sem": 0.000432174483282},
+            "Z_A": {"errors": 475, "p": 0.00475, "sem": 0.00021742671179},
+            "Z_B": {"errors": 489, "p": 0.00489, "sem": 0.000220592110013}
+          },
+          "any_wrong": 0.02487,
+          "any_wrong_sem": 0.000492457948459,
+          "any_wrong_errors": 2487,
+          "differs_from_separate_matching": 156,
+          "any_wrong_fixed": 39,
+          "any_wrong_broken": 109,
+          "decode_ns_per_shot": 1168.53329
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 1615, "p": 0.01615, "sem": 0.000398612311651},
+            "Z_A": {"errors": 372, "p": 0.00372, "sem": 0.000192513937158},
+            "Z_B": {"errors": 386, "p": 0.00386, "sem": 0.000196089275586}
+          },
+          "any_wrong": 0.02073,
+          "any_wrong_sem": 0.000450558177154,
+          "any_wrong_errors": 2073,
+          "differs_from_separate_matching": 872,
+          "any_wrong_fixed": 597,
+          "any_wrong_broken": 253,
+          "decode_ns_per_shot": 4875.00367
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "zz",
+      "inputs": "00",
+      "d": 3,
+      "strip": 7,
+      "decoded_basis": "Z",
+      "seed": 3307,
+      "qubits": 77,
+      "data_qubits": 39,
+      "couplers": 124,
+      "rounds": 5,
+      "duration_ns": 3707.35318554,
+      "detectors": 80,
+      "fault_mechanisms": 185215,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.030611875,
+      "mean_defects": 2.44895,
+      "max_defects": 16,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 2172, "p": 0.02172, "sem": 0.000460958149944},
+            "Z_A": {"errors": 437, "p": 0.00437, "sem": 0.000208588185188},
+            "Z_B": {"errors": 422, "p": 0.00422, "sem": 0.000204992477911}
+          },
+          "any_wrong": 0.02713,
+          "any_wrong_sem": 0.000513750553284,
+          "any_wrong_errors": 2713,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1796.26715
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 2172, "p": 0.02172, "sem": 0.000460958149944},
+            "Z_A": {"errors": 437, "p": 0.00437, "sem": 0.000208588185188},
+            "Z_B": {"errors": 422, "p": 0.00422, "sem": 0.000204992477911}
+          },
+          "any_wrong": 0.02713,
+          "any_wrong_sem": 0.000513750553284,
+          "any_wrong_errors": 2713,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 731.0218
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 2212, "p": 0.02212, "sem": 0.000465088223889},
+            "Z_A": {"errors": 449, "p": 0.00449, "sem": 0.00021141995885},
+            "Z_B": {"errors": 437, "p": 0.00437, "sem": 0.000208588185188}
+          },
+          "any_wrong": 0.02768,
+          "any_wrong_sem": 0.00051878528892,
+          "any_wrong_errors": 2768,
+          "differs_from_separate_matching": 134,
+          "any_wrong_fixed": 38,
+          "any_wrong_broken": 93,
+          "decode_ns_per_shot": 4706.63881
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 2212, "p": 0.02212, "sem": 0.000465088223889},
+            "Z_A": {"errors": 449, "p": 0.00449, "sem": 0.00021141995885},
+            "Z_B": {"errors": 437, "p": 0.00437, "sem": 0.000208588185188}
+          },
+          "any_wrong": 0.02768,
+          "any_wrong_sem": 0.00051878528892,
+          "any_wrong_errors": 2768,
+          "differs_from_separate_matching": 134,
+          "any_wrong_fixed": 38,
+          "any_wrong_broken": 93,
+          "decode_ns_per_shot": 1312.05319
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 1956, "p": 0.01956, "sem": 0.000437920157106},
+            "Z_A": {"errors": 363, "p": 0.00363, "sem": 0.000190179470501},
+            "Z_B": {"errors": 357, "p": 0.00357, "sem": 0.00018860686891}
+          },
+          "any_wrong": 0.02404,
+          "any_wrong_sem": 0.000484376696384,
+          "any_wrong_errors": 2404,
+          "differs_from_separate_matching": 1026,
+          "any_wrong_fixed": 658,
+          "any_wrong_broken": 349,
+          "decode_ns_per_shot": 5570.43126
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "xx",
+      "inputs": "++",
+      "d": 3,
+      "strip": 1,
+      "decoded_basis": "X",
+      "seed": 1315,
+      "qubits": 41,
+      "data_qubits": 21,
+      "couplers": 64,
+      "rounds": 5,
+      "duration_ns": 3798.60484862,
+      "detectors": 56,
+      "fault_mechanisms": 84161,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.02866,
+      "mean_defects": 1.60496,
+      "max_defects": 12,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 759, "p": 0.00759, "sem": 0.000274452034061},
+            "X_A": {"errors": 404, "p": 0.00404, "sem": 0.000200591086542},
+            "X_B": {"errors": 430, "p": 0.0043, "sem": 0.00020691809974}
+          },
+          "any_wrong": 0.01245,
+          "any_wrong_sem": 0.000350642232197,
+          "any_wrong_errors": 1245,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 748.48969
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 759, "p": 0.00759, "sem": 0.000274452034061},
+            "X_A": {"errors": 404, "p": 0.00404, "sem": 0.000200591086542},
+            "X_B": {"errors": 430, "p": 0.0043, "sem": 0.00020691809974}
+          },
+          "any_wrong": 0.01245,
+          "any_wrong_sem": 0.000350642232197,
+          "any_wrong_errors": 1245,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 345.90596
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 776, "p": 0.00776, "sem": 0.000277484817603},
+            "X_A": {"errors": 431, "p": 0.00431, "sem": 0.00020715752219},
+            "X_B": {"errors": 448, "p": 0.00448, "sem": 0.000211185454045}
+          },
+          "any_wrong": 0.01294,
+          "any_wrong_sem": 0.000357387134631,
+          "any_wrong_errors": 1294,
+          "differs_from_separate_matching": 134,
+          "any_wrong_fixed": 41,
+          "any_wrong_broken": 90,
+          "decode_ns_per_shot": 2453.52455
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 776, "p": 0.00776, "sem": 0.000277484817603},
+            "X_A": {"errors": 431, "p": 0.00431, "sem": 0.00020715752219},
+            "X_B": {"errors": 448, "p": 0.00448, "sem": 0.000211185454045}
+          },
+          "any_wrong": 0.01294,
+          "any_wrong_sem": 0.000357387134631,
+          "any_wrong_errors": 1294,
+          "differs_from_separate_matching": 134,
+          "any_wrong_fixed": 41,
+          "any_wrong_broken": 90,
+          "decode_ns_per_shot": 656.62355
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 623, "p": 0.00623, "sem": 0.000248820961738},
+            "X_A": {"errors": 319, "p": 0.00319, "sem": 0.000178320607334},
+            "X_B": {"errors": 341, "p": 0.00341, "sem": 0.0001843467358}
+          },
+          "any_wrong": 0.01018,
+          "any_wrong_sem": 0.00031743294725,
+          "any_wrong_errors": 1018,
+          "differs_from_separate_matching": 473,
+          "any_wrong_fixed": 345,
+          "any_wrong_broken": 118,
+          "decode_ns_per_shot": 2740.14492
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "xx",
+      "inputs": "++",
+      "d": 3,
+      "strip": 3,
+      "decoded_basis": "X",
+      "seed": 3313,
+      "qubits": 53,
+      "data_qubits": 27,
+      "couplers": 84,
+      "rounds": 5,
+      "duration_ns": 3839.72458776,
+      "detectors": 64,
+      "fault_mechanisms": 120314,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.02933578125,
+      "mean_defects": 1.87749,
+      "max_defects": 14,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 1273, "p": 0.01273, "sem": 0.000354513005403},
+            "X_A": {"errors": 418, "p": 0.00418, "sem": 0.000204022734027},
+            "X_B": {"errors": 439, "p": 0.00439, "sem": 0.000209062858968}
+          },
+          "any_wrong": 0.01786,
+          "any_wrong_sem": 0.000418820013848,
+          "any_wrong_errors": 1786,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1119.59149
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 1273, "p": 0.01273, "sem": 0.000354513005403},
+            "X_A": {"errors": 418, "p": 0.00418, "sem": 0.000204022734027},
+            "X_B": {"errors": 439, "p": 0.00439, "sem": 0.000209062858968}
+          },
+          "any_wrong": 0.01786,
+          "any_wrong_sem": 0.000418820013848,
+          "any_wrong_errors": 1786,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 492.18999
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 1285, "p": 0.01285, "sem": 0.000356158356634},
+            "X_A": {"errors": 449, "p": 0.00449, "sem": 0.00021141995885},
+            "X_B": {"errors": 458, "p": 0.00458, "sem": 0.000213518701757}
+          },
+          "any_wrong": 0.01833,
+          "any_wrong_sem": 0.000424193482977,
+          "any_wrong_errors": 1833,
+          "differs_from_separate_matching": 148,
+          "any_wrong_fixed": 46,
+          "any_wrong_broken": 93,
+          "decode_ns_per_shot": 3422.60492
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 1285, "p": 0.01285, "sem": 0.000356158356634},
+            "X_A": {"errors": 449, "p": 0.00449, "sem": 0.00021141995885},
+            "X_B": {"errors": 458, "p": 0.00458, "sem": 0.000213518701757}
+          },
+          "any_wrong": 0.01833,
+          "any_wrong_sem": 0.000424193482977,
+          "any_wrong_errors": 1833,
+          "differs_from_separate_matching": 148,
+          "any_wrong_fixed": 46,
+          "any_wrong_broken": 93,
+          "decode_ns_per_shot": 970.28635
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 1097, "p": 0.01097, "sem": 0.000329388207136},
+            "X_A": {"errors": 347, "p": 0.00347, "sem": 0.000185955884553},
+            "X_B": {"errors": 350, "p": 0.0035, "sem": 0.000186755187344}
+          },
+          "any_wrong": 0.0153,
+          "any_wrong_sem": 0.000388148296402,
+          "any_wrong_errors": 1530,
+          "differs_from_separate_matching": 678,
+          "any_wrong_fixed": 460,
+          "any_wrong_broken": 204,
+          "decode_ns_per_shot": 3857.3075
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "xx",
+      "inputs": "++",
+      "d": 3,
+      "strip": 5,
+      "decoded_basis": "X",
+      "seed": 3315,
+      "qubits": 65,
+      "data_qubits": 33,
+      "couplers": 104,
+      "rounds": 5,
+      "duration_ns": 3849.5573123,
+      "detectors": 72,
+      "fault_mechanisms": 151798,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0303605555556,
+      "mean_defects": 2.18596,
+      "max_defects": 14,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 1752, "p": 0.01752, "sem": 0.000414886124135},
+            "X_A": {"errors": 458, "p": 0.00458, "sem": 0.000213518701757},
+            "X_B": {"errors": 430, "p": 0.0043, "sem": 0.00020691809974}
+          },
+          "any_wrong": 0.02322,
+          "any_wrong_sem": 0.000476243966891,
+          "any_wrong_errors": 2322,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1466.53226
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 1752, "p": 0.01752, "sem": 0.000414886124135},
+            "X_A": {"errors": 458, "p": 0.00458, "sem": 0.000213518701757},
+            "X_B": {"errors": 430, "p": 0.0043, "sem": 0.00020691809974}
+          },
+          "any_wrong": 0.02322,
+          "any_wrong_sem": 0.000476243966891,
+          "any_wrong_errors": 2322,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 638.20727
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 1802, "p": 0.01802, "sem": 0.000420657575707},
+            "X_A": {"errors": 470, "p": 0.0047, "sem": 0.000216284765992},
+            "X_B": {"errors": 455, "p": 0.00455, "sem": 0.000212821462733}
+          },
+          "any_wrong": 0.02389,
+          "any_wrong_sem": 0.000482900278525,
+          "any_wrong_errors": 2389,
+          "differs_from_separate_matching": 203,
+          "any_wrong_fixed": 67,
+          "any_wrong_broken": 134,
+          "decode_ns_per_shot": 4222.15212
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 1802, "p": 0.01802, "sem": 0.000420657575707},
+            "X_A": {"errors": 470, "p": 0.0047, "sem": 0.000216284765992},
+            "X_B": {"errors": 455, "p": 0.00455, "sem": 0.000212821462733}
+          },
+          "any_wrong": 0.02389,
+          "any_wrong_sem": 0.000482900278525,
+          "any_wrong_errors": 2389,
+          "differs_from_separate_matching": 203,
+          "any_wrong_fixed": 67,
+          "any_wrong_broken": 134,
+          "decode_ns_per_shot": 1172.88269
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 1549, "p": 0.01549, "sem": 0.000390513250735},
+            "X_A": {"errors": 376, "p": 0.00376, "sem": 0.000193542305453},
+            "X_B": {"errors": 360, "p": 0.0036, "sem": 0.000189394825695}
+          },
+          "any_wrong": 0.0202,
+          "any_wrong_sem": 0.000444881557271,
+          "any_wrong_errors": 2020,
+          "differs_from_separate_matching": 856,
+          "any_wrong_fixed": 567,
+          "any_wrong_broken": 265,
+          "decode_ns_per_shot": 4794.93972
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "xx",
+      "inputs": "++",
+      "d": 3,
+      "strip": 7,
+      "decoded_basis": "X",
+      "seed": 3317,
+      "qubits": 77,
+      "data_qubits": 39,
+      "couplers": 124,
+      "rounds": 5,
+      "duration_ns": 3707.35318554,
+      "detectors": 80,
+      "fault_mechanisms": 179902,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.030366875,
+      "mean_defects": 2.42935,
+      "max_defects": 14,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 2185, "p": 0.02185, "sem": 0.000462304850721},
+            "X_A": {"errors": 441, "p": 0.00441, "sem": 0.000209536438359},
+            "X_B": {"errors": 400, "p": 0.004, "sem": 0.000199599599198}
+          },
+          "any_wrong": 0.02691,
+          "any_wrong_sem": 0.000511721134017,
+          "any_wrong_errors": 2691,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1942.69424
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 2185, "p": 0.02185, "sem": 0.000462304850721},
+            "X_A": {"errors": 441, "p": 0.00441, "sem": 0.000209536438359},
+            "X_B": {"errors": 400, "p": 0.004, "sem": 0.000199599599198}
+          },
+          "any_wrong": 0.02691,
+          "any_wrong_sem": 0.000511721134017,
+          "any_wrong_errors": 2691,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 802.09737
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 2218, "p": 0.02218, "sem": 0.000465704279559},
+            "X_A": {"errors": 467, "p": 0.00467, "sem": 0.000215596639584},
+            "X_B": {"errors": 426, "p": 0.00426, "sem": 0.000205957578156}
+          },
+          "any_wrong": 0.02756,
+          "any_wrong_sem": 0.000517691475688,
+          "any_wrong_errors": 2756,
+          "differs_from_separate_matching": 195,
+          "any_wrong_fixed": 63,
+          "any_wrong_broken": 128,
+          "decode_ns_per_shot": 5116.2814
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 2218, "p": 0.02218, "sem": 0.000465704279559},
+            "X_A": {"errors": 467, "p": 0.00467, "sem": 0.000215596639584},
+            "X_B": {"errors": 426, "p": 0.00426, "sem": 0.000205957578156}
+          },
+          "any_wrong": 0.02756,
+          "any_wrong_sem": 0.000517691475688,
+          "any_wrong_errors": 2756,
+          "differs_from_separate_matching": 195,
+          "any_wrong_fixed": 63,
+          "any_wrong_broken": 128,
+          "decode_ns_per_shot": 1438.46559
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 1916, "p": 0.01916, "sem": 0.000433507720808},
+            "X_A": {"errors": 344, "p": 0.00344, "sem": 0.00018515308261},
+            "X_B": {"errors": 340, "p": 0.0034, "sem": 0.000184077157736}
+          },
+          "any_wrong": 0.02333,
+          "any_wrong_sem": 0.000477343807962,
+          "any_wrong_errors": 2333,
+          "differs_from_separate_matching": 991,
+          "any_wrong_fixed": 666,
+          "any_wrong_broken": 308,
+          "decode_ns_per_shot": 6043.67974
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "00",
+      "d": 3,
+      "strip": 1,
+      "decoded_basis": "Z",
+      "seed": 1325,
+      "qubits": 65,
+      "data_qubits": 33,
+      "couplers": 104,
+      "rounds": 8,
+      "duration_ns": 5979.72450808,
+      "detectors": 112,
+      "fault_mechanisms": 272906,
+      "hyperedge_faults": 4,
+      "hyperedge_p": 1.22063027991e-06,
+      "detection_rate": 0.0304639285714,
+      "mean_defects": 3.41196,
+      "max_defects": 19,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 688, "p": 0.00688, "sem": 0.000261393680107},
+            "Z_T": {"errors": 2235, "p": 0.02235, "sem": 0.000467444943282}
+          },
+          "any_wrong": 0.02742,
+          "any_wrong_sem": 0.000516412079642,
+          "any_wrong_errors": 2742,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 2819.95744
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 688, "p": 0.00688, "sem": 0.000261393680107},
+            "Z_T": {"errors": 2235, "p": 0.02235, "sem": 0.000467444943282}
+          },
+          "any_wrong": 0.02742,
+          "any_wrong_sem": 0.000516412079642,
+          "any_wrong_errors": 2742,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1444.18388
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 724, "p": 0.00724, "sem": 0.000268096669133},
+            "Z_T": {"errors": 2299, "p": 0.02299, "sem": 0.000473935226587}
+          },
+          "any_wrong": 0.02834,
+          "any_wrong_sem": 0.000524755604067,
+          "any_wrong_errors": 2834,
+          "differs_from_separate_matching": 214,
+          "any_wrong_fixed": 59,
+          "any_wrong_broken": 151,
+          "decode_ns_per_shot": 5499.02701
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 724, "p": 0.00724, "sem": 0.000268096669133},
+            "Z_T": {"errors": 2299, "p": 0.02299, "sem": 0.000473935226587}
+          },
+          "any_wrong": 0.02834,
+          "any_wrong_sem": 0.000524755604067,
+          "any_wrong_errors": 2834,
+          "differs_from_separate_matching": 214,
+          "any_wrong_fixed": 59,
+          "any_wrong_broken": 151,
+          "decode_ns_per_shot": 2107.85725
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 603, "p": 0.00603, "sem": 0.00024481909852},
+            "Z_T": {"errors": 1826, "p": 0.01826, "sem": 0.000423397831832}
+          },
+          "any_wrong": 0.02277,
+          "any_wrong_sem": 0.000471715243553,
+          "any_wrong_errors": 2277,
+          "differs_from_separate_matching": 1468,
+          "any_wrong_fixed": 962,
+          "any_wrong_broken": 497,
+          "decode_ns_per_shot": 9883.24463
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "00",
+      "d": 3,
+      "strip": 3,
+      "decoded_basis": "Z",
+      "seed": 3323,
+      "qubits": 89,
+      "data_qubits": 45,
+      "couplers": 144,
+      "rounds": 8,
+      "duration_ns": 6029.48172298,
+      "detectors": 128,
+      "fault_mechanisms": 410877,
+      "hyperedge_faults": 4,
+      "hyperedge_p": 1.22063027991e-06,
+      "detection_rate": 0.03206140625,
+      "mean_defects": 4.10386,
+      "max_defects": 22,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 659, "p": 0.00659, "sem": 0.000255862695601},
+            "Z_T": {"errors": 3495, "p": 0.03495, "sem": 0.000580762408391}
+          },
+          "any_wrong": 0.0399,
+          "any_wrong_sem": 0.000618934487648,
+          "any_wrong_errors": 3990,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 4473.19313
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 659, "p": 0.00659, "sem": 0.000255862695601},
+            "Z_T": {"errors": 3495, "p": 0.03495, "sem": 0.000580762408391}
+          },
+          "any_wrong": 0.0399,
+          "any_wrong_sem": 0.000618934487648,
+          "any_wrong_errors": 3990,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 2087.19525
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 677, "p": 0.00677, "sem": 0.000259309990166},
+            "Z_T": {"errors": 3591, "p": 0.03591, "sem": 0.000588391637432}
+          },
+          "any_wrong": 0.04098,
+          "any_wrong_sem": 0.000626902222041,
+          "any_wrong_errors": 4098,
+          "differs_from_separate_matching": 388,
+          "any_wrong_fixed": 137,
+          "any_wrong_broken": 245,
+          "decode_ns_per_shot": 6726.44555
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 677, "p": 0.00677, "sem": 0.000259309990166},
+            "Z_T": {"errors": 3591, "p": 0.03591, "sem": 0.000588391637432}
+          },
+          "any_wrong": 0.04098,
+          "any_wrong_sem": 0.000626902222041,
+          "any_wrong_errors": 4098,
+          "differs_from_separate_matching": 388,
+          "any_wrong_fixed": 137,
+          "any_wrong_broken": 245,
+          "decode_ns_per_shot": 2587.77105
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 593, "p": 0.00593, "sem": 0.000242792814968},
+            "Z_T": {"errors": 2947, "p": 0.02947, "sem": 0.000534803880876}
+          },
+          "any_wrong": 0.03404,
+          "any_wrong_sem": 0.000573421994695,
+          "any_wrong_errors": 3404,
+          "differs_from_separate_matching": 1976,
+          "any_wrong_fixed": 1269,
+          "any_wrong_broken": 683,
+          "decode_ns_per_shot": 13744.66546
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "00",
+      "d": 3,
+      "strip": 5,
+      "decoded_basis": "Z",
+      "seed": 3325,
+      "qubits": 113,
+      "data_qubits": 57,
+      "couplers": 184,
+      "rounds": 8,
+      "duration_ns": 6068.11977345,
+      "detectors": 144,
+      "fault_mechanisms": 547804,
+      "hyperedge_faults": 4,
+      "hyperedge_p": 1.22063027991e-06,
+      "detection_rate": 0.0333068055556,
+      "mean_defects": 4.79618,
+      "max_defects": 22,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 685, "p": 0.00685, "sem": 0.000260827097902},
+            "Z_T": {"errors": 4871, "p": 0.04871, "sem": 0.0006807153289}
+          },
+          "any_wrong": 0.05389,
+          "any_wrong_sem": 0.000714043891508,
+          "any_wrong_errors": 5389,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 5846.1854
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 685, "p": 0.00685, "sem": 0.000260827097902},
+            "Z_T": {"errors": 4871, "p": 0.04871, "sem": 0.0006807153289}
+          },
+          "any_wrong": 0.05389,
+          "any_wrong_sem": 0.000714043891508,
+          "any_wrong_errors": 5389,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 2692.16783
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 715, "p": 0.00715, "sem": 0.00026643718772},
+            "Z_T": {"errors": 5014, "p": 0.05014, "sem": 0.000690115790284}
+          },
+          "any_wrong": 0.05547,
+          "any_wrong_sem": 0.000723830636959,
+          "any_wrong_errors": 5547,
+          "differs_from_separate_matching": 498,
+          "any_wrong_fixed": 165,
+          "any_wrong_broken": 323,
+          "decode_ns_per_shot": 8557.85048
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 715, "p": 0.00715, "sem": 0.00026643718772},
+            "Z_T": {"errors": 5014, "p": 0.05014, "sem": 0.000690115790284}
+          },
+          "any_wrong": 0.05547,
+          "any_wrong_sem": 0.000723830636959,
+          "any_wrong_errors": 5547,
+          "differs_from_separate_matching": 498,
+          "any_wrong_fixed": 165,
+          "any_wrong_broken": 323,
+          "decode_ns_per_shot": 3226.02597
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 565, "p": 0.00565, "sem": 0.00023702484047},
+            "Z_T": {"errors": 4053, "p": 0.04053, "sem": 0.000623596978023}
+          },
+          "any_wrong": 0.04482,
+          "any_wrong_sem": 0.000654302434658,
+          "any_wrong_errors": 4482,
+          "differs_from_separate_matching": 2618,
+          "any_wrong_fixed": 1746,
+          "any_wrong_broken": 839,
+          "decode_ns_per_shot": 18201.29597
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "00",
+      "d": 3,
+      "strip": 7,
+      "decoded_basis": "Z",
+      "seed": 3327,
+      "qubits": 137,
+      "data_qubits": 69,
+      "couplers": 224,
+      "rounds": 8,
+      "duration_ns": 5880.2100783,
+      "detectors": 160,
+      "fault_mechanisms": 612081,
+      "hyperedge_faults": 4,
+      "hyperedge_p": 1.22063027991e-06,
+      "detection_rate": 0.033941875,
+      "mean_defects": 5.4307,
+      "max_defects": 21,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 624, "p": 0.00624, "sem": 0.000249019324551},
+            "Z_T": {"errors": 6022, "p": 0.06022, "sem": 0.000752286857522}
+          },
+          "any_wrong": 0.06482,
+          "any_wrong_sem": 0.000778577983249,
+          "any_wrong_errors": 6482,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 7021.21993
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 624, "p": 0.00624, "sem": 0.000249019324551},
+            "Z_T": {"errors": 6022, "p": 0.06022, "sem": 0.000752286857522}
+          },
+          "any_wrong": 0.06482,
+          "any_wrong_sem": 0.000778577983249,
+          "any_wrong_errors": 6482,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 3204.24519
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 654, "p": 0.00654, "sem": 0.000254896614336},
+            "Z_T": {"errors": 6141, "p": 0.06141, "sem": 0.000759202291224}
+          },
+          "any_wrong": 0.06619,
+          "any_wrong_sem": 0.000786186262281,
+          "any_wrong_errors": 6619,
+          "differs_from_separate_matching": 550,
+          "any_wrong_fixed": 202,
+          "any_wrong_broken": 339,
+          "decode_ns_per_shot": 9422.36281
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 654, "p": 0.00654, "sem": 0.000254896614336},
+            "Z_T": {"errors": 6141, "p": 0.06141, "sem": 0.000759202291224}
+          },
+          "any_wrong": 0.06619,
+          "any_wrong_sem": 0.000786186262281,
+          "any_wrong_errors": 6619,
+          "differs_from_separate_matching": 550,
+          "any_wrong_fixed": 202,
+          "any_wrong_broken": 339,
+          "decode_ns_per_shot": 3555.44487
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 536, "p": 0.00536, "sem": 0.000230895439539},
+            "Z_T": {"errors": 5033, "p": 0.05033, "sem": 0.00069135295689}
+          },
+          "any_wrong": 0.05442,
+          "any_wrong_sem": 0.000717345548533,
+          "any_wrong_errors": 5442,
+          "differs_from_separate_matching": 3089,
+          "any_wrong_fixed": 2046,
+          "any_wrong_broken": 1006,
+          "decode_ns_per_shot": 21831.94688
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "++",
+      "d": 3,
+      "strip": 1,
+      "decoded_basis": "X",
+      "seed": 1335,
+      "qubits": 65,
+      "data_qubits": 33,
+      "couplers": 104,
+      "rounds": 8,
+      "duration_ns": 5979.72450808,
+      "detectors": 112,
+      "fault_mechanisms": 273358,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0300298214286,
+      "mean_defects": 3.36334,
+      "max_defects": 18,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 2449, "p": 0.02449, "sem": 0.000488776430487},
+            "X_T": {"errors": 668, "p": 0.00668, "sem": 0.000257592266965}
+          },
+          "any_wrong": 0.02707,
+          "any_wrong_sem": 0.000513197964727,
+          "any_wrong_errors": 2707,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 2737.19398
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 2449, "p": 0.02449, "sem": 0.000488776430487},
+            "X_T": {"errors": 668, "p": 0.00668, "sem": 0.000257592266965}
+          },
+          "any_wrong": 0.02707,
+          "any_wrong_sem": 0.000513197964727,
+          "any_wrong_errors": 2707,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1409.31422
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 2499, "p": 0.02499, "sem": 0.000493614220824},
+            "X_T": {"errors": 681, "p": 0.00681, "sem": 0.000260069681047}
+          },
+          "any_wrong": 0.02757,
+          "any_wrong_sem": 0.000517782725668,
+          "any_wrong_errors": 2757,
+          "differs_from_separate_matching": 176,
+          "any_wrong_fixed": 60,
+          "any_wrong_broken": 110,
+          "decode_ns_per_shot": 5494.91544
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 2499, "p": 0.02499, "sem": 0.000493614220824},
+            "X_T": {"errors": 681, "p": 0.00681, "sem": 0.000260069681047}
+          },
+          "any_wrong": 0.02757,
+          "any_wrong_sem": 0.000517782725668,
+          "any_wrong_errors": 2757,
+          "differs_from_separate_matching": 176,
+          "any_wrong_fixed": 60,
+          "any_wrong_broken": 110,
+          "decode_ns_per_shot": 2058.08247
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 1953, "p": 0.01953, "sem": 0.000437590894558},
+            "X_T": {"errors": 537, "p": 0.00537, "sem": 0.000231109564925}
+          },
+          "any_wrong": 0.02167,
+          "any_wrong_sem": 0.000460439041568,
+          "any_wrong_errors": 2167,
+          "differs_from_separate_matching": 1316,
+          "any_wrong_fixed": 916,
+          "any_wrong_broken": 376,
+          "decode_ns_per_shot": 9810.0929
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "++",
+      "d": 3,
+      "strip": 3,
+      "decoded_basis": "X",
+      "seed": 3333,
+      "qubits": 89,
+      "data_qubits": 45,
+      "couplers": 144,
+      "rounds": 8,
+      "duration_ns": 6029.48172298,
+      "detectors": 128,
+      "fault_mechanisms": 411457,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.031506875,
+      "mean_defects": 4.03288,
+      "max_defects": 20,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 3730, "p": 0.0373, "sem": 0.000599238767104},
+            "X_T": {"errors": 670, "p": 0.0067, "sem": 0.000257974998789}
+          },
+          "any_wrong": 0.03978,
+          "any_wrong_sem": 0.000618041678206,
+          "any_wrong_errors": 3978,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 3993.52354
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 3730, "p": 0.0373, "sem": 0.000599238767104},
+            "X_T": {"errors": 670, "p": 0.0067, "sem": 0.000257974998789}
+          },
+          "any_wrong": 0.03978,
+          "any_wrong_sem": 0.000618041678206,
+          "any_wrong_errors": 3978,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 1900.70328
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 3814, "p": 0.03814, "sem": 0.000605684244471},
+            "X_T": {"errors": 667, "p": 0.00667, "sem": 0.000257400681817}
+          },
+          "any_wrong": 0.04057,
+          "any_wrong_sem": 0.000623891617991,
+          "any_wrong_errors": 4057,
+          "differs_from_separate_matching": 298,
+          "any_wrong_fixed": 108,
+          "any_wrong_broken": 187,
+          "decode_ns_per_shot": 6616.71126
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 3814, "p": 0.03814, "sem": 0.000605684244471},
+            "X_T": {"errors": 667, "p": 0.00667, "sem": 0.000257400681817}
+          },
+          "any_wrong": 0.04057,
+          "any_wrong_sem": 0.000623891617991,
+          "any_wrong_errors": 4057,
+          "differs_from_separate_matching": 298,
+          "any_wrong_fixed": 108,
+          "any_wrong_broken": 187,
+          "decode_ns_per_shot": 2536.9176
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 3019, "p": 0.03019, "sem": 0.00054109670023},
+            "X_T": {"errors": 566, "p": 0.00566, "sem": 0.00023723331132}
+          },
+          "any_wrong": 0.03254,
+          "any_wrong_sem": 0.000561080639481,
+          "any_wrong_errors": 3254,
+          "differs_from_separate_matching": 1838,
+          "any_wrong_fixed": 1272,
+          "any_wrong_broken": 548,
+          "decode_ns_per_shot": 13045.03011
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "++",
+      "d": 3,
+      "strip": 5,
+      "decoded_basis": "X",
+      "seed": 3335,
+      "qubits": 113,
+      "data_qubits": 57,
+      "couplers": 184,
+      "rounds": 8,
+      "duration_ns": 6068.11977345,
+      "detectors": 144,
+      "fault_mechanisms": 549210,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0330016666667,
+      "mean_defects": 4.75224,
+      "max_defects": 20,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 4955, "p": 0.04955, "sem": 0.000686256493594},
+            "X_T": {"errors": 673, "p": 0.00673, "sem": 0.000258548005214}
+          },
+          "any_wrong": 0.05202,
+          "any_wrong_sem": 0.000702238703006,
+          "any_wrong_errors": 5202,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 5369.362
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 4955, "p": 0.04955, "sem": 0.000686256493594},
+            "X_T": {"errors": 673, "p": 0.00673, "sem": 0.000258548005214}
+          },
+          "any_wrong": 0.05202,
+          "any_wrong_sem": 0.000702238703006,
+          "any_wrong_errors": 5202,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 2480.47427
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 5060, "p": 0.0506, "sem": 0.000693106341047},
+            "X_T": {"errors": 691, "p": 0.00691, "sem": 0.000261959002518}
+          },
+          "any_wrong": 0.05311,
+          "any_wrong_sem": 0.000709149687302,
+          "any_wrong_errors": 5311,
+          "differs_from_separate_matching": 275,
+          "any_wrong_fixed": 81,
+          "any_wrong_broken": 190,
+          "decode_ns_per_shot": 8184.12462
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 5060, "p": 0.0506, "sem": 0.000693106341047},
+            "X_T": {"errors": 691, "p": 0.00691, "sem": 0.000261959002518}
+          },
+          "any_wrong": 0.05311,
+          "any_wrong_sem": 0.000709149687302,
+          "any_wrong_errors": 5311,
+          "differs_from_separate_matching": 275,
+          "any_wrong_fixed": 81,
+          "any_wrong_broken": 190,
+          "decode_ns_per_shot": 3196.62689
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 4071, "p": 0.04071, "sem": 0.000624921562278},
+            "X_T": {"errors": 523, "p": 0.00523, "sem": 0.000228093119142}
+          },
+          "any_wrong": 0.04266,
+          "any_wrong_sem": 0.000639062785648,
+          "any_wrong_errors": 4266,
+          "differs_from_separate_matching": 2263,
+          "any_wrong_fixed": 1589,
+          "any_wrong_broken": 653,
+          "decode_ns_per_shot": 17066.80515
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "++",
+      "d": 3,
+      "strip": 7,
+      "decoded_basis": "X",
+      "seed": 3337,
+      "qubits": 137,
+      "data_qubits": 69,
+      "couplers": 224,
+      "rounds": 8,
+      "duration_ns": 5880.2100783,
+      "detectors": 160,
+      "fault_mechanisms": 615435,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0338686875,
+      "mean_defects": 5.41899,
+      "max_defects": 23,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 5998, "p": 0.05998, "sem": 0.000750882145213},
+            "X_T": {"errors": 653, "p": 0.00653, "sem": 0.000254702946587}
+          },
+          "any_wrong": 0.06242,
+          "any_wrong_sem": 0.000765008128061,
+          "any_wrong_errors": 6242,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 6911.00762
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 5998, "p": 0.05998, "sem": 0.000750882145213},
+            "X_T": {"errors": 653, "p": 0.00653, "sem": 0.000254702946587}
+          },
+          "any_wrong": 0.06242,
+          "any_wrong_sem": 0.000765008128061,
+          "any_wrong_errors": 6242,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 3117.47034
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 6144, "p": 0.06144, "sem": 0.000759375575062},
+            "X_T": {"errors": 658, "p": 0.00658, "sem": 0.000255669779207}
+          },
+          "any_wrong": 0.06394,
+          "any_wrong_sem": 0.000773638652085,
+          "any_wrong_errors": 6394,
+          "differs_from_separate_matching": 426,
+          "any_wrong_fixed": 133,
+          "any_wrong_broken": 285,
+          "decode_ns_per_shot": 9668.17249
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 6144, "p": 0.06144, "sem": 0.000759375575062},
+            "X_T": {"errors": 658, "p": 0.00658, "sem": 0.000255669779207}
+          },
+          "any_wrong": 0.06394,
+          "any_wrong_sem": 0.000773638652085,
+          "any_wrong_errors": 6394,
+          "differs_from_separate_matching": 426,
+          "any_wrong_fixed": 133,
+          "any_wrong_broken": 285,
+          "decode_ns_per_shot": 3630.66074
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 5112, "p": 0.05112, "sem": 0.000696467842761},
+            "X_T": {"errors": 513, "p": 0.00513, "sem": 0.0002259133263}
+          },
+          "any_wrong": 0.05308,
+          "any_wrong_sem": 0.000708960602573,
+          "any_wrong_errors": 5308,
+          "differs_from_separate_matching": 2715,
+          "any_wrong_fixed": 1811,
+          "any_wrong_broken": 877,
+          "decode_ns_per_shot": 21211.5678
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "zz",
+      "inputs": "00",
+      "d": 5,
+      "strip": 1,
+      "decoded_basis": "Z",
+      "seed": 1505,
+      "qubits": 109,
+      "data_qubits": 55,
+      "couplers": 188,
+      "rounds": 7,
+      "duration_ns": 5402.38601106,
+      "detectors": 216,
+      "fault_mechanisms": 681239,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0310140740741,
+      "mean_defects": 6.69904,
+      "max_defects": 29,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 140, "p": 0.0014, "sem": 0.000118238741536},
+            "Z_A": {"errors": 66, "p": 0.00066, "sem": 8.12135702946e-05},
+            "Z_B": {"errors": 94, "p": 0.00094, "sem": 9.69080182441e-05}
+          },
+          "any_wrong": 0.00238,
+          "any_wrong_sem": 0.000154088792584,
+          "any_wrong_errors": 238,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 12033.69471
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 140, "p": 0.0014, "sem": 0.000118238741536},
+            "Z_A": {"errors": 66, "p": 0.00066, "sem": 8.12135702946e-05},
+            "Z_B": {"errors": 94, "p": 0.00094, "sem": 9.69080182441e-05}
+          },
+          "any_wrong": 0.00238,
+          "any_wrong_sem": 0.000154088792584,
+          "any_wrong_errors": 238,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 4163.77519
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 149, "p": 0.00149, "sem": 0.000121974583418},
+            "Z_A": {"errors": 68, "p": 0.00068, "sem": 8.24340706262e-05},
+            "Z_B": {"errors": 97, "p": 0.00097, "sem": 9.84407994685e-05}
+          },
+          "any_wrong": 0.00248,
+          "any_wrong_sem": 0.000157284760864,
+          "any_wrong_errors": 248,
+          "differs_from_separate_matching": 44,
+          "any_wrong_fixed": 16,
+          "any_wrong_broken": 26,
+          "decode_ns_per_shot": 16040.66128
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 149, "p": 0.00149, "sem": 0.000121974583418},
+            "Z_A": {"errors": 68, "p": 0.00068, "sem": 8.24340706262e-05},
+            "Z_B": {"errors": 97, "p": 0.00097, "sem": 9.84407994685e-05}
+          },
+          "any_wrong": 0.00248,
+          "any_wrong_sem": 0.000157284760864,
+          "any_wrong_errors": 248,
+          "differs_from_separate_matching": 44,
+          "any_wrong_fixed": 16,
+          "any_wrong_broken": 26,
+          "decode_ns_per_shot": 4338.4893
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 100, "p": 0.001, "sem": 9.99499874937e-05},
+            "Z_A": {"errors": 50, "p": 0.0005, "sem": 7.06929982389e-05},
+            "Z_B": {"errors": 59, "p": 0.00059, "sem": 7.67887947555e-05}
+          },
+          "any_wrong": 0.00164,
+          "any_wrong_sem": 0.000127957430421,
+          "any_wrong_errors": 164,
+          "differs_from_separate_matching": 151,
+          "any_wrong_fixed": 112,
+          "any_wrong_broken": 38,
+          "decode_ns_per_shot": 35200.34865
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "zz",
+      "inputs": "00",
+      "d": 5,
+      "strip": 3,
+      "decoded_basis": "Z",
+      "seed": 3503,
+      "qubits": 129,
+      "data_qubits": 65,
+      "couplers": 224,
+      "rounds": 7,
+      "duration_ns": 5436.13298981,
+      "detectors": 240,
+      "fault_mechanisms": 858212,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0314810416667,
+      "mean_defects": 7.55545,
+      "max_defects": 30,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 244, "p": 0.00244, "sem": 0.000156014307036},
+            "Z_A": {"errors": 98, "p": 0.00098, "sem": 9.89464299508e-05},
+            "Z_B": {"errors": 85, "p": 0.00085, "sem": 9.2156253179e-05}
+          },
+          "any_wrong": 0.00372,
+          "any_wrong_sem": 0.000192513937158,
+          "any_wrong_errors": 372,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 15808.90989
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 244, "p": 0.00244, "sem": 0.000156014307036},
+            "Z_A": {"errors": 98, "p": 0.00098, "sem": 9.89464299508e-05},
+            "Z_B": {"errors": 85, "p": 0.00085, "sem": 9.2156253179e-05}
+          },
+          "any_wrong": 0.00372,
+          "any_wrong_sem": 0.000192513937158,
+          "any_wrong_errors": 372,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 5206.42564
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 267, "p": 0.00267, "sem": 0.000163183059783},
+            "Z_A": {"errors": 105, "p": 0.00105, "sem": 0.000102415697039},
+            "Z_B": {"errors": 92, "p": 0.00092, "sem": 9.58724986636e-05}
+          },
+          "any_wrong": 0.004,
+          "any_wrong_sem": 0.000199599599198,
+          "any_wrong_errors": 400,
+          "differs_from_separate_matching": 58,
+          "any_wrong_fixed": 15,
+          "any_wrong_broken": 43,
+          "decode_ns_per_shot": 18828.1115
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 267, "p": 0.00267, "sem": 0.000163183059783},
+            "Z_A": {"errors": 105, "p": 0.00105, "sem": 0.000102415697039},
+            "Z_B": {"errors": 92, "p": 0.00092, "sem": 9.58724986636e-05}
+          },
+          "any_wrong": 0.004,
+          "any_wrong_sem": 0.000199599599198,
+          "any_wrong_errors": 400,
+          "differs_from_separate_matching": 58,
+          "any_wrong_fixed": 15,
+          "any_wrong_broken": 43,
+          "decode_ns_per_shot": 5084.28171
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 164, "p": 0.00164, "sem": 0.000127957430421},
+            "Z_A": {"errors": 59, "p": 0.00059, "sem": 7.67887947555e-05},
+            "Z_B": {"errors": 49, "p": 0.00049, "sem": 6.99828478986e-05}
+          },
+          "any_wrong": 0.0024,
+          "any_wrong_sem": 0.000154733318972,
+          "any_wrong_errors": 240,
+          "differs_from_separate_matching": 219,
+          "any_wrong_fixed": 175,
+          "any_wrong_broken": 43,
+          "decode_ns_per_shot": 44835.22571
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "zz",
+      "inputs": "00",
+      "d": 5,
+      "strip": 5,
+      "decoded_basis": "Z",
+      "seed": 3505,
+      "qubits": 149,
+      "data_qubits": 75,
+      "couplers": 260,
+      "rounds": 7,
+      "duration_ns": 5436.51151457,
+      "detectors": 264,
+      "fault_mechanisms": 1061855,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0321009469697,
+      "mean_defects": 8.47465,
+      "max_defects": 30,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 348, "p": 0.00348, "sem": 0.000186222705383},
+            "Z_A": {"errors": 87, "p": 0.00087, "sem": 9.32332076033e-05},
+            "Z_B": {"errors": 77, "p": 0.00077, "sem": 8.77158537552e-05}
+          },
+          "any_wrong": 0.00449,
+          "any_wrong_sem": 0.00021141995885,
+          "any_wrong_errors": 449,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 20286.39281
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 348, "p": 0.00348, "sem": 0.000186222705383},
+            "Z_A": {"errors": 87, "p": 0.00087, "sem": 9.32332076033e-05},
+            "Z_B": {"errors": 77, "p": 0.00077, "sem": 8.77158537552e-05}
+          },
+          "any_wrong": 0.00449,
+          "any_wrong_sem": 0.00021141995885,
+          "any_wrong_errors": 449,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 6125.03591
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 360, "p": 0.0036, "sem": 0.000189394825695},
+            "Z_A": {"errors": 90, "p": 0.0009, "sem": 9.48256294469e-05},
+            "Z_B": {"errors": 82, "p": 0.00082, "sem": 9.05167166881e-05}
+          },
+          "any_wrong": 0.00464,
+          "any_wrong_sem": 0.00021490626794,
+          "any_wrong_errors": 464,
+          "differs_from_separate_matching": 73,
+          "any_wrong_fixed": 29,
+          "any_wrong_broken": 44,
+          "decode_ns_per_shot": 22498.81378
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 360, "p": 0.0036, "sem": 0.000189394825695},
+            "Z_A": {"errors": 90, "p": 0.0009, "sem": 9.48256294469e-05},
+            "Z_B": {"errors": 82, "p": 0.00082, "sem": 9.05167166881e-05}
+          },
+          "any_wrong": 0.00464,
+          "any_wrong_sem": 0.00021490626794,
+          "any_wrong_errors": 464,
+          "differs_from_separate_matching": 73,
+          "any_wrong_fixed": 29,
+          "any_wrong_broken": 44,
+          "decode_ns_per_shot": 6512.53682
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 235, "p": 0.00235, "sem": 0.000153116867131},
+            "Z_A": {"errors": 62, "p": 0.00062, "sem": 7.87156655311e-05},
+            "Z_B": {"errors": 51, "p": 0.00051, "sem": 7.13960713205e-05}
+          },
+          "any_wrong": 0.00313,
+          "any_wrong_sem": 0.00017664096637,
+          "any_wrong_errors": 313,
+          "differs_from_separate_matching": 247,
+          "any_wrong_fixed": 191,
+          "any_wrong_broken": 55,
+          "decode_ns_per_shot": 58236.18884
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "zz",
+      "inputs": "00",
+      "d": 5,
+      "strip": 7,
+      "decoded_basis": "Z",
+      "seed": 3507,
+      "qubits": 169,
+      "data_qubits": 85,
+      "couplers": 296,
+      "rounds": 7,
+      "duration_ns": 5436.51151457,
+      "detectors": 288,
+      "fault_mechanisms": 1293295,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0324980208333,
+      "mean_defects": 9.35943,
+      "max_defects": 32,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_ZZ": {"errors": 452, "p": 0.00452, "sem": 0.000212121889488},
+            "Z_A": {"errors": 76, "p": 0.00076, "sem": 8.71448449422e-05},
+            "Z_B": {"errors": 92, "p": 0.00092, "sem": 9.58724986636e-05}
+          },
+          "any_wrong": 0.00547,
+          "any_wrong_sem": 0.00023323977148,
+          "any_wrong_errors": 547,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 24192.8401
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 452, "p": 0.00452, "sem": 0.000212121889488},
+            "Z_A": {"errors": 76, "p": 0.00076, "sem": 8.71448449422e-05},
+            "Z_B": {"errors": 92, "p": 0.00092, "sem": 9.58724986636e-05}
+          },
+          "any_wrong": 0.00547,
+          "any_wrong_sem": 0.00023323977148,
+          "any_wrong_errors": 547,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 7159.15852
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_ZZ": {"errors": 459, "p": 0.00459, "sem": 0.000213750599999},
+            "Z_A": {"errors": 85, "p": 0.00085, "sem": 9.2156253179e-05},
+            "Z_B": {"errors": 101, "p": 0.00101, "sem": 0.000100447991518}
+          },
+          "any_wrong": 0.0057,
+          "any_wrong_sem": 0.000238065327169,
+          "any_wrong_errors": 570,
+          "differs_from_separate_matching": 88,
+          "any_wrong_fixed": 32,
+          "any_wrong_broken": 55,
+          "decode_ns_per_shot": 25881.01091
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_ZZ": {"errors": 459, "p": 0.00459, "sem": 0.000213750599999},
+            "Z_A": {"errors": 85, "p": 0.00085, "sem": 9.2156253179e-05},
+            "Z_B": {"errors": 101, "p": 0.00101, "sem": 0.000100447991518}
+          },
+          "any_wrong": 0.0057,
+          "any_wrong_sem": 0.000238065327169,
+          "any_wrong_errors": 570,
+          "differs_from_separate_matching": 88,
+          "any_wrong_fixed": 32,
+          "any_wrong_broken": 55,
+          "decode_ns_per_shot": 7408.97004
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_ZZ": {"errors": 291, "p": 0.00291, "sem": 0.000170338835854},
+            "Z_A": {"errors": 41, "p": 0.00041, "sem": 6.40181146239e-05},
+            "Z_B": {"errors": 53, "p": 0.00053, "sem": 7.27818040447e-05}
+          },
+          "any_wrong": 0.00351,
+          "any_wrong_sem": 0.000187020851779,
+          "any_wrong_errors": 351,
+          "differs_from_separate_matching": 328,
+          "any_wrong_fixed": 262,
+          "any_wrong_broken": 66,
+          "decode_ns_per_shot": 72409.1097
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "xx",
+      "inputs": "++",
+      "d": 5,
+      "strip": 1,
+      "decoded_basis": "X",
+      "seed": 1515,
+      "qubits": 109,
+      "data_qubits": 55,
+      "couplers": 188,
+      "rounds": 7,
+      "duration_ns": 5389.991861,
+      "detectors": 216,
+      "fault_mechanisms": 685587,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0311467592593,
+      "mean_defects": 6.7277,
+      "max_defects": 26,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 156, "p": 0.00156, "sem": 0.000124802499975},
+            "X_A": {"errors": 81, "p": 0.00081, "sem": 8.99635426159e-05},
+            "X_B": {"errors": 93, "p": 0.00093, "sem": 9.6391654203e-05}
+          },
+          "any_wrong": 0.00269,
+          "any_wrong_sem": 0.000163791449716,
+          "any_wrong_errors": 269,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 12529.15672
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 156, "p": 0.00156, "sem": 0.000124802499975},
+            "X_A": {"errors": 81, "p": 0.00081, "sem": 8.99635426159e-05},
+            "X_B": {"errors": 93, "p": 0.00093, "sem": 9.6391654203e-05}
+          },
+          "any_wrong": 0.00269,
+          "any_wrong_sem": 0.000163791449716,
+          "any_wrong_errors": 269,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 4212.37127
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 173, "p": 0.00173, "sem": 0.000131415642144},
+            "X_A": {"errors": 90, "p": 0.0009, "sem": 9.48256294469e-05},
+            "X_B": {"errors": 102, "p": 0.00102, "sem": 0.000100943528767}
+          },
+          "any_wrong": 0.00294,
+          "any_wrong_sem": 0.000171212043969,
+          "any_wrong_errors": 294,
+          "differs_from_separate_matching": 43,
+          "any_wrong_fixed": 9,
+          "any_wrong_broken": 34,
+          "decode_ns_per_shot": 16092.37457
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 173, "p": 0.00173, "sem": 0.000131415642144},
+            "X_A": {"errors": 90, "p": 0.0009, "sem": 9.48256294469e-05},
+            "X_B": {"errors": 102, "p": 0.00102, "sem": 0.000100943528767}
+          },
+          "any_wrong": 0.00294,
+          "any_wrong_sem": 0.000171212043969,
+          "any_wrong_errors": 294,
+          "differs_from_separate_matching": 43,
+          "any_wrong_fixed": 9,
+          "any_wrong_broken": 34,
+          "decode_ns_per_shot": 4334.54757
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 95, "p": 0.00095, "sem": 9.74216351741e-05},
+            "X_A": {"errors": 50, "p": 0.0005, "sem": 7.06929982389e-05},
+            "X_B": {"errors": 63, "p": 0.00063, "sem": 7.93475330429e-05}
+          },
+          "any_wrong": 0.00173,
+          "any_wrong_sem": 0.000131415642144,
+          "any_wrong_errors": 173,
+          "differs_from_separate_matching": 177,
+          "any_wrong_fixed": 136,
+          "any_wrong_broken": 40,
+          "decode_ns_per_shot": 35428.70966
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "xx",
+      "inputs": "++",
+      "d": 5,
+      "strip": 3,
+      "decoded_basis": "X",
+      "seed": 3513,
+      "qubits": 129,
+      "data_qubits": 65,
+      "couplers": 224,
+      "rounds": 7,
+      "duration_ns": 5395.24135357,
+      "detectors": 240,
+      "fault_mechanisms": 848520,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0315915833333,
+      "mean_defects": 7.58198,
+      "max_defects": 28,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 249, "p": 0.00249, "sem": 0.000157600758247},
+            "X_A": {"errors": 98, "p": 0.00098, "sem": 9.89464299508e-05},
+            "X_B": {"errors": 76, "p": 0.00076, "sem": 8.71448449422e-05}
+          },
+          "any_wrong": 0.00349,
+          "any_wrong_sem": 0.000186489139094,
+          "any_wrong_errors": 349,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 15033.59763
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 249, "p": 0.00249, "sem": 0.000157600758247},
+            "X_A": {"errors": 98, "p": 0.00098, "sem": 9.89464299508e-05},
+            "X_B": {"errors": 76, "p": 0.00076, "sem": 8.71448449422e-05}
+          },
+          "any_wrong": 0.00349,
+          "any_wrong_sem": 0.000186489139094,
+          "any_wrong_errors": 349,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 4878.89743
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 268, "p": 0.00268, "sem": 0.00016348754081},
+            "X_A": {"errors": 106, "p": 0.00106, "sem": 0.000102901720102},
+            "X_B": {"errors": 86, "p": 0.00086, "sem": 9.26962998183e-05}
+          },
+          "any_wrong": 0.00382,
+          "any_wrong_sem": 0.0001950745396,
+          "any_wrong_errors": 382,
+          "differs_from_separate_matching": 59,
+          "any_wrong_fixed": 12,
+          "any_wrong_broken": 45,
+          "decode_ns_per_shot": 18620.91934
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 268, "p": 0.00268, "sem": 0.00016348754081},
+            "X_A": {"errors": 106, "p": 0.00106, "sem": 0.000102901720102},
+            "X_B": {"errors": 86, "p": 0.00086, "sem": 9.26962998183e-05}
+          },
+          "any_wrong": 0.00382,
+          "any_wrong_sem": 0.0001950745396,
+          "any_wrong_errors": 382,
+          "differs_from_separate_matching": 59,
+          "any_wrong_fixed": 12,
+          "any_wrong_broken": 45,
+          "decode_ns_per_shot": 5136.96164
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 153, "p": 0.00153, "sem": 0.000123598507273},
+            "X_A": {"errors": 65, "p": 0.00065, "sem": 8.0596370886e-05},
+            "X_B": {"errors": 48, "p": 0.00048, "sem": 6.92654026192e-05}
+          },
+          "any_wrong": 0.00227,
+          "any_wrong_sem": 0.000150494089585,
+          "any_wrong_errors": 227,
+          "differs_from_separate_matching": 209,
+          "any_wrong_fixed": 165,
+          "any_wrong_broken": 43,
+          "decode_ns_per_shot": 44530.91926
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "xx",
+      "inputs": "++",
+      "d": 5,
+      "strip": 5,
+      "decoded_basis": "X",
+      "seed": 3515,
+      "qubits": 149,
+      "data_qubits": 75,
+      "couplers": 260,
+      "rounds": 7,
+      "duration_ns": 5398.38258838,
+      "detectors": 264,
+      "fault_mechanisms": 1034374,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0321051893939,
+      "mean_defects": 8.47577,
+      "max_defects": 29,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 386, "p": 0.00386, "sem": 0.000196089275586},
+            "X_A": {"errors": 90, "p": 0.0009, "sem": 9.48256294469e-05},
+            "X_B": {"errors": 81, "p": 0.00081, "sem": 8.99635426159e-05}
+          },
+          "any_wrong": 0.00482,
+          "any_wrong_sem": 0.000219015241479,
+          "any_wrong_errors": 482,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 17876.46303
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 386, "p": 0.00386, "sem": 0.000196089275586},
+            "X_A": {"errors": 90, "p": 0.0009, "sem": 9.48256294469e-05},
+            "X_B": {"errors": 81, "p": 0.00081, "sem": 8.99635426159e-05}
+          },
+          "any_wrong": 0.00482,
+          "any_wrong_sem": 0.000219015241479,
+          "any_wrong_errors": 482,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 5556.24921
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 403, "p": 0.00403, "sem": 0.000200343682206},
+            "X_A": {"errors": 88, "p": 0.00088, "sem": 9.37670304531e-05},
+            "X_B": {"errors": 91, "p": 0.00091, "sem": 9.53505060291e-05}
+          },
+          "any_wrong": 0.00505,
+          "any_wrong_sem": 0.000224153909178,
+          "any_wrong_errors": 505,
+          "differs_from_separate_matching": 84,
+          "any_wrong_fixed": 30,
+          "any_wrong_broken": 53,
+          "decode_ns_per_shot": 20982.24576
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 403, "p": 0.00403, "sem": 0.000200343682206},
+            "X_A": {"errors": 88, "p": 0.00088, "sem": 9.37670304531e-05},
+            "X_B": {"errors": 91, "p": 0.00091, "sem": 9.53505060291e-05}
+          },
+          "any_wrong": 0.00505,
+          "any_wrong_sem": 0.000224153909178,
+          "any_wrong_errors": 505,
+          "differs_from_separate_matching": 84,
+          "any_wrong_fixed": 30,
+          "any_wrong_broken": 53,
+          "decode_ns_per_shot": 5781.00304
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 263, "p": 0.00263, "sem": 0.000161959349838},
+            "X_A": {"errors": 53, "p": 0.00053, "sem": 7.27818040447e-05},
+            "X_B": {"errors": 56, "p": 0.00056, "sem": 7.48121915198e-05}
+          },
+          "any_wrong": 0.0033,
+          "any_wrong_sem": 0.000181359036169,
+          "any_wrong_errors": 330,
+          "differs_from_separate_matching": 265,
+          "any_wrong_fixed": 208,
+          "any_wrong_broken": 56,
+          "decode_ns_per_shot": 53220.52844
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "xx",
+      "inputs": "++",
+      "d": 5,
+      "strip": 7,
+      "decoded_basis": "X",
+      "seed": 3517,
+      "qubits": 169,
+      "data_qubits": 85,
+      "couplers": 296,
+      "rounds": 7,
+      "duration_ns": 5398.38258838,
+      "detectors": 288,
+      "fault_mechanisms": 1273262,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0324764930556,
+      "mean_defects": 9.35323,
+      "max_defects": 32,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "m_XX": {"errors": 487, "p": 0.00487, "sem": 0.000220142751414},
+            "X_A": {"errors": 109, "p": 0.00109, "sem": 0.000104346149905},
+            "X_B": {"errors": 92, "p": 0.00092, "sem": 9.58724986636e-05}
+          },
+          "any_wrong": 0.00606,
+          "any_wrong_sem": 0.000245423641893,
+          "any_wrong_errors": 606,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 21652.44282
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "m_XX": {"errors": 487, "p": 0.00487, "sem": 0.000220142751414},
+            "X_A": {"errors": 109, "p": 0.00109, "sem": 0.000104346149905},
+            "X_B": {"errors": 92, "p": 0.00092, "sem": 9.58724986636e-05}
+          },
+          "any_wrong": 0.00606,
+          "any_wrong_sem": 0.000245423641893,
+          "any_wrong_errors": 606,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 6413.53231
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "m_XX": {"errors": 521, "p": 0.00521, "sem": 0.000227658865411},
+            "X_A": {"errors": 117, "p": 0.00117, "sem": 0.00010810324232},
+            "X_B": {"errors": 96, "p": 0.00096, "sem": 9.79325482156e-05}
+          },
+          "any_wrong": 0.00649,
+          "any_wrong_sem": 0.000253926759126,
+          "any_wrong_errors": 649,
+          "differs_from_separate_matching": 111,
+          "any_wrong_fixed": 34,
+          "any_wrong_broken": 77,
+          "decode_ns_per_shot": 23519.55385
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "m_XX": {"errors": 521, "p": 0.00521, "sem": 0.000227658865411},
+            "X_A": {"errors": 117, "p": 0.00117, "sem": 0.00010810324232},
+            "X_B": {"errors": 96, "p": 0.00096, "sem": 9.79325482156e-05}
+          },
+          "any_wrong": 0.00649,
+          "any_wrong_sem": 0.000253926759126,
+          "any_wrong_errors": 649,
+          "differs_from_separate_matching": 111,
+          "any_wrong_fixed": 34,
+          "any_wrong_broken": 77,
+          "decode_ns_per_shot": 6869.14569
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "m_XX": {"errors": 362, "p": 0.00362, "sem": 0.000189918287692},
+            "X_A": {"errors": 64, "p": 0.00064, "sem": 7.99743959027e-05},
+            "X_B": {"errors": 50, "p": 0.0005, "sem": 7.06929982389e-05}
+          },
+          "any_wrong": 0.0043,
+          "any_wrong_sem": 0.00020691809974,
+          "any_wrong_errors": 430,
+          "differs_from_separate_matching": 337,
+          "any_wrong_fixed": 256,
+          "any_wrong_broken": 80,
+          "decode_ns_per_shot": 66261.09845
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "00",
+      "d": 5,
+      "strip": 1,
+      "decoded_basis": "Z",
+      "seed": 1525,
+      "qubits": 169,
+      "data_qubits": 85,
+      "couplers": 296,
+      "rounds": 12,
+      "duration_ns": 9062.45286529,
+      "detectors": 480,
+      "fault_mechanisms": 2777578,
+      "hyperedge_faults": 8,
+      "hyperedge_p": 2.44126055982e-06,
+      "detection_rate": 0.0325077708333,
+      "mean_defects": 15.60373,
+      "max_defects": 48,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 159, "p": 0.00159, "sem": 0.000125994916564},
+            "Z_T": {"errors": 579, "p": 0.00579, "sem": 0.000239926570017}
+          },
+          "any_wrong": 0.00708,
+          "any_wrong_sem": 0.000265139088027,
+          "any_wrong_errors": 708,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 38429.39746
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 159, "p": 0.00159, "sem": 0.000125994916564},
+            "Z_T": {"errors": 579, "p": 0.00579, "sem": 0.000239926570017}
+          },
+          "any_wrong": 0.00708,
+          "any_wrong_sem": 0.000265139088027,
+          "any_wrong_errors": 708,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 15166.57515
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 172, "p": 0.00172, "sem": 0.000131035934003},
+            "Z_T": {"errors": 613, "p": 0.00613, "sem": 0.000246828343186}
+          },
+          "any_wrong": 0.0075,
+          "any_wrong_sem": 0.000272832366115,
+          "any_wrong_errors": 750,
+          "differs_from_separate_matching": 125,
+          "any_wrong_fixed": 39,
+          "any_wrong_broken": 81,
+          "decode_ns_per_shot": 30337.47688
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 172, "p": 0.00172, "sem": 0.000131035934003},
+            "Z_T": {"errors": 613, "p": 0.00613, "sem": 0.000246828343186}
+          },
+          "any_wrong": 0.0075,
+          "any_wrong_sem": 0.000272832366115,
+          "any_wrong_errors": 750,
+          "differs_from_separate_matching": 125,
+          "any_wrong_fixed": 39,
+          "any_wrong_broken": 81,
+          "decode_ns_per_shot": 12630.89184
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 111, "p": 0.00111, "sem": 0.000105298048415},
+            "Z_T": {"errors": 328, "p": 0.00328, "sem": 0.000180810442176}
+          },
+          "any_wrong": 0.00422,
+          "any_wrong_sem": 0.000204992477911,
+          "any_wrong_errors": 422,
+          "differs_from_separate_matching": 497,
+          "any_wrong_fixed": 389,
+          "any_wrong_broken": 103,
+          "decode_ns_per_shot": 184336.96744
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "00",
+      "d": 5,
+      "strip": 3,
+      "decoded_basis": "Z",
+      "seed": 3523,
+      "qubits": 209,
+      "data_qubits": 105,
+      "couplers": 368,
+      "rounds": 12,
+      "duration_ns": 9094.77413507,
+      "detectors": 528,
+      "fault_mechanisms": 3650823,
+      "hyperedge_faults": 13,
+      "hyperedge_p": 4.29298246156e-06,
+      "detection_rate": 0.0335604545455,
+      "mean_defects": 17.71992,
+      "max_defects": 56,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 145, "p": 0.00145, "sem": 0.000120328612557},
+            "Z_T": {"errors": 915, "p": 0.00915, "sem": 0.000301102598793}
+          },
+          "any_wrong": 0.01032,
+          "any_wrong_sem": 0.000319585631717,
+          "any_wrong_errors": 1032,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 50800.74546
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 145, "p": 0.00145, "sem": 0.000120328612557},
+            "Z_T": {"errors": 915, "p": 0.00915, "sem": 0.000301102598793}
+          },
+          "any_wrong": 0.01032,
+          "any_wrong_sem": 0.000319585631717,
+          "any_wrong_errors": 1032,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 20550.33652
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 161, "p": 0.00161, "sem": 0.00012678359121},
+            "Z_T": {"errors": 1020, "p": 0.0102, "sem": 0.00031774140429}
+          },
+          "any_wrong": 0.0115,
+          "any_wrong_sem": 0.000337160940798,
+          "any_wrong_errors": 1150,
+          "differs_from_separate_matching": 228,
+          "any_wrong_fixed": 55,
+          "any_wrong_broken": 173,
+          "decode_ns_per_shot": 37770.07836
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 161, "p": 0.00161, "sem": 0.00012678359121},
+            "Z_T": {"errors": 1020, "p": 0.0102, "sem": 0.00031774140429}
+          },
+          "any_wrong": 0.0115,
+          "any_wrong_sem": 0.000337160940798,
+          "any_wrong_errors": 1150,
+          "differs_from_separate_matching": 228,
+          "any_wrong_fixed": 55,
+          "any_wrong_broken": 173,
+          "decode_ns_per_shot": 15546.22794
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 85, "p": 0.00085, "sem": 9.2156253179e-05},
+            "Z_T": {"errors": 585, "p": 0.00585, "sem": 0.000241159231629}
+          },
+          "any_wrong": 0.00657,
+          "any_wrong_sem": 0.000255476713225,
+          "any_wrong_errors": 657,
+          "differs_from_separate_matching": 691,
+          "any_wrong_fixed": 533,
+          "any_wrong_broken": 158,
+          "decode_ns_per_shot": 256758.324
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "00",
+      "d": 5,
+      "strip": 5,
+      "decoded_basis": "Z",
+      "seed": 3525,
+      "qubits": 249,
+      "data_qubits": 125,
+      "couplers": 440,
+      "rounds": 12,
+      "duration_ns": 9134.82628463,
+      "detectors": 576,
+      "fault_mechanisms": 4599335,
+      "hyperedge_faults": 13,
+      "hyperedge_p": 4.29298246156e-06,
+      "detection_rate": 0.03447875,
+      "mean_defects": 19.85976,
+      "max_defects": 49,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 153, "p": 0.00153, "sem": 0.000123598507273},
+            "Z_T": {"errors": 1322, "p": 0.01322, "sem": 0.000361181832323}
+          },
+          "any_wrong": 0.0144,
+          "any_wrong_sem": 0.000376731203911,
+          "any_wrong_errors": 1440,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 62804.99936
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 153, "p": 0.00153, "sem": 0.000123598507273},
+            "Z_T": {"errors": 1322, "p": 0.01322, "sem": 0.000361181832323}
+          },
+          "any_wrong": 0.0144,
+          "any_wrong_sem": 0.000376731203911,
+          "any_wrong_errors": 1440,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 25803.67538
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 165, "p": 0.00165, "sem": 0.000128346308868},
+            "Z_T": {"errors": 1437, "p": 0.01437, "sem": 0.000376344298482}
+          },
+          "any_wrong": 0.01562,
+          "any_wrong_sem": 0.000392122628778,
+          "any_wrong_errors": 1562,
+          "differs_from_separate_matching": 315,
+          "any_wrong_fixed": 96,
+          "any_wrong_broken": 218,
+          "decode_ns_per_shot": 44938.12357
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 165, "p": 0.00165, "sem": 0.000128346308868},
+            "Z_T": {"errors": 1437, "p": 0.01437, "sem": 0.000376344298482}
+          },
+          "any_wrong": 0.01562,
+          "any_wrong_sem": 0.000392122628778,
+          "any_wrong_errors": 1562,
+          "differs_from_separate_matching": 315,
+          "any_wrong_fixed": 96,
+          "any_wrong_broken": 218,
+          "decode_ns_per_shot": 19977.73468
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 93, "p": 0.00093, "sem": 9.6391654203e-05},
+            "Z_T": {"errors": 819, "p": 0.00819, "sem": 0.000285007436745}
+          },
+          "any_wrong": 0.00894,
+          "any_wrong_sem": 0.000297658804674,
+          "any_wrong_errors": 894,
+          "differs_from_separate_matching": 1006,
+          "any_wrong_fixed": 775,
+          "any_wrong_broken": 229,
+          "decode_ns_per_shot": 329566.1592
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "00",
+      "d": 5,
+      "strip": 7,
+      "decoded_basis": "Z",
+      "seed": 3527,
+      "qubits": 289,
+      "data_qubits": 145,
+      "couplers": 512,
+      "rounds": 12,
+      "duration_ns": 9173.4643351,
+      "detectors": 624,
+      "fault_mechanisms": 5553221,
+      "hyperedge_faults": 13,
+      "hyperedge_p": 4.29298246156e-06,
+      "detection_rate": 0.0352715224359,
+      "mean_defects": 22.00943,
+      "max_defects": 52,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "Z_C": {"errors": 158, "p": 0.00158, "sem": 0.000125598710184},
+            "Z_T": {"errors": 1693, "p": 0.01693, "sem": 0.000407962928463}
+          },
+          "any_wrong": 0.01824,
+          "any_wrong_sem": 0.000423170206891,
+          "any_wrong_errors": 1824,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 75966.26164
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "Z_C": {"errors": 158, "p": 0.00158, "sem": 0.000125598710184},
+            "Z_T": {"errors": 1693, "p": 0.01693, "sem": 0.000407962928463}
+          },
+          "any_wrong": 0.01824,
+          "any_wrong_sem": 0.000423170206891,
+          "any_wrong_errors": 1824,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 31985.75715
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "Z_C": {"errors": 159, "p": 0.00159, "sem": 0.000125994916564},
+            "Z_T": {"errors": 1861, "p": 0.01861, "sem": 0.000427360127995}
+          },
+          "any_wrong": 0.01991,
+          "any_wrong_sem": 0.00044174191447,
+          "any_wrong_errors": 1991,
+          "differs_from_separate_matching": 373,
+          "any_wrong_fixed": 103,
+          "any_wrong_broken": 270,
+          "decode_ns_per_shot": 51178.17147
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "Z_C": {"errors": 159, "p": 0.00159, "sem": 0.000125994916564},
+            "Z_T": {"errors": 1861, "p": 0.01861, "sem": 0.000427360127995}
+          },
+          "any_wrong": 0.01991,
+          "any_wrong_sem": 0.00044174191447,
+          "any_wrong_errors": 1991,
+          "differs_from_separate_matching": 373,
+          "any_wrong_fixed": 103,
+          "any_wrong_broken": 270,
+          "decode_ns_per_shot": 22370.62867
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "Z_C": {"errors": 98, "p": 0.00098, "sem": 9.89464299508e-05},
+            "Z_T": {"errors": 1026, "p": 0.01026, "sem": 0.000318664908642}
+          },
+          "any_wrong": 0.01106,
+          "any_wrong_sem": 0.00033072158079,
+          "any_wrong_errors": 1106,
+          "differs_from_separate_matching": 1330,
+          "any_wrong_fixed": 1023,
+          "any_wrong_broken": 305,
+          "decode_ns_per_shot": 415055.38809
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "++",
+      "d": 5,
+      "strip": 1,
+      "decoded_basis": "X",
+      "seed": 1535,
+      "qubits": 169,
+      "data_qubits": 85,
+      "couplers": 296,
+      "rounds": 12,
+      "duration_ns": 9062.45286529,
+      "detectors": 480,
+      "fault_mechanisms": 2778608,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0319861875,
+      "mean_defects": 15.35337,
+      "max_defects": 46,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 652, "p": 0.00652, "sem": 0.000254509127538},
+            "X_T": {"errors": 153, "p": 0.00153, "sem": 0.000123598507273}
+          },
+          "any_wrong": 0.00697,
+          "any_wrong_sem": 0.00026308590042,
+          "any_wrong_errors": 697,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 46775.66796
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 652, "p": 0.00652, "sem": 0.000254509127538},
+            "X_T": {"errors": 153, "p": 0.00153, "sem": 0.000123598507273}
+          },
+          "any_wrong": 0.00697,
+          "any_wrong_sem": 0.00026308590042,
+          "any_wrong_errors": 697,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 18070.42492
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 690, "p": 0.0069, "sem": 0.000261770701187},
+            "X_T": {"errors": 166, "p": 0.00166, "sem": 0.000128734004832}
+          },
+          "any_wrong": 0.00739,
+          "any_wrong_sem": 0.000270839212449,
+          "any_wrong_errors": 739,
+          "differs_from_separate_matching": 116,
+          "any_wrong_fixed": 37,
+          "any_wrong_broken": 79,
+          "decode_ns_per_shot": 37837.7722
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 690, "p": 0.0069, "sem": 0.000261770701187},
+            "X_T": {"errors": 166, "p": 0.00166, "sem": 0.000128734004832}
+          },
+          "any_wrong": 0.00739,
+          "any_wrong_sem": 0.000270839212449,
+          "any_wrong_errors": 739,
+          "differs_from_separate_matching": 116,
+          "any_wrong_fixed": 37,
+          "any_wrong_broken": 79,
+          "decode_ns_per_shot": 16936.68371
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 357, "p": 0.00357, "sem": 0.00018860686891},
+            "X_T": {"errors": 86, "p": 0.00086, "sem": 9.26962998183e-05}
+          },
+          "any_wrong": 0.00387,
+          "any_wrong_sem": 0.00019634212742,
+          "any_wrong_errors": 387,
+          "differs_from_separate_matching": 517,
+          "any_wrong_fixed": 412,
+          "any_wrong_broken": 102,
+          "decode_ns_per_shot": 224386.40802
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "++",
+      "d": 5,
+      "strip": 3,
+      "decoded_basis": "X",
+      "seed": 3533,
+      "qubits": 209,
+      "data_qubits": 105,
+      "couplers": 368,
+      "rounds": 12,
+      "duration_ns": 9094.77413507,
+      "detectors": 528,
+      "fault_mechanisms": 3652067,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0329317045455,
+      "mean_defects": 17.38794,
+      "max_defects": 52,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 881, "p": 0.00881, "sem": 0.000295506072696},
+            "X_T": {"errors": 146, "p": 0.00146, "sem": 0.000120742221282}
+          },
+          "any_wrong": 0.00928,
+          "any_wrong_sem": 0.00030321414215,
+          "any_wrong_errors": 928,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 47406.21763
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 881, "p": 0.00881, "sem": 0.000295506072696},
+            "X_T": {"errors": 146, "p": 0.00146, "sem": 0.000120742221282}
+          },
+          "any_wrong": 0.00928,
+          "any_wrong_sem": 0.00030321414215,
+          "any_wrong_errors": 928,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 18647.60919
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 938, "p": 0.00938, "sem": 0.000304828076135},
+            "X_T": {"errors": 161, "p": 0.00161, "sem": 0.00012678359121}
+          },
+          "any_wrong": 0.00989,
+          "any_wrong_sem": 0.000312924717784,
+          "any_wrong_errors": 989,
+          "differs_from_separate_matching": 155,
+          "any_wrong_fixed": 47,
+          "any_wrong_broken": 108,
+          "decode_ns_per_shot": 36576.95175
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 938, "p": 0.00938, "sem": 0.000304828076135},
+            "X_T": {"errors": 161, "p": 0.00161, "sem": 0.00012678359121}
+          },
+          "any_wrong": 0.00989,
+          "any_wrong_sem": 0.000312924717784,
+          "any_wrong_errors": 989,
+          "differs_from_separate_matching": 155,
+          "any_wrong_fixed": 47,
+          "any_wrong_broken": 108,
+          "decode_ns_per_shot": 16487.09925
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 527, "p": 0.00527, "sem": 0.000228959103335},
+            "X_T": {"errors": 85, "p": 0.00085, "sem": 9.2156253179e-05}
+          },
+          "any_wrong": 0.00557,
+          "any_wrong_sem": 0.000235350272998,
+          "any_wrong_errors": 557,
+          "differs_from_separate_matching": 628,
+          "any_wrong_fixed": 498,
+          "any_wrong_broken": 127,
+          "decode_ns_per_shot": 239726.9644
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "++",
+      "d": 5,
+      "strip": 5,
+      "decoded_basis": "X",
+      "seed": 3535,
+      "qubits": 249,
+      "data_qubits": 125,
+      "couplers": 440,
+      "rounds": 12,
+      "duration_ns": 9134.82628463,
+      "detectors": 576,
+      "fault_mechanisms": 4600817,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0339909027778,
+      "mean_defects": 19.57876,
+      "max_defects": 49,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 1201, "p": 0.01201, "sem": 0.00034446712325},
+            "X_T": {"errors": 161, "p": 0.00161, "sem": 0.00012678359121}
+          },
+          "any_wrong": 0.0125,
+          "any_wrong_sem": 0.000351336733064,
+          "any_wrong_errors": 1250,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 61239.26088
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 1201, "p": 0.01201, "sem": 0.00034446712325},
+            "X_T": {"errors": 161, "p": 0.00161, "sem": 0.00012678359121}
+          },
+          "any_wrong": 0.0125,
+          "any_wrong_sem": 0.000351336733064,
+          "any_wrong_errors": 1250,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 24854.76687
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 1257, "p": 0.01257, "sem": 0.000352306615039},
+            "X_T": {"errors": 170, "p": 0.0017, "sem": 0.000130273174522}
+          },
+          "any_wrong": 0.01308,
+          "any_wrong_sem": 0.000359289766066,
+          "any_wrong_errors": 1308,
+          "differs_from_separate_matching": 210,
+          "any_wrong_fixed": 75,
+          "any_wrong_broken": 133,
+          "decode_ns_per_shot": 44834.97318
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 1257, "p": 0.01257, "sem": 0.000352306615039},
+            "X_T": {"errors": 170, "p": 0.0017, "sem": 0.000130273174522}
+          },
+          "any_wrong": 0.01308,
+          "any_wrong_sem": 0.000359289766066,
+          "any_wrong_errors": 1308,
+          "differs_from_separate_matching": 210,
+          "any_wrong_fixed": 75,
+          "any_wrong_broken": 133,
+          "decode_ns_per_shot": 19608.06702
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 762, "p": 0.00762, "sem": 0.00027498973799},
+            "X_T": {"errors": 88, "p": 0.00088, "sem": 9.37670304531e-05}
+          },
+          "any_wrong": 0.00793,
+          "any_wrong_sem": 0.00028048378028,
+          "any_wrong_errors": 793,
+          "differs_from_separate_matching": 788,
+          "any_wrong_fixed": 621,
+          "any_wrong_broken": 164,
+          "decode_ns_per_shot": 323763.45737
+        }
+      ]
+    },
+    {
+      "chip": "beta1",
+      "op": "cnot",
+      "inputs": "++",
+      "d": 5,
+      "strip": 7,
+      "decoded_basis": "X",
+      "seed": 3537,
+      "qubits": 289,
+      "data_qubits": 145,
+      "couplers": 512,
+      "rounds": 12,
+      "duration_ns": 9173.4643351,
+      "detectors": 624,
+      "fault_mechanisms": 5557562,
+      "hyperedge_faults": 0,
+      "hyperedge_p": 0,
+      "detection_rate": 0.0349171634615,
+      "mean_defects": 21.78831,
+      "max_defects": 50,
+      "decoders": [
+        {
+          "decoder": "separate matching",
+          "observables": {
+            "X_C": {"errors": 1483, "p": 0.01483, "sem": 0.000382231227139},
+            "X_T": {"errors": 158, "p": 0.00158, "sem": 0.000125598710184}
+          },
+          "any_wrong": 0.01531,
+          "any_wrong_sem": 0.000388273149986,
+          "any_wrong_errors": 1531,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 76400.02184
+        },
+        {
+          "decoder": "joint matching",
+          "observables": {
+            "X_C": {"errors": 1483, "p": 0.01483, "sem": 0.000382231227139},
+            "X_T": {"errors": 158, "p": 0.00158, "sem": 0.000125598710184}
+          },
+          "any_wrong": 0.01531,
+          "any_wrong_sem": 0.000388273149986,
+          "any_wrong_errors": 1531,
+          "differs_from_separate_matching": 0,
+          "any_wrong_fixed": 0,
+          "any_wrong_broken": 0,
+          "decode_ns_per_shot": 32211.64214
+        },
+        {
+          "decoder": "separate union-find",
+          "observables": {
+            "X_C": {"errors": 1566, "p": 0.01566, "sem": 0.000392616408215},
+            "X_T": {"errors": 174, "p": 0.00174, "sem": 0.000131794248736}
+          },
+          "any_wrong": 0.0162,
+          "any_wrong_sem": 0.000399218737035,
+          "any_wrong_errors": 1620,
+          "differs_from_separate_matching": 262,
+          "any_wrong_fixed": 86,
+          "any_wrong_broken": 175,
+          "decode_ns_per_shot": 53447.63572
+        },
+        {
+          "decoder": "joint union-find",
+          "observables": {
+            "X_C": {"errors": 1566, "p": 0.01566, "sem": 0.000392616408215},
+            "X_T": {"errors": 174, "p": 0.00174, "sem": 0.000131794248736}
+          },
+          "any_wrong": 0.0162,
+          "any_wrong_sem": 0.000399218737035,
+          "any_wrong_errors": 1620,
+          "differs_from_separate_matching": 262,
+          "any_wrong_fixed": 86,
+          "any_wrong_broken": 175,
+          "decode_ns_per_shot": 23649.64558
+        },
+        {
+          "decoder": "correlated joint matching",
+          "observables": {
+            "X_C": {"errors": 942, "p": 0.00942, "sem": 0.000305471170489},
+            "X_T": {"errors": 96, "p": 0.00096, "sem": 9.79325482156e-05}
+          },
+          "any_wrong": 0.00979,
+          "any_wrong_sem": 0.000311354394541,
+          "any_wrong_errors": 979,
+          "differs_from_separate_matching": 1003,
+          "any_wrong_fixed": 775,
+          "any_wrong_broken": 223,
+          "decode_ns_per_shot": 415967.02496
+        }
+      ]
+    }
+  ],
+  "routing_noiseless_check": [
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 3,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 3,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 3,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 3,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 3,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 3,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 3,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 3,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 3,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 3,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 3,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 240,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 3,
+      "inputs": "10",
+      "readout": "",
+      "detectors": 240,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 3,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 240,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 3,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 240,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 3,
+      "inputs": "-+",
+      "readout": "",
+      "detectors": 240,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 3,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 240,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 3,
+      "inputs": "+0",
+      "readout": "Z",
+      "detectors": 240,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 3,
+      "inputs": "+0",
+      "readout": "X",
+      "detectors": 240,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 5,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 5,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 5,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 5,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 5,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 5,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 5,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 5,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 5,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 5,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 120,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 5,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 272,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 5,
+      "inputs": "10",
+      "readout": "",
+      "detectors": 272,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 5,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 272,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 5,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 272,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 5,
+      "inputs": "-+",
+      "readout": "",
+      "detectors": 272,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 5,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 272,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 5,
+      "inputs": "+0",
+      "readout": "Z",
+      "detectors": 272,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 5,
+      "inputs": "+0",
+      "readout": "X",
+      "detectors": 272,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 7,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 7,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 7,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 7,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 3,
+      "strip": 7,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 7,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 7,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 7,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 7,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 3,
+      "strip": 7,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 136,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 7,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 304,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 7,
+      "inputs": "10",
+      "readout": "",
+      "detectors": 304,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 7,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 304,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 7,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 304,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 7,
+      "inputs": "-+",
+      "readout": "",
+      "detectors": 304,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 7,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 304,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 7,
+      "inputs": "+0",
+      "readout": "Z",
+      "detectors": 304,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 3,
+      "strip": 7,
+      "inputs": "+0",
+      "readout": "X",
+      "detectors": 304,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 3,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 3,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 3,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 3,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 3,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 3,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 3,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 3,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 3,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 3,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 408,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 3,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 1008,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 3,
+      "inputs": "10",
+      "readout": "",
+      "detectors": 1008,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 3,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 1008,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 3,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 1008,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 3,
+      "inputs": "-+",
+      "readout": "",
+      "detectors": 1008,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 3,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 1008,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 3,
+      "inputs": "+0",
+      "readout": "Z",
+      "detectors": 1008,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 3,
+      "inputs": "+0",
+      "readout": "X",
+      "detectors": 1008,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 5,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 5,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 5,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 5,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 5,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 5,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 5,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 5,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 5,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 5,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 456,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 5,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 1104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 5,
+      "inputs": "10",
+      "readout": "",
+      "detectors": 1104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 5,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 1104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 5,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 1104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 5,
+      "inputs": "-+",
+      "readout": "",
+      "detectors": 1104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 5,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 1104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 5,
+      "inputs": "+0",
+      "readout": "Z",
+      "detectors": 1104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 5,
+      "inputs": "+0",
+      "readout": "X",
+      "detectors": 1104,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 7,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 7,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 7,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 7,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "zz",
+      "d": 5,
+      "strip": 7,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 7,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 7,
+      "inputs": "+-",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 7,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 7,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "xx",
+      "d": 5,
+      "strip": 7,
+      "inputs": "01",
+      "readout": "",
+      "detectors": 504,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 7,
+      "inputs": "00",
+      "readout": "",
+      "detectors": 1200,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 7,
+      "inputs": "10",
+      "readout": "",
+      "detectors": 1200,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 7,
+      "inputs": "11",
+      "readout": "",
+      "detectors": 1200,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 7,
+      "inputs": "++",
+      "readout": "",
+      "detectors": 1200,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 7,
+      "inputs": "-+",
+      "readout": "",
+      "detectors": 1200,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 7,
+      "inputs": "--",
+      "readout": "",
+      "detectors": 1200,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 7,
+      "inputs": "+0",
+      "readout": "Z",
+      "detectors": 1200,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    },
+    {
+      "op": "cnot",
+      "d": 5,
+      "strip": 7,
+      "inputs": "+0",
+      "readout": "X",
+      "detectors": 1200,
+      "firings": 0,
+      "wrong_observables": 0,
+      "wrong_reference_bits": 0,
+      "ok": true
+    }
+  ],
+  "routing_noiseless_check_failed": 0,
+  "chip_account": [
+    {
+      "lattice": "1 patch (Beta-1, for reference)",
+      "d": 5,
+      "strip": 0,
+      "qubits": 49,
+      "data": 25,
+      "measure": 24,
+      "couplers": 80,
+      "feedlines": 6,
+      "lines": 190,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "Gamma-1 (d = 7 memory, reference)",
+      "d": 5,
+      "strip": 0,
+      "qubits": 97,
+      "data": 49,
+      "measure": 48,
+      "couplers": 168,
+      "feedlines": 11,
+      "lines": 384,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "2 patches, ZZ (adjacent)",
+      "d": 5,
+      "strip": 1,
+      "qubits": 109,
+      "data": 55,
+      "measure": 54,
+      "couplers": 188,
+      "feedlines": 13,
+      "lines": 432,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "2 patches, ZZ, strip 3",
+      "d": 5,
+      "strip": 3,
+      "qubits": 129,
+      "data": 65,
+      "measure": 64,
+      "couplers": 224,
+      "feedlines": 15,
+      "lines": 512,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "2 patches, ZZ, strip 5",
+      "d": 5,
+      "strip": 5,
+      "qubits": 149,
+      "data": 75,
+      "measure": 74,
+      "couplers": 260,
+      "feedlines": 17,
+      "lines": 592,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "2 patches, ZZ, strip 7",
+      "d": 5,
+      "strip": 7,
+      "qubits": 169,
+      "data": 85,
+      "measure": 84,
+      "couplers": 296,
+      "feedlines": 19,
+      "lines": 672,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "2 patches, XX (adjacent)",
+      "d": 5,
+      "strip": 1,
+      "qubits": 109,
+      "data": 55,
+      "measure": 54,
+      "couplers": 188,
+      "feedlines": 13,
+      "lines": 432,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "2 patches, XX, strip 3",
+      "d": 5,
+      "strip": 3,
+      "qubits": 129,
+      "data": 65,
+      "measure": 64,
+      "couplers": 224,
+      "feedlines": 15,
+      "lines": 512,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "2 patches, XX, strip 5",
+      "d": 5,
+      "strip": 5,
+      "qubits": 149,
+      "data": 75,
+      "measure": 74,
+      "couplers": 260,
+      "feedlines": 17,
+      "lines": 592,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "2 patches, XX, strip 7",
+      "d": 5,
+      "strip": 7,
+      "qubits": 169,
+      "data": 85,
+      "measure": 84,
+      "couplers": 296,
+      "feedlines": 19,
+      "lines": 672,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "3 patches, CNOT (adjacent)",
+      "d": 5,
+      "strip": 1,
+      "qubits": 169,
+      "data": 85,
+      "measure": 84,
+      "couplers": 296,
+      "feedlines": 19,
+      "lines": 672,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "3 patches, CNOT, strips 3",
+      "d": 5,
+      "strip": 3,
+      "qubits": 209,
+      "data": 105,
+      "measure": 104,
+      "couplers": 368,
+      "feedlines": 24,
+      "lines": 834,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "3 patches, CNOT, strips 5",
+      "d": 5,
+      "strip": 5,
+      "qubits": 249,
+      "data": 125,
+      "measure": 124,
+      "couplers": 440,
+      "feedlines": 28,
+      "lines": 994,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    },
+    {
+      "lattice": "3 patches, CNOT, strips 7",
+      "d": 5,
+      "strip": 7,
+      "qubits": 289,
+      "data": 145,
+      "measure": 144,
+      "couplers": 512,
+      "feedlines": 33,
+      "lines": 1156,
+      "design_frequencies": 8,
+      "collisions": 0,
+      "cz_frequency_combinations": 16,
+      "max_abs_zz_kHz": 5
+    }
+  ],
+  "chip_account_fab_yield": [
+    {
+      "lattice": "2 patches, ZZ (adjacent)",
+      "d": 5,
+      "strip": 1,
+      "spread_pct": 0.5,
+      "samples": 100,
+      "collision_free": 99,
+      "f01_scatter_MHz": 14.3373799963
+    },
+    {
+      "lattice": "2 patches, ZZ (adjacent)",
+      "d": 5,
+      "strip": 1,
+      "spread_pct": 2,
+      "samples": 100,
+      "collision_free": 91,
+      "f01_scatter_MHz": 57.4337401352
+    },
+    {
+      "lattice": "2 patches, ZZ, strip 3",
+      "d": 5,
+      "strip": 3,
+      "spread_pct": 0.5,
+      "samples": 100,
+      "collision_free": 98,
+      "f01_scatter_MHz": 14.382440009
+    },
+    {
+      "lattice": "2 patches, ZZ, strip 3",
+      "d": 5,
+      "strip": 3,
+      "spread_pct": 2,
+      "samples": 100,
+      "collision_free": 86,
+      "f01_scatter_MHz": 57.6004031707
+    },
+    {
+      "lattice": "3 patches, CNOT (adjacent)",
+      "d": 5,
+      "strip": 1,
+      "spread_pct": 0.5,
+      "samples": 100,
+      "collision_free": 99,
+      "f01_scatter_MHz": 14.4411080877
+    },
+    {
+      "lattice": "3 patches, CNOT (adjacent)",
+      "d": 5,
+      "strip": 1,
+      "spread_pct": 2,
+      "samples": 100,
+      "collision_free": 82,
+      "f01_scatter_MHz": 57.8416301887
+    }
+  ],
+  "runtime_s": 4341.58957193
 }

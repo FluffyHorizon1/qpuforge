@@ -6,23 +6,6 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 find_package(OpenMP)
-
-# provenance for the review programs (examples/review_io.hpp): source commit at configure time
-find_package(Git QUIET)
-set(QPUFORGE_GIT_SHA "unknown")
-set(QPUFORGE_GIT_DIRTY 0)
-if(GIT_FOUND)
-  execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse HEAD WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                  OUTPUT_VARIABLE QPUFORGE_GIT_SHA OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE _git_rc)
-  if(NOT _git_rc EQUAL 0)
-    set(QPUFORGE_GIT_SHA "unknown")
-  endif()
-  execute_process(COMMAND ${GIT_EXECUTABLE} status --porcelain --untracked-files=no WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                  OUTPUT_VARIABLE _git_status OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-  if(NOT "${_git_status}" STREQUAL "")
-    set(QPUFORGE_GIT_DIRTY 1)
-  endif()
-endif()
 add_library(qpuforge INTERFACE)
 target_include_directories(qpuforge INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(OpenMP_CXX_FOUND)
@@ -33,7 +16,7 @@ endif()
 # enough to change eps from 0.01200 to 0.01223 at 8 threads (see results/PROVENANCE.md).
 # Every target, including the fp_contract guard, must use this list (see tests/check_fp_contract_flags.cmake).
 set(QPUFORGE_COMPILE_OPTIONS -Wall -Wextra -O3 -ffp-contract=off)
-foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp surgery_study:examples/surgery_study.cpp test_fp_contract:tests/test_fp_contract.cpp)
+foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp decoder_study2:examples/decoder_study2.cpp surgery_study:examples/surgery_study.cpp test_fp_contract:tests/test_fp_contract.cpp)
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)
   list(GET parts 1 src)
@@ -51,8 +34,32 @@ set_target_properties(qpuforge_cli PROPERTIES OUTPUT_NAME qpuforge)
 target_compile_definitions(test_qpuforge PRIVATE QPUFORGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 # `qpuforge --version` prints this (the version comes from project(... VERSION ...) above)
 target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERSION}")
+# Provenance of the review and study programs (examples/git_stamp.hpp): the commit they are built from and whether
+# tracked files are modified, taken on every build, so that the stamp describes the tree the binary was built from.
+# (It used to be two compile definitions computed when CMake configured the build directory: a directory configured at
+# one commit and rebuilt after later commits kept writing the old commit into its outputs.)
+# qpuforge_git_stamp_update is always out of date and runs cmake/git_stamp.cmake, which rewrites git_stamp.cpp only
+# when the stamp changes. That file is the whole of the static library the six programs link, so a new commit costs
+# one small compile and six relinks, and a build with nothing new recompiles and relinks nothing.
+# One way of building does not take the stamp: the Makefile rules <target>/fast skip the dependencies of the target,
+# so a program built that way is linked with the stamp of the last ordinary build.
+find_package(Git QUIET)   # a hint for the script, which looks for git on PATH when this one is missing at build time
+set(QPUFORGE_GIT_STAMP_CPP ${CMAKE_CURRENT_BINARY_DIR}/git_stamp.cpp)
+add_custom_target(qpuforge_git_stamp_update
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DOUTPUT=${QPUFORGE_GIT_STAMP_CPP}
+          -DGIT_EXECUTABLE=${GIT_EXECUTABLE} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/git_stamp.cmake
+  BYPRODUCTS ${QPUFORGE_GIT_STAMP_CPP}
+  COMMENT "Stamping the source commit"
+  VERBATIM)
+add_library(qpuforge_git_stamp STATIC ${QPUFORGE_GIT_STAMP_CPP})
+add_dependencies(qpuforge_git_stamp qpuforge_git_stamp_update)
+target_include_directories(qpuforge_git_stamp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)   # git_stamp.hpp
+target_compile_definitions(qpuforge_git_stamp PUBLIC QPUFORGE_GIT_STAMP)   # git_stamp.hpp: the stamp is linked in
+target_compile_options(qpuforge_git_stamp PRIVATE ${QPUFORGE_COMPILE_OPTIONS})
+# Every program that includes git_stamp.hpp (through review_io.hpp) belongs in this list. One that is left out says
+# "unknown" in its outputs; the CTest guard git_stamp_wiring fails for it.
 foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps surgery_study)
-  target_compile_definitions(${name} PRIVATE QPUFORGE_GIT_SHA="${QPUFORGE_GIT_SHA}" QPUFORGE_GIT_DIRTY=${QPUFORGE_GIT_DIRTY})
+  target_link_libraries(${name} PRIVATE qpuforge_git_stamp)
 endforeach()
 # the materials group reads its forge.materials.v0 sidecar fixtures from the source tree
 target_compile_definitions(test_qpuforge PRIVATE QPUFORGE_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
@@ -110,11 +117,19 @@ qpuforge_cli_test(burst_options_need_bursts "qpuforge qec: --burst-rate needs --
 qpuforge_cli_test(veto_needs_bursts "qpuforge qec: --veto needs --bursts" qec ${CLI_CHIP} --veto)
 qpuforge_cli_test(veto_options_need_veto "qpuforge qec: --impact-p needs --veto" qec ${CLI_CHIP} --bursts --impact-p 0.1)
 qpuforge_cli_test(herald_options_need_herald "qpuforge qec: --herald-rule needs --herald" qec ${CLI_CHIP} --herald-rule detector)
+qpuforge_cli_test(herald_weights_need_herald "qpuforge qec: --herald-weights needs --herald" qec ${CLI_CHIP} --herald-weights derived)
+qpuforge_cli_test(herald_factor_is_fixed_only "qpuforge qec: --herald-factor applies to --herald-weights fixed only"
+  qec ${CLI_CHIP} --herald --herald-weights derived --herald-factor 0.3)
+qpuforge_cli_test(dqlr_herald_needs_dqlr "qpuforge qec: --dqlr-herald needs --leakage-removal lrr\\+dqlr" qec ${CLI_CHIP} --herald --dqlr-herald)
+qpuforge_cli_test(bad_herald_weights "qpuforge qec: --herald-weights expects fixed or derived, got 'model'" qec ${CLI_CHIP} --herald --herald-weights model)
 qpuforge_cli_test(window_needs_stream "qpuforge qec: --window needs --decoder uf-stream" qec ${CLI_CHIP} --window 4)
 qpuforge_cli_test(commit_below_window "qpuforge qec: --commit \\(4\\) must be smaller than --window \\(4\\)"
   qec ${CLI_CHIP} --decoder uf-stream --window 4 --commit 4)
 qpuforge_cli_test(surgery_readout_needs_cnot "qpuforge surgery: --readout applies to --op cnot only" surgery --readout Z --shots 0)
 qpuforge_cli_test(surgery_even_distance "qpuforge surgery: --d expects odd distances from 3 to 15, got 4" surgery --d 3,4 --shots 0)
+qpuforge_cli_test(surgery_even_gap "qpuforge surgery: --gap expects an odd strip length from 1 to 15, got 2" surgery --gap 2 --shots 0)
+qpuforge_cli_test(surgery_bad_decoder "qpuforge surgery: --decoder expects separate, joint, uf, joint-uf, correlated or all, got 'jiont' \\(did you mean 'joint'\\?\\)"
+  surgery --decoder jiont --shots 0)
 qpuforge_cli_test(unknown_option_surgery "qpuforge surgery: unknown option '--shot' \\(did you mean '--shots'\\?\\)" surgery --shot 100)
 qpuforge_cli_test(bad_number_surgery_shots "qpuforge surgery: --shots expects an integer >= 0, got '1e5'" surgery --shots 1e5)
 qpuforge_cli_test(bad_seed_surgery "qpuforge surgery: --seed expects an integer from 0 to 18446744073709551615, got '-1'" surgery --shots 0 --seed -1)
@@ -149,6 +164,11 @@ qpuforge_cli_test(ok_qec_decoding
   --impact-p 0.1 --burst-radius 2)
 qpuforge_cli_test(ok_qec_stream "decoder: streaming union-find.*window 4 rounds, committing 2 per step.*logical error per round"
   qec ${CLI_CHIP} --rounds 4 --shots 50 --seed 3 --decoder uf-stream --window 4 --commit 2)
+# derived herald weights and DQLR with heralding, through the streaming decoder: each is echoed
+qpuforge_cli_test(ok_qec_herald_derived
+  "decoder: streaming union-find.*weights derived from the leakage model.*DQLR with heralding.*decoded without heralds \\(streaming union-find\\)"
+  qec ${CLI_CHIP} --rounds 4 --shots 50 --seed 3 --decoder uf-stream --window 4 --commit 2 --leakage-removal lrr+dqlr --herald
+  --herald-weights derived --dqlr-herald)
 qpuforge_cli_test(ok_surgery "CNOT d=3 .*noiseless tableau check, 2 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
   surgery --op cnot --d 3 --input 00 --readout Z --chip beta1 --shots 0 --seed 1 --merge-rounds 0 --pre 1 --post 1 --samples 2
   --cache ${CLI_OUT}_unused_cache.json)   # --shots 0: the noiseless check only (no CZ calibration)
@@ -158,6 +178,10 @@ qpuforge_cli_test(ok_surgery_zz "ZZ measurement d=3 \\|00>.*0 detector firings, 
 qpuforge_cli_test(ok_surgery_xx "XX measurement d=3 \\|\\+\\+>.*0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
   surgery --op xx --d 3 --shots 0)
 set_tests_properties(cli_ok_surgery cli_ok_surgery_zz cli_ok_surgery_xx PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:")
+# the routing strip and the decoder choice: 89 qubits = three d = 3 patches and two strips of length 3
+qpuforge_cli_test(ok_surgery_routing "CNOT d=3 \\|\\+\\+> strips 3: 89 qubits, .*noiseless tableau check, 2 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
+  surgery --op cnot --d 3 --input ++ --gap 3 --decoder joint --shots 0 --samples 2)
+set_tests_properties(cli_ok_surgery_routing PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:")
 qpuforge_cli_test(ok_synth_chip "wrote .*cli_synth.json: 17 qubits"
   synth-chip ${CLI_CHIP} ${CLI_OUT}_synth.json --seed 1 --shots 50 --rounds 2 --z-only --hidden-dephasing-us 0 --cache ${CLI_OUT}_unused_cache.json)
 qpuforge_cli_test(ok_hwgate "wrote .*cli_gate.json"   # exit 3 (gate not passed) is ignored by the pass regex
@@ -182,6 +206,11 @@ add_test(NAME cli_exit_status COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpufo
          -DOUT=${CLI_OUT}_exit_status_synth.json
          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_exit_status.cmake)
 set_tests_properties(cli_exit_status PROPERTIES LABELS unit)
+# `qec --decoder uf-stream --herald`: the "decoded without heralds" comparison must run the streaming decoder too (it
+# used to run the batch decoder). With heralds that never fire the two runs are the same decoding of the same syndromes.
+add_test(NAME cli_herald_stream COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpuforge_cli> -DCHIP=${CLI_CHIP}
+         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_herald_stream.cmake)
+set_tests_properties(cli_herald_stream PROPERTIES LABELS unit)
 # usage on request (exit 0, stdout): the pass-regex tests cannot see the exit status, so a script checks it
 foreach(m long:cli_help short:cli_help_short word:cli_help_word command:cli_help_command)
   string(REPLACE ":" ";" mp ${m})
@@ -268,6 +297,22 @@ add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)
 set_tests_properties(fp_contract_flags PROPERTIES LABELS unit)
+# Stamp guards (not validation checks). Each works on a scratch git repository in the build tree, without network.
+# git_stamp: cmake/git_stamp.cmake must follow HEAD and the dirty flag from one run to the next, and leave the stamp
+# file alone when nothing changed.
+# git_stamp_wiring: this file must run that script on every build and link its result into every program that includes
+# git_stamp.hpp. A copy of this file, with a few lines in place of each program source, is configured once with this
+# build's generator and compiler and built again after each commit; each program must then print the new commit.
+# Without git each checks the "unknown" stamp only and is reported as skipped, not failed.
+add_test(NAME git_stamp COMMAND ${CMAKE_COMMAND} -DSTAMP_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/cmake/git_stamp.cmake
+         -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR} -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_git_stamp.cmake)
+add_test(NAME git_stamp_wiring COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+         -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR} -DGENERATOR=${CMAKE_GENERATOR} -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+         -DCXX_COMPILER=${CMAKE_CXX_COMPILER} -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_git_stamp_wiring.cmake)
+set_tests_properties(git_stamp PROPERTIES LABELS unit SKIP_REGULAR_EXPRESSION "git_stamp: skipped")
+set_tests_properties(git_stamp_wiring PROPERTIES LABELS unit SKIP_REGULAR_EXPRESSION "git_stamp_wiring: skipped")
 # Thread-count determinism guard (not one of the validation checks): Monte Carlo results must be bit-identical for any
 # OpenMP thread count (docs/design/deterministic-mc.md). 'determinism' compares 1/2/3/4/8 threads in one process;
 # 'determinism_env' runs separate processes under OMP_NUM_THREADS=1,2,4,8 and compares their digests.
@@ -285,13 +330,20 @@ set(QPUFORGE_TESTS
   "decomposition:unit" "transmon:physics" "coupler_and_flux:physics" "zz_and_inverse_design:physics" "qasm:unit" "compiler:unit" "decoherence:physics"
   "exchange:physics" "trajectories_vs_exact:physics" "ghz_metric:physics" "xeb:physics" "dynamic_circuits:unit"
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse"
+  "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_checks:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
+  "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse" "flux_predistortion:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
-  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "surgery:qec" "surgery_cnot:qec")
+  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "surgery:qec" "surgery_cnot:qec" "surgery_joint:qec" "surgery_routing:qec")
+  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "herald_weights:qec" "dqlr_herald:qec" "stream_ops:qec" "surgery:qec" "surgery_cnot:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 # forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data
 list(APPEND QPUFORGE_TESTS "materials:unit")
+# q18 opt-in flux-line distortion term (docs/design/flux-line-distortion.md); reads a copy of results/cz_cache.json
+list(APPEND QPUFORGE_TESTS "flux_line:pulse")
+# q17 FEM reference cross-check scaffold (fem.hpp): Elmer / Palace importers; synthetic fixtures in tests/data/fem
+list(APPEND QPUFORGE_TESTS "fem:layout")
 foreach(t ${QPUFORGE_TESTS})
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)
@@ -301,7 +353,7 @@ foreach(t ${QPUFORGE_TESTS})
 endforeach()
 # End-to-end smoke runs of the review programs: 200 shots, outputs in the build tree, committed files untouched.
 # They reuse results/cz_cache.json (copied); with a stale or missing cache they re-calibrate (a few minutes).
-foreach(name alpha1_v11_review beta1_review gamma1_review surgery_study)
+foreach(name alpha1_v11_review beta1_review gamma1_review surgery_study flux_distortion_study)
   add_test(NAME smoke_${name} COMMAND ${name} --smoke --out ${CMAKE_CURRENT_BINARY_DIR}/smoke_${name}
            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   set_tests_properties(smoke_${name} PROPERTIES LABELS smoke TIMEOUT 1800)

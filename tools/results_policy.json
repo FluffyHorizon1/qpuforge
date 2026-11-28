@@ -1,0 +1,102 @@
+{
+  "_comment": "Machine-readable half of docs/RESULTS_POLICY.md. Edit it in the same PR as the change it describes; reviewers read the diff.",
+  "governed_dirs": [
+    "results/",
+    "designs/",
+    "docs/"
+  ],
+  "max_file_bytes": 1048576,
+  "max_total_bytes": 50331648,
+  "provenance_file": "results/PROVENANCE.md",
+  "grandfathered": {
+    "designs/gamma1/GF97_layout.svg": 14566661,
+    "designs/beta1/BF49_layout.svg": 7313056,
+    "designs/gamma1/GF97.gds": 5431950,
+    "designs/beta1/BF49.gds": 2723350,
+    "docs/from-committed-layout/af17-q5.svg": 2684455,
+    "designs/alpha1-v11/AF17_v11_detail.svg": 2671627,
+    "docs/from-committed-layout/af17-zoom.svg": 2614327,
+    "designs/alpha1-v11/AF17_v11_layout.svg": 2594820,
+    "docs/from-committed-layout/af17-full.svg": 2594820,
+    "designs/alpha1-v11/AF17_v11.gds": 959966
+  },
+  "generated_outputs": [
+    "designs/alpha1-v11/alpha1_v11_review.json",
+    "designs/alpha1-v11/alpha1_v11_review.txt",
+    "designs/alpha1-v11/alpha1_v11.json",
+    "designs/beta1/beta1_review.json",
+    "designs/beta1/beta1_review.txt",
+    "designs/beta1/beta1.json",
+    "designs/beta1/BF49.gds",
+    "designs/gamma1/gamma1_review.json",
+    "designs/gamma1/gamma1_review.txt",
+    "designs/gamma1/gamma1.json",
+    "designs/gamma1/GF97.gds",
+    "designs/beta1/BETA-1.md",
+    "designs/gamma1/GAMMA-1.md",
+    "designs/alpha1-v11/AF17_v11.gds",
+    "results/design_study.csv",
+    "results/design_study.txt",
+    "results/test_output.txt",
+    "results/cz_cache.json",
+    "results/flux_distortion_study.json",
+    "results/flux_distortion_study.txt"
+  ],
+  "gds": [
+    {
+      "chip": "designs/alpha1-v11/alpha1_v11.json",
+      "cells": "designs/alpha1-v11/layout_cells.json",
+      "cell": "AF17_V11",
+      "out": "designs/alpha1-v11/AF17_v11.gds"
+    }
+  ],
+  "reviews": [
+    [
+      "alpha1_v11_review",
+      "designs/alpha1-v11",
+      "alpha1_v11_review.json",
+      "alpha1_v11_review.txt",
+      null,
+      [
+        "alpha1_v11.json"
+      ]
+    ],
+    [
+      "beta1_review",
+      "designs/beta1",
+      "beta1_review.json",
+      "beta1_review.txt",
+      "BF49.gds",
+      [
+        "beta1.json"
+      ]
+    ],
+    [
+      "gamma1_review",
+      "designs/gamma1",
+      "gamma1_review.json",
+      "gamma1_review.txt",
+      "GF97.gds",
+      [
+        "gamma1.json"
+      ]
+    ]
+  ],
+  "compare_files": [
+    "designs/alpha1-v11/alpha1_v11_review.json",
+    "designs/alpha1-v11/alpha1_v11_review.txt",
+    "designs/alpha1-v11/alpha1_v11.json",
+    "designs/alpha1-v11/AF17_v11.gds",
+    "designs/beta1/beta1_review.json",
+    "designs/beta1/beta1_review.txt",
+    "designs/beta1/beta1.json",
+    "designs/beta1/BF49.gds",
+    "designs/gamma1/gamma1_review.json",
+    "designs/gamma1/gamma1_review.txt",
+    "designs/gamma1/gamma1.json",
+    "designs/gamma1/GF97.gds",
+    "results/design_study.csv",
+    "results/design_study.txt",
+    "results/cz_cache.json"
+  ]
+}

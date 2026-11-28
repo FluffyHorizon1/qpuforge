@@ -4,10 +4,10 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Memory review complete (8 of 8 memory-gate criteria pass). Layout (GDSII) passes the mask width/space DRC but is not fabrication-ready: metal connectivity open (§7). Logical operations are simulated outside this review (lattice surgery at d = 3 and 5, `../../results/surgery_study.txt`) but not reviewed on this chip (§9). |
+| **Status** | Memory review complete (9 of 9 memory-gate criteria pass). Layout (GDSII) is DRC- and connectivity-clean in the model (2D LVS-lite connectivity with modelled airbridges; airbridges, EM and inductance not verified); control-line T1 budget **not met** (flux line); foundry DRC not yet run (§7). Logical operations are simulated outside this review (lattice surgery at d = 3 and 5, `../../results/surgery_study.txt`) but not reviewed on this chip (§9). |
 | **Purpose** | A distance-7 logical memory on 97 qubits: the third point on the suppression curve, and the first chip where decoding and correlated errors need their own answers |
 | **Builds on** | Beta-1 rev C (BF-49): same physics, same frequency plan, same synthesised cells |
-| **Tooling** | qpuforge v0.4: `gamma1_review` (982 s; 100,000 shots per point, twice that at distance 7) |
+| **Tooling** | qpuforge v0.4: `gamma1_review` (2205 s; 100,000 shots per point, twice that at distance 7) |
 
 All performance numbers are **simulation results**. The assumptions are in §10.
 
@@ -50,7 +50,7 @@ Minimum-weight perfect matching, exact at any number of defects: a dynamic progr
 blossom algorithm beyond.
 
 - Distance 7, 14 rounds: **11.5 defects per shot** (largest 37); 1.53 % of shots have more than 22.
-- Software decoding takes about **0.95 µs per round** on one CPU core, against a round of 0.75 µs. The
+- Software decoding takes about **2.54 µs per round** on one CPU core, against a round of 0.75 µs. The
   figure moves with the machine and its load. On average it is the same order as the chip's own pace; the worst case
   is far slower, and a batch decoder is not a streaming one. Real-time decoding stays an FPGA task (§9).
 - **What exactness buys.** Before v0.4 the decoder fell back to greedy matching above 22 defects. On a 40-round
@@ -58,8 +58,8 @@ blossom algorithm beyond.
 
 | Decoder | Logical failure probability | Failures | Decode time per round |
 |---|---|---|---|
-| Exact matching (v0.4) | **0.0008** | 3 | 2.3 µs |
-| Greedy above 22 defects (v0.3) | 0.0805 | 322 | 254 µs |
+| Exact matching (v0.4) | **0.0008** | 3 | 7.5 µs |
+| Greedy above 22 defects (v0.3) | 0.0805 | 322 | 839 µs |
 
 ## 4. High-energy impacts
 
@@ -108,11 +108,12 @@ higher. The rising detection rate is the signature to look for on hardware.
   - 11 feedlines with 8.8 resonators each on average, 6.90–7.38 GHz in 60 MHz steps.
   - Beta-1 needs 190 lines and Alpha-1 64. This count is past what coaxial wiring in one refrigerator carries comfortably: Gamma-1 needs high-density flex lines or multiplexed flux control. That is a programme risk, not a chip risk.
 - **Layout:** `GF97.gds` (cell `GF97_GAMMA1`), built from the Beta-1 rev C cells.
-  - 13.0 × 13.0 mm, 83,977 etch polygons, 265 junction regions, 459 bump pads.
+  - 13.0 × 13.0 mm, 67,134 etch polygons, 265 junction regions, 459 bump pads.
   - DRC: placement and island-spacing checks clean. Minimum width/space on the merged etch layer (4 µm / 4 µm, projection metric): clean.
-  - Metal connectivity (reported, not gated): 821 floating ground fragments; 49 of 362 shorted lines reach the ground plane (qubit flux lines 0 of 97); 168 of 265 junctions land on metal at both ends; 0 conductors share metal with another island.
-  - Extracted against target: E_C within 0.1 %, couplings within 5.5 %, qubit–readout capacitance -0.0 %.
-  - Parked exchange re-nulled by parking the couplers at 8.425 GHz (residual ZZ -4.32 kHz).
+  - Metal connectivity: **clean**: 0 floating ground fragments; 362 of 362 shorted lines reach the ground plane (qubit flux lines 97 of 97); 265 of 265 junctions join an island to the plane; 0 conductors share metal with another island; 774 ground straps (modelled airbridges; 265 over lines, 315 over coupler or bus strips), 0 small ground fragments removed.
+  - Control lines (reported, not gated): XY line 0.030 / 0.030 fF (measure / data qubit), flux line 0.032 / 0.032 fF effective (2.37 / 2.32 fF if it were open); T1 limits at least 1.56 ms (XY) and 1.32 ms (flux), 11.4× and 9.7× the design T1 of the worst qubit (budget 10×: **not met**).
+  - Extracted against target: E_C within 0.1 %, couplings within 5.4 %, qubit–readout capacitance +0.4 %.
+  - Parked exchange re-nulled by parking the couplers at 8.415 GHz (residual ZZ -4.31 kHz).
 
 ## 8. Gamma memory gate
 
@@ -124,7 +125,8 @@ higher. The rising detection rate is the signature to look for on hardware.
 | logical-error floor from impacts below 10 % of the distance-7 error (both scenarios) | ✔ pass |
 | detection rate flat over 40 rounds with the leakage-removing reset (drift < 5 %) | ✔ pass |
 | trimmed fabrication yield ≥ 80 % collision-free | ✔ pass |
-| layout passes placement and island-spacing checks (mask DRC and metal connectivity reported, not gated; see §7) | ✔ pass |
+| layout passes placement, island-spacing and mask width/space checks (§7) | ✔ pass |
+| metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane (§7) | ✔ pass |
 | extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable | ✔ pass |
 
 ## 9. What Phase Gamma still needs
@@ -135,8 +137,14 @@ the review does not use; what is still open is named in each item:
 - **Logical operations.** Lattice surgery is simulated (`surgery.hpp`, `qpuforge surgery`,
   `../../docs/design/lattice-surgery.md`): logical ZZ and XX measurement between two patches and the three-patch CNOT,
   at d = 3 and 5 (`../../results/surgery_study.txt`). With Beta-1 physics (also Gamma-1's) at d = 5 the ZZ outcome is
-  wrong in 0.14 % of measurements and a CNOT on |00⟩ gets some output wrong in 0.71 % of runs. Open: a chip layout for
-  the patches and their routing region, real-time feed-forward of the corrections, a joint decoder for all observables.
+  wrong in 0.14 % of measurements and a CNOT on |00⟩ gets some output wrong in 0.71 % of runs. A joint decoder for all
+  observables gives the same predictions as separate decoders in 1.9–3.4× less decode time; a two-pass correlated
+  decoder lowers the CNOT's 0.71 % to 0.42 % but takes 184 µs per shot against 15 µs, so it is not a real-time
+  candidate. Operations through a straight routing strip take the same number of rounds; with strips of 7 the CNOT is
+  wrong in 1.82 % of runs. Two adjacent d = 5 patches need 109 qubits and 432 lines, the three patches of a CNOT 169
+  to 289 qubits; the 8-frequency plan and the 16 CZ calibrations of this chip cover them without a frequency
+  collision. Open: a layout and control-line routing for the patches and their routing region (only the qubit and line
+  count exists), routes with bends, real-time feed-forward of the corrections.
 - **Leakage-aware decoding.** Implemented (`HeraldSpec`, `qpuforge qec --herald`,
   `../../docs/design/heralded-leakage.md`): three-state readout heralds a leaked measure qubit and the matching is
   re-weighted. At d = 7 with the leakage-removing reset and exact matching, heralds lower the logical error by 10 % at
@@ -155,7 +163,7 @@ the review does not use; what is still open is named in each item:
 ## 10. Assumptions and limitations
 
 - Every Beta-1 assumption applies (`../beta1/BETA-1.md` §8): the upgrades over Alpha-1 are targets until Alpha hardware confirms the baseline.
-- **The mask is not fabrication-ready.** The layout passes the placement and island-spacing checks and the mask-level width/space check (4 µm on the merged etch layer, projection metric) with no violations (§7), but the metal connectivity check (`layout.hpp`, `ConnectivityReport`; reported, not gated) is not clean: 821 floating ground fragments; 49 of 362 shorted lines reach the ground plane (qubit flux lines 0 of 97); 168 of 265 junctions land on metal at both ends; 0 conductors share metal with another island. The extraction treats every enclosed ground fragment as grounded, so the extracted circuit is that of an ideal ground. Open before tape-out: the enclosed ground between the qubit arms and around the buses (ground straps or airbridges), the qubit flux-line short (drawn open), junction landing, the coupling of the XY and flux lines to the qubits, the foundry's DRC deck.
+- **Mask.** The layout passes the placement and island-spacing checks and the mask-level width/space check (4 µm on the merged etch layer, projection metric) with no violations; the metal connectivity check is clean with its ground straps; the control-line T1 budget (reported, not gated) is **not met**: XY line 0.030 / 0.030 fF (measure / data qubit), flux line 0.032 / 0.032 fF effective (2.37 / 2.32 fF if it were open); T1 limits at least 1.56 ms (XY) and 1.32 ms (flux), 11.4× and 9.7× the design T1 of the worst qubit (budget 10×: **not met**) (§7). Not verified: the airbridges (their capacitance to the coupler and bus strips they cross is not in the extraction cells), EM (full-wave) extraction, inductance (the flux lines' coupling to the SQUIDs), a foundry DRC deck.
 - **CZ calibrations** use pulse model version 4: four levels each for the two qubits and the coupler. The 168 pairs fall into 16 frequency combinations, the same 16 as on Alpha-1 v1.1 and Beta-1. The largest per-pair leakage, 1.2e-04 per gate, is within the 2e-4 limit of the Alpha simulation gate (ROADMAP.md).
 - **Impact model.** Each scenario is sampled at a ladder of severities, each half a decade below the last, until the excess logical error is lost in the statistical noise; below the last point the excess is taken as proportional to the severity. Runs in which the logical qubit is randomised within the 14 rounds count as fully failed. The unmitigated scenario follows McEwen et al., *Nature Physics* 18, 107 (2022): chip-wide loss of T1 by one to two orders of magnitude, recovering with a time constant of about 25 ms. The rate of 0.1 per second is a round figure for a centimetre-scale chip; it scales with substrate area and shielding and must be measured on the actual chip. The gap-engineered scenario follows McEwen et al., *Phys. Rev. Lett.* 133, 240601 (2024) and Kurilovich et al., arXiv:2506.18228 (2025): no T1 degradation, but frequency shifts of up to a few MHz lasting about 1 ms, modelled here as a dephasing burst. The model treats the burst as chip-wide and uniform. Gap engineering does not address the scrambling of two-level-system defects by an impact (same PRL); that is not modelled either.
 - **Estimator.** One run length per distance gives the logical error per round without a fit; it folds the time-boundary effects of the first and last rounds into the value. The same estimator at every distance keeps Λ consistent.

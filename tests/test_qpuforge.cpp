@@ -3236,8 +3236,9 @@ static void test_surgery_joint() {
         ok = ok && M.correlated[std::size_t(o01)].size() == 1 && M.correlated[std::size_t(o1b)].size() == 1;
         ok = ok && M.correlated[std::size_t(o01)][0].first == e01 && std::abs(M.correlated[std::size_t(o01)][0].second - f1) < 1e-12;
         ok = ok && M.correlated[std::size_t(o1b)][0].first == e12 && std::abs(M.correlated[std::size_t(o1b)][0].second - f2) < 1e-12;
-        CHECK(ok, "build_correlations on a hand-made list: factors %.6f / %.3e expected %.6f / %.3e", ok ? M.correlated[std::size_t(o01)][0].second : -1.0,
-              ok ? M.correlated[std::size_t(o1b)][0].second : -1.0, f1, f2);
+        auto factor = [&](int o) { return o >= 0 && std::size_t(o) < M.correlated.size() && !M.correlated[std::size_t(o)].empty() ? M.correlated[std::size_t(o)][0].second : -1.0; };
+        CHECK(ok, "build_correlations on a hand-made list: factors %.6f / %.3e expected %.6f / %.3e (%d pairs, p %.3g)", factor(o01), factor(o1b), f1, f2,
+              M.correlated_pairs, M.correlated_p);
     }
     for (const char* op : {"zz", "cnot"}) {
         const std::string name = std::string(op) == "zz" ? "ZZ" : "CNOT";

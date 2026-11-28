@@ -289,6 +289,10 @@ set_tests_properties(cli_materials_apply_no_out PROPERTIES PASS_REGULAR_EXPRESSI
 set_tests_properties(cli_materials_apply_action PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge materials: unknown materials action 'merge' \\(the only action is apply\\)")
 set_tests_properties(cli_materials_apply_overwrite PROPERTIES PASS_REGULAR_EXPRESSION "error: materials apply: --out .*alpha1_v11.json would overwrite an input file")
 set_tests_properties(cli_materials_apply cli_materials_apply_analyze cli_materials_apply_no_out cli_materials_apply_action cli_materials_apply_overwrite PROPERTIES LABELS unit)
+# the hand-written Alpha-1 v1.1 sidecar (D5): both values applied with provenance assumed, the device numbers unchanged
+add_test(NAME cli_materials_alpha1_handwritten COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_CHIP} --materials ${CMAKE_CURRENT_SOURCE_DIR}/designs/alpha1-v11/materials-alpha1-v11-handwritten.json)
+set_tests_properties(cli_materials_alpha1_handwritten PROPERTIES LABELS unit FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
+  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 3e\\+06, provenance assumed.*skipped +loss_tangent .*applied +junction_gap_ueV +materials.junction_gap_ueV 180 -> 180, provenance assumed.*materials: Q_diel=3e\\+06  junction gap 180 ueV.*mean T1")
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)

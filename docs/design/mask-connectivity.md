@@ -2,7 +2,9 @@
 
 Status: **on `main` since PR #45, and known to be electrically wrong.** The cell files, masks, previews and reviews were
 regenerated with it, but the adversarial review found three high-severity electrical problems (below, "Open review
-findings"). A redesign that gates these points is in progress in PR #28.
+findings"). A redesign that gates these points is in progress. Its first step (the new ground-quality,
+junction-ownership, flux-coupling and control-line checks, PR #28) is on `main` already and the committed masks fail it;
+the corrected geometry is not on `main` yet.
 
 **Open review findings (adversarial review of PR #28, before the redesign):**
 1. *Shared ground bridge (high).* The SQUID ground lead and the flux-line short sit in the same sealed (−x, −y) pocket, which reaches the plane through one modelled airbridge (~100 µm), chained up to 12 / 22 / 34 bridges deep on AF-17 / BF-49 / GF-97. Qubit plasma current and the 50 Ω flux-line return share that bridge's inductance: a galvanic T1 channel estimated at T1 ≈ 0.1–1 µs, which `line_coupling` cannot see (it treats the pocket as ideal ground). Fix: land the SQUID lead and the flux short on continuous plane metal; gate that each junction's ground side is on the plane component itself, not reached through a strap.

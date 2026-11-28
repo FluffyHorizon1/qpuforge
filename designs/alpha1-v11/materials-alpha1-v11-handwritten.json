@@ -1,0 +1,46 @@
+{
+  "schema": "forge.materials.v0",
+  "produced_by": {
+    "tool": "hand-written (Forge Tech Lead, for Finnian Bond)",
+    "commit": "none",
+    "potential_or_method": "hand estimate: the design assumptions of Alpha-1 v1.1, not a materials calculation or a measurement",
+    "timestamp": "2026-11-28T00:00:00+00:00"
+  },
+  "system": ["Al", "O"],
+  "quantities": {
+    "Q_dielectric": {
+      "value": 3000000,
+      "unit": "dimensionless",
+      "maps_to": "ChipDesign.materials.Q_dielectric",
+      "provenance": "assumed",
+      "reason": "Hand estimate. The chip-wide dielectric Q that Alpha-1 and Alpha-1 v1.1 already assume (designs/alpha1/ALPHA-1.md, designs/alpha1-v11/ALPHA-1-v1.1.md: 'dielectric Q = 3e6'). It is not computed, not measured and not taken from a cited source; replace it when a measured or DFT-derived value exists.",
+      "conditions": {"T_K": 0.045, "f_GHz": 5.8}
+    },
+    "loss_tangent": {
+      "value": null,
+      "unit": "dimensionless",
+      "maps_to": null,
+      "relation": "If the uniform-loss model in device.hpp holds, Q_dielectric = 1 / loss_tangent.",
+      "reason": "Not estimated separately: Q_dielectric is given, and a Q_dielectric with a value always wins."
+    },
+    "junction_gap_ueV": {
+      "value": 180,
+      "unit": "ueV",
+      "maps_to": "ChipDesign.materials.junction_gap_ueV",
+      "provenance": "assumed",
+      "reason": "Hand estimate. The Al/AlOx junction gap that Alpha-1 assumes (designs/alpha1/ALPHA-1.md: 'gap 180 ueV'; also the device.hpp default). Not computed, not measured and not taken from a cited source here."
+    }
+  },
+  "placeholders": [],
+  "contains_placeholders": false,
+  "not_in_contract": {
+    "Rn_spread_pct": "Process spread used by fab_monte_carlo(); not an atomistic output.",
+    "environment": "T_eff_mK, flux_noise_uPhi0, charge_noise_e, Tphi_other_us stay in chip JSON."
+  },
+  "open_stack": [],
+  "notes": [
+    "Decision D5 (Finnian Bond, 2026-11-28): the first sidecar with values is hand-written, so the whole path (reader, provenance checks, materials apply --out) is exercised now; the DFT bridge writes sidecars later.",
+    "Every number here equals what designs/alpha1-v11/alpha1_v11.json already holds, so applying this sidecar changes no qpuforge result. It records where the numbers come from: an assumption, provenance 'assumed'.",
+    "conditions are the Alpha-1 v1.1 operating point (T_eff 45 mK, qubit band near 5.8 GHz) and are not interpreted by the reader."
+  ]
+}

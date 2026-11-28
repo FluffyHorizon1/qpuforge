@@ -2369,6 +2369,105 @@ static void test_surgery_cnot() {
     }
 }
 
+// q18 (docs/design/flux-line-distortion.md): the opt-in flux-line distortion term. Off by default and then invisible
+// (no key written, the same bits); on, it is added on top of residual_ctrl_err and reaches err_2q_ctrl (what the
+// emulators read). No pulse simulation here: the Alpha-1 v1.1 calibrations come from a copy of results/cz_cache.json.
+static void test_flux_line() {
+    std::puts("[pulse] q18 flux-line distortion term: opt-in, additive to residual_ctrl_err, sensitivity table from the cz cache");
+    auto dump = [](const Json& j) { std::ostringstream os; j.dump(os); return os.str(); };
+    // design files: off by default, not written when off, round trip when on, malformed tails refused
+    {
+        CHECK(!alpha1_v11(3).flux_line.enabled && !alpha1(3).flux_line.enabled && !beta1(5).flux_line.enabled, "flux_line is off in every preset");
+        CHECK(!design_to_json(alpha1_v11(3))["tunable_coupler"].has("flux_line"), "flux_line not written when off");
+        auto D = alpha1_v11(3);
+        D.flux_line.enabled = true; D.flux_line.static_offset = 3e-4; D.flux_line.tails = {{2e-3, 15.0}, {-5e-4, 400.0}};
+        const auto B = design_from_json(Json::parse(dump(design_to_json(D))));
+        CHECK(B.flux_line.enabled && B.flux_line.static_offset == 3e-4 && B.flux_line.tails.size() == 2 &&
+              B.flux_line.tails[1].amplitude == -5e-4 && B.flux_line.tails[1].tau_ns == 400.0, "flux_line round trip");
+        const auto off = design_from_json(Json::parse(R"({"tunable_coupler": {"flux_line": {"enabled": false, "static_offset": 1e-3}}})"));
+        CHECK(!off.flux_line.enabled && !design_to_json(off)["tunable_coupler"].has("flux_line"), "enabled:false reads as off and is not written back");
+        bool threw = false;
+        try { design_from_json(Json::parse(R"({"tunable_coupler": {"flux_line": {"enabled": true, "tails": [{"amplitude": 1e-3, "tau_ns": 0}]}}})")); }
+        catch (const std::exception&) { threw = true; }
+        CHECK(threw, "a tail with tau_ns <= 0 is refused");
+    }
+    // effective error over the hold: closed forms
+    {
+        FluxLineSpec L; L.enabled = true; L.static_offset = -2e-4;
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 2e-4) < 1e-18, "static offset taken as is (magnitude)");
+        L.static_offset = 0; L.tails = {{1e-3, 1e6}};
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 1e-3) < 1e-7, "slow tail ~ its amplitude over the hold");
+        L.tails = {{1e-3, 0.5}};
+        CHECK(std::abs(flux_line_eps_eff(L, 30) - 1e-3 * 0.5 / 30) < 1e-12, "fast tail averages to a*tau/T");
+        L.tails = {{1e-3, 20.0}};
+        CHECK(std::abs(flux_line_eps_eff(L, 40) - 1e-3 * 0.5 * (1 - std::exp(-2.0))) < 1e-15, "a*(tau/T)(1-exp(-T/tau))");
+        L.static_offset = 1e-3 * 0.5 * (1 - std::exp(-2.0)); L.tails = {{-1e-3, 20.0}};
+        CHECK(flux_line_eps_eff(L, 40) < 1e-15, "a static offset cancels an opposite averaged tail");
+    }
+    // the sensitivity table of docs/design/q17-q18-feasibility.md, from the committed calibrations (16 pair classes)
+    const std::string cache_src = std::string(QPUFORGE_SOURCE_DIR) + "/results/cz_cache.json";
+    std::vector<CZCalibration> ents;
+    {
+        std::ifstream f(cache_src); std::stringstream ss; ss << f.rdbuf();
+        const Json j = Json::parse(ss.str());
+        for (const auto& kv : j["entries"].items()) ents.push_back(cz_coherent_from_json(kv.second));
+        CHECK(ents.size() == 16, "cz cache has the 16 Alpha-1 v1.1 pair classes (%zu)", ents.size());
+        for (double eps : {1e-4, 3e-4, 1e-3}) {
+            std::vector<double> e;
+            for (const auto& c : ents) e.push_back(flux_distortion_err(c.err_flux_quasistatic, c.pulse, eps));
+            std::sort(e.begin(), e.end());
+            const double med = 0.5 * (e[7] + e[8]), worst = e.back();
+            std::printf("  eps %.0e: median %.2e, worst pair %.2e (upper bound: both lines at the larger step)\n", eps, med, worst);
+            const double s = (eps / 1e-4) * (eps / 1e-4);
+            CHECK(std::abs(med / s - 4.82e-5) < 0.01e-5 && std::abs(worst / s - 9.78e-5) < 0.01e-5, "table at eps %.0e", eps);
+        }
+    }
+    // through calibrate_chip_cz (cached, no simulation): off = the same bits, on = additive and reaches err_2q_ctrl
+    {
+        const std::string cache = temp_path("flux_line_cz_cache.json");
+        std::filesystem::copy_file(cache_src, cache, std::filesystem::copy_options::overwrite_existing);
+        const auto D0 = load_design(std::string(QPUFORGE_SOURCE_DIR) + "/designs/alpha1-v11/alpha1_v11.json");
+        auto run = [&](const ChipDesign& D, ChipReport& R) { R = analyze(D); return calibrate_chip_cz(D, R, false, cache); };
+        ChipReport R0, Rz, Rd, Ron;
+        const auto c0 = run(D0, R0);
+        auto Dz = D0; Dz.flux_line.enabled = true;                               // on, zero error
+        auto Dd = D0; Dd.flux_line.enabled = false; Dd.flux_line.static_offset = 1e-3;   // configured but off
+        auto Don = D0; Don.flux_line.enabled = true; Don.flux_line.static_offset = 3e-4; Don.flux_line.tails = {{1e-3, 200.0}};
+        const auto cz = run(Dz, Rz), cd = run(Dd, Rd), con = run(Don, Ron);
+        CHECK(dump(cz_calibration_json(cd)) == dump(cz_calibration_json(c0)), "off (even with values set): calibration JSON byte-identical");
+        CHECK(dump(cz_calibration_json(c0)).find("err_distortion") == std::string::npos, "off: no err_distortion key");
+        bool same = c0.size() == cz.size() && c0.size() == con.size() && !c0.empty();
+        bool additive = same, pairs_ok = true, leak_same = true;
+        double worst = 0;
+        for (std::size_t i = 0; same && i < c0.size(); ++i) {
+            same = same && cz[i].err_ctrl == c0[i].err_ctrl && cz[i].err_total == c0[i].err_total && cz[i].err_distortion == 0.0;
+            const double d = con[i].err_distortion;
+            worst = std::max(worst, d);
+            additive = additive && d > 0 && con[i].err_residual == c0[i].err_residual && con[i].err_flux_quasistatic == c0[i].err_flux_quasistatic &&
+                       std::abs((con[i].err_ctrl - c0[i].err_ctrl) - d) < 1e-15 && std::abs((con[i].err_total - c0[i].err_total) - d) < 1e-15;
+            const double eps = flux_line_eps_eff(Don.flux_line, con[i].t_flat_ns);
+            additive = additive && con[i].flux_eps_eff == eps && eps > 3e-4 && eps < 1.3e-3;
+        }
+        for (std::size_t k = 0; k < R0.pairs.size(); ++k) {
+            const auto& p0 = R0.pairs[k]; const auto& p1 = Ron.pairs[k];
+            if (!p0.designed) continue;
+            pairs_ok = pairs_ok && p1.err_2q_ctrl > p0.err_2q_ctrl && Rz.pairs[k].err_2q_ctrl == p0.err_2q_ctrl;
+            leak_same = leak_same && p1.leak_2q == p0.leak_2q;
+        }
+        std::printf("  Alpha-1 v1.1, static 3e-4 + tail 1e-3 @ 200 ns: worst-pair err_distortion %.2e on top of residual %.1e\n",
+                    worst, D0.coupler.residual_ctrl_err);
+        CHECK(same, "enabled with zero error: err_ctrl / err_total bit-identical to off");
+        CHECK(additive, "on: err_distortion added on top of the unchanged terms (residual_ctrl_err not carved out)");
+        CHECK(pairs_ok && leak_same, "on: err_2q_ctrl (emulator input) grows, leak_2q unchanged; zero error leaves err_2q_ctrl alone");
+        const auto n0 = noise_model(D0, R0), n1 = noise_model(Don, Ron);
+        bool nm = !n0.err_2q_pair.empty();
+        for (const auto& [k, v] : n1.err_2q_pair) nm = nm && v > n0.err_2q_pair.at(k);
+        CHECK(nm, "on: the emulators' per-pair control error includes the term");
+        CHECK(dump(cz_calibration_json(con)).find("\"err_distortion\"") != std::string::npos, "on: err_distortion written to the calibration JSON");
+        std::error_code ec; std::filesystem::remove(cache, ec);
+    }
+}
+
 static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"decomposition", test_decomposition},
     {"transmon", test_transmon},
@@ -2410,6 +2509,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"streaming_uf", test_streaming_uf},
     {"surgery", test_surgery},
     {"surgery_cnot", test_surgery_cnot},
+    {"flux_line", test_flux_line},
 };
 
 // test_qpuforge            run every test

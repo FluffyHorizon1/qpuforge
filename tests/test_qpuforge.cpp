@@ -1318,6 +1318,21 @@ static void test_union_find() {
             if (dec.decode(f.dets, ws, DecodeMethod::UnionFind) != int(f.obs)) ++single_wrong;
         }
     };
+    // peeling on a hand-made graph: 0 -1- 1 -2- 2 -3- boundary, plus a heavy 0 - boundary edge; edge bits 0/1/0/1
+    {
+        struct E { int a, b; bool obs; double p; };
+        const std::vector<E> g{{0, 1, false, 0.1}, {1, 2, true, 0.1}, {2, -1, false, 0.1}, {0, -1, true, 1e-4}};
+        const UnionFindDecoder U(3, g);
+        UFScratch us;
+        const int p02 = U.decode({0, 2}, us);            // the pair is joined through 1: edges 0-1 and 1-2, parity 1
+        std::vector<int> c02 = us.correction; std::sort(c02.begin(), c02.end());
+        const int p2 = U.decode({2}, us);                // one defect next to the boundary: edge 2-B, parity 0
+        const std::size_t n2 = us.correction.size();
+        const int p0 = U.decode({0}, us);                // one defect: 0-1-2-B (weight 3 x 2.2) beats 0-B (9.2): parity 1
+        std::printf("  hand-made graph: {0,2} -> parity %d via %zu edges; {2} -> parity %d via %zu edge; {0} -> parity %d via %zu edges\n",
+                    p02, c02.size(), p2, n2, p0, us.correction.size());
+        CHECK(p02 == 1 && c02.size() == 2 && p2 == 0 && n2 == 1 && p0 == 1 && us.correction.size() == 3, "peeling on the hand-made graph");
+    }
     struct Row { int d; char b; int rounds; long shots; MemoryResult ex, uf; };
     std::vector<Row> rows;
     for (int d : {3, 5}) {

@@ -259,7 +259,8 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
   (`ImpactSpec`) adds a Gaussian spatial profile. The spread of phonons and the scrambling of two-level-system defects
   by an impact are not modelled. The impact rate is an assumed round figure. The veto discards whole shots; on
   Gamma-1, shot-by-shot discard does not lower the impact floor (the weak tail of a 25 ms burst still randomises the
-  logical qubit), and only a latched hold of several recovery times does (`results/decoder_study.txt`).
+  logical qubit). A latched hold of 5 recovery times leaves it unchanged too; from 7 recovery times on it falls below
+  what the study resolves at 20,000 shots per severity (`results/decoder_study.txt`, `docs/design/impact-veto.md`).
 * **Capacitances come from a quasi-static MoM on an infinitely thick substrate.** Box modes, airbridges, the
   flip-chip interposer, kinetic inductance, flux and readout crosstalk, and participation ratios (TLS loss) are not
   extracted. Before tape-out, cross-check the cells with a full-wave/FEM tool (Palace, Sonnet, Q3D).

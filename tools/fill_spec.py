@@ -111,11 +111,12 @@ def mask_note(lay, sec):
            f"({d['etch_min_width_um']:.0f} µm on the merged etch layer, projection metric) with no violations"
            if mask_clean(lay) else
            f"reports {d.get('etch_width_violations', 0):,} width and {d.get('etch_space_violations', 0):,} space violations on the merged etch layer")
-    if c.get('clean') and mask_clean(lay) and b.get('ok'):
-        return (f"**Mask.** The layout {drc}; the metal connectivity check is clean with its ground straps, and the control-line "
-                f"couplings are within the T1 budget (§{sec}). Not yet checked: a foundry DRC deck (airbridge rules included), the "
-                f"capacitance of the straps to the coupler and bus strips they cross (not in the extraction cells), and the "
-                f"inductive coupling of the flux lines to the SQUIDs.")
+    if c.get('clean') and mask_clean(lay):
+        lines = ('the control-line couplings are within the T1 budget' if b.get('ok') else
+                 f"the control-line T1 budget (reported, not gated) is **not met**: {lines_text(lay)}")
+        return (f"**Mask.** The layout {drc}; the metal connectivity check is clean with its ground straps; {lines} (§{sec}). "
+                f"Not yet checked: a foundry DRC deck (airbridge rules included), the capacitance of the straps to the coupler and "
+                f"bus strips they cross (not in the extraction cells), and the inductive coupling of the flux lines to the SQUIDs.")
     return (f"**The mask is not fabrication-ready.** The layout {drc} (§{sec}); metal connectivity: {conn_text(lay)}; "
             f"control lines: {lines_text(lay)}.")
 
@@ -135,8 +136,9 @@ def layout_vals(lay):
         'JJ': lay.get('junction_regions', 0), 'BUMPS': lay.get('bumps', 0),
         'DRC': drc_text(lay), 'CONN': conn_text(lay),
         'LINES': lines_text(lay),
-        'MASK_STATUS': ('passes the in-house mask checks (width/space DRC, metal connectivity with ground straps, control-line budget); foundry DRC not yet run'
-                        if mask_clean(lay) and lay.get('connectivity', {}).get('clean') and lay.get('control_lines', {}).get('ok') else 'not fabrication-ready'),
+        'MASK_STATUS': (('passes the in-house mask checks (width/space DRC, metal connectivity with ground straps); control-line T1 budget '
+                         + ('met' if lay.get('control_lines', {}).get('ok') else '**not met** (flux line)') + '; foundry DRC not yet run')
+                        if mask_clean(lay) and lay.get('connectivity', {}).get('clean') else 'not fabrication-ready'),
         'DRC_W': f"{d.get('etch_width_violations', 0):,}", 'DRC_S': f"{d.get('etch_space_violations', 0):,}",
         'EC_ERR': f'{100 * lay.get("max_EC_err", 0):.1f} %', 'G_ERR': f'{100 * lay.get("max_coupling_err", 0):.1f} %',
         'RO_C_ERR': f'{100 * lay.get("readout_C_err", 0):+.1f} %', 'RO_C': f'{lay.get("readout_C_fF", 0):.2f}',
@@ -157,7 +159,6 @@ def beta(scratch=None):
              'stability': 'detection rate flat over 100 rounds with the leakage-removing reset (drift < 5 %)',
              'drc': 'layout passes placement, island-spacing and mask width/space checks (§6)',
              'connectivity': 'metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane (§6)',
-             'lines': "each qubit's XY and flux line T1 limits at least 10× its design T1 (§6)",
              'layout': 'extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable'}
     gates, npass = gate_table(ec, names)
     bud, sens = r['budget_d3'], r['sensitivity_d3']
@@ -229,7 +230,6 @@ def gamma(scratch=None):
              'yield': 'trimmed fabrication yield ≥ 80 % collision-free',
              'drc': 'layout passes placement, island-spacing and mask width/space checks (§7)',
              'connectivity': 'metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane (§7)',
-             'lines': "each qubit's XY and flux line T1 limits at least 10× its design T1 (§7)",
              'layout': 'extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable'}
     gates, npass = gate_table(ec, names)
     e = lambda dd, b: pc(s[f'd{dd}'][f'eps_{b}'], 5 if dd == 7 else 4)

@@ -101,7 +101,7 @@ Next-step sensitivity: {{SENS}}.
   - {{CHIP_W}} × {{CHIP_H}} mm, {{ETCH}} etch polygons, {{JJ}} junction regions, {{BUMPS}} bump pads.
   - DRC: {{DRC}}.
   - Metal connectivity: {{CONN}}.
-  - Control lines: {{LINES}}.
+  - Control lines (reported, not gated): {{LINES}}.
 - **Interposer** (feedlines, Purcell filters, fan-out to edge launchers): designed in Beta; not drawn here.
 
 ## 7. Beta simulation gate (ROADMAP.md)

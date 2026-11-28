@@ -108,7 +108,7 @@ inline LayoutCheck layout_section(const ChipDesign& D, const std::string& cells_
                 L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), L.jj.size(), L.bumps.size(), gds_path.c_str(), drc_summary(L).c_str());
     for (const auto& p : L.problems) std::printf("     %s\n", p.c_str());
     std::printf("   %s\n", connectivity_summary(L).c_str());
-    std::printf("   %s\n", line_budget_summary(LB).c_str());
+    std::printf("   %s (reported, not gated)\n", line_budget_summary(LB).c_str());
     std::printf("   extracted vs target: E_C within %.1f%%, couplings within %.1f%%, qubit-readout capacitance %+.1f%% (%.2f fF, target %.2f)\n",
                 100 * out.max_ec_err, 100 * out.max_g_err, 100 * out.readout_c_err, m.C_qr_fF, T.C_qr_fF);
     std::printf("   post-layout: g_qc %.1f MHz, readout g %.1f MHz (design %.1f), parked exchange re-nulled at %.3f GHz (residual gap %.3f MHz, ZZ %+.2f kHz)\n",

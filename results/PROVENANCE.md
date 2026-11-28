@@ -8,6 +8,7 @@ the commands below to reproduce them.
 | `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T18:32:36Z | 744 s |
 | `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T17:45:52Z | 2249 s |
 | `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T18:19:28Z | 1664 s |
+| `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `f9c704cd9a0ca427f1b1a3d5b5d75d56a47893f9` (clean tree) | g++ 13.3.0 | 4 | 2026-11-28T00:27:08Z | 1904 s |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | `bff9d108eb60886e2b6cb258de831142785457ce` (unchanged since 0.3) | g++ 14.2.0 | — | 2026-11-26 | — |
 | `designs/beta1/layout_cells.json` | `qpuforge gds designs/beta1/beta1.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` | 0.4 development tree, before it moved onto CZ model version 2 (see below) | g++ 13.3.0 | — | 2026-11-26 | 366 s |
@@ -22,6 +23,8 @@ the commands below to reproduce them.
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
   - gamma: frame Monte Carlo seeds 11 + rounds (distance scaling; memory-X adds 7919), 77 (decoder comparison), 505 (impacts), 21 + rounds (long runs); fab Monte Carlo seed 7.
+  - decoder study: 11 + rounds (union-find against exact; memory-X adds 7919), 300 + d (heralds), 401 (veto calibration), 403 (impact injection), 505 (burst ladders, with and without the veto).
+    Section 1 (fault enumeration) and the decode times are wall-clock measurements on four threads.
 - **Thread count matters.** The Pauli-frame Monte Carlo gives each OpenMP thread its own RNG stream (`seed`,
   thread id). An exact rerun therefore needs the same thread count: `OMP_NUM_THREADS=2`. A
   different count gives a statistically equivalent but different sample. The 0.3 outputs were made with 8 threads, so

@@ -10,8 +10,9 @@ brings every CZ pair class within the 2e-4 leakage limit of the Alpha gate. Each
 lead, each qubit flux line is shorted to the plane, modelled airbridges ("ground straps") tie the enclosed ground to the
 plane, and the XY line is moved out of the qubit's cut-out after an extraction of the control-line couplings showed a
 sub-microsecond T1 limit (docs/design/mask-connectivity.md). The masks are DRC- and connectivity-clean in the model (2D
-LVS-lite connectivity with modelled airbridges); airbridges, EM and inductance are not verified, and no foundry DRC
-deck has been run (see Known issues).
+LVS-lite connectivity with modelled airbridges, treated as ideal ground); airbridges, EM and inductance are not
+verified, and no foundry DRC deck has been run. **A review found three high-severity electrical problems with this
+approach (shared ground bridge, flux lines that cannot tune the qubits, coupler-dominated XY drive): see Known issues.**
 
 The decoding items of Phase Gamma: a union-find decoder, leakage-aware decoding from heralded leakage, per-shot impact
 injection with an impact veto, and linear-time fault enumeration. Study: `examples/decoder_study.cpp` ->
@@ -158,6 +159,15 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   as before. `--loss-tangent` without `--materials` is an error.
 
 ### Known issues
+- **Not ready to merge: open review findings** (details in docs/design/mask-connectivity.md):
+  - the SQUID ground lead and the flux-line short share one modelled airbridge to the plane (galvanic T1 channel,
+    estimated 0.1–1 µs; the pocket is treated as ideal ground);
+  - the flux-line short couples only ~0.004–0.011 pH to the SQUID loop (~90–290 mA for Φ0/2): the flux lines do not
+    yet tune the qubits;
+  - the XY bump pad is ~30 µm from two coupler pads (C ≈ 1.4–1.6 fF against 0.036 fF to the qubit): the 0.03 fF /
+    23.8× control-line figures do not hold;
+  - the connectivity gate counts single-bridge chains as ideal ground; the junction rule and the control-line model
+    lack mutation-resistant tests; `line_budget` overstates the flux T1 limit by (f01/5.5 GHz)².
 - **Control-line budget missed on BF-49 and GF-97.** The flux line's T1 limit is 9.7× the design T1 of the worst
   qubit (budget 10×), so the budget is reported, not gated. The XY line meets it (11.4×).
 - **No foundry DRC deck has been run.** The masks pass the in-house checks (placement, 4 µm width/space on the merged

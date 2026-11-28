@@ -253,7 +253,9 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
   dynamics in the QEC circuits. Heralded leakage (3-state readout) covers the measure qubits only, and the decoder
   uses fixed weight factors for heralded edges, not a posterior from the leakage model.
 * **No layout in this repository is fabrication-ready.** All three chips are DRC- and connectivity-clean in the model;
-  airbridges, EM and inductance are not verified, and no foundry DRC deck has been run. The in-house checks are:
+  airbridges, EM and inductance are not verified, and no foundry DRC deck has been run. A review of the connectivity
+  work found open electrical problems (shared ground bridge, flux lines that cannot tune the SQUIDs, coupler-dominated
+  XY drive: `docs/design/mask-connectivity.md`). The in-house checks are:
   placement and island spacing, the 4 µm / 4 µm width/space check on the merged etch layer, and metal connectivity with
   modelled ground straps (airbridges). The control-line T1 budget (10× the design T1) is met on AF-17 and missed by the
   flux line on BF-49 and GF-97 (9.7×). The straps' capacitance to the coupler and bus

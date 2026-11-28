@@ -1,6 +1,14 @@
 # Design note: mask connectivity (SQUID landing, flux-line return, ground straps, control-line coupling)
 
-Status: adopted. The cell files, masks, previews and reviews were regenerated with it.
+Status: **proposed, not ready to merge.** The cell files, masks, previews and reviews were regenerated with it, but the
+adversarial review found three high-severity electrical problems (below, "Open review findings").
+
+**Open review findings (PR #28 adversarial review; these block merging):**
+1. *Shared ground bridge (high).* The SQUID ground lead and the flux-line short sit in the same sealed (−x, −y) pocket, which reaches the plane through one modelled airbridge (~100 µm), chained up to 12 / 22 / 34 bridges deep on AF-17 / BF-49 / GF-97. Qubit plasma current and the 50 Ω flux-line return share that bridge's inductance: a galvanic T1 channel estimated at T1 ≈ 0.1–1 µs, which `line_coupling` cannot see (it treats the pocket as ideal ground). Fix: land the SQUID lead and the flux short on continuous plane metal; gate that each junction's ground side is on the plane component itself, not reached through a strap.
+2. *Flux line cannot tune the qubit (high).* The short at (−61, −61) µm gives a mutual inductance of ~0.004–0.011 pH to the SQUID loop, i.e. ~90–290 mA for Φ0/2. The flux lines are therefore **not** fixed. Fix: run the line current along the loop and return it on continuous plane; compute M and gate I(Φ0/2) ≲ 1–2 mA.
+3. *XY drive is coupler-dominated (high).* The XY bump pad sits ~30 µm from two coupler pads (the sliver fill removes the 2 µm ground between their cut-outs); `line_coupling` draws couplers without pads. A window extraction of the assembled mask gives C(XY, coupler) ≈ 1.4–1.6 fF against C(XY, qubit) ≈ 0.036 fF: neighbour crosstalk 60–160 %. **The 0.03 fF / 23.8× control-line figures do not hold.** Fix: move the bump or keep a ≥ 4 µm ground strip the fill leaves alone; extract from a mask window; add coupler-mediated drive, crosstalk and a coupler T1 budget.
+4. *Connectivity as ideal ground (medium).* The connectivity check treats a spanning tree of single bridges as ideal ground (one 36 µm bridge carries the returns of up to 77 circuits). The junction-landing rule accepts any non-plane net at the island end (a mutant with SQUIDs on the XY pad passes `layout_presets`). The control-line model and the XY move have no tests. `line_budget` uses the 5.5 GHz flux coupling at every f01, overstating the flux T1 limit by (f01/5.5)² (BF-49 9.7× → 8.2×).
+
 
 ## Problem
 

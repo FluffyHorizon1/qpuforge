@@ -72,7 +72,8 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   or skipped, with the reason. A wrong schema, an unknown quantity, a wrong unit, a bad value or a mismatched `maps_to`
   throws `std::runtime_error` before the design is changed.
 - CLI: `analyze --materials <sidecar.json> [--loss-tangent]` applies a sidecar, prints one line per quantity, then
-  prints the device report. The chip JSON file is not changed.
+  prints the device report. The chip JSON file is not changed. `--loss-tangent` without `--materials`, and an empty
+  `--materials` value, are usage errors (exit 1), reported before any file is read.
 - Tests: the `materials` group (label `unit`, 25 checks), with sidecar fixtures in `tests/data/`, among them
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
@@ -80,6 +81,28 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 - 370 validation checks in all (346 on `main` before the decoding work, plus 24 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
   `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
+
+### Fixed
+- CLI: each command accepts only the options it reads. An unknown or misspelt option (`--shot 1000`, `-grid`, or another
+  command's option such as `hwgate --hidden-dephasing-us`) used to be ignored without a word; it is now an error that
+  names the option and the closest match, prints the command's usage and exits 1 before any file is read. So are an
+  option given twice or without its value, a missing or extra positional argument, a malformed number (`--shots lots`;
+  `--shots 1e5`, which `std::stoi` read as 1), a count out of range (`fab --samples 0` crashed, `run --traj 0` reported
+  a fidelity of 1), a negative seed (`std::stoul` wrapped it) and an unknown choice (`--arch tunabel` gave a
+  fixed-coupling chip; `--off contrl` and `--leakage-removal lrrr` did nothing). `new --preset` rejects the generator
+  options it ignored, `new` takes one topology, `qec` rejects `--burst-*` and `--veto` without `--bursts`, the veto
+  options without `--veto` and the herald options without `--herald`, and `budget` no longer accepts `--shots`, which it
+  never used. `--window` and `--commit` need `--decoder uf-stream`, and `--commit` must be smaller than `--window`
+  (the streaming decoder threw at run time). `surgery` takes the strict options too (`--op`, `--readout` and `--chip`
+  are choices, `--d` odd distances from 3 to 15; exit 3 when a noiseless check fails). The `qec` decoding options are
+  range-checked: `--herald-fidelity`, `--herald-false`, `--veto-false`,
+  `--impact-p` and `--herald-factor` in [0, 1] (the decoder ignored a herald factor above 1), `--veto-window` >= 1, and
+  `--veto-radius`, `--burst-radius`, `--burst-rate` and `--burst-tau-ms` >= 0.
+- CLI: a misspelt option that is a unique prefix of one option is completed to it, not to a closer-looking shorter name
+  (`--burst-rad` -> `--burst-radius`, not `--burst-rate`; `--herald-r` -> `--herald-rule`, not `--herald`).
+- CLI: `hwgate --out`, `cz --out`, the `synth-chip` data file and the `gds --cells` write-back fail with "cannot write"
+  (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
+  `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
 
 ### Changed
 - **Layout cells.** The bus is never drawn narrower than its strip: below that, the direct-coupling knob of the
@@ -113,6 +136,19 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   to the next measurement cut and finished with precomputed per-qubit tails. Output unchanged, fault by fault.
 - The matching decoder's DP, blossom and greedy paths read distances through an oracle, so that `decode_scaled` can
   reuse them; results of `decode` are unchanged.
+- **Behaviour change:** a malformed number, an unknown circuit (`ghz:x`), an unknown `--basis`, `--decoder`,
+  `--preset`, `--phase` or `--herald-rule` value and `analyze --loss-tangent` without `--materials` are usage errors
+  (exit 1); they used to exit 2, numbers with "error: stoi". The usage
+  text and README document the exit statuses: 0 done, 1 usage error, 2 error while running (also `gds`: layout not
+  DRC-clean), 3 `hwgate`: gate not passed.
+- CLI: the usage text lists every option of every command (`budget --seed`, `qec --seed --cache --leakage-removal`,
+  `synth-chip --cache`, `hwgate --seed --cache` and most `new` options were missing), and a usage error prints the
+  usage of its command only. Options may come before the positional arguments.
+- Tests: `cli_*` guards (label `unit`) for unknown options, missing values, malformed numbers and choices, repeated and
+  extra arguments, one accepted invocation per command with every option given (two for `qec`: the burst options, and
+  the decoding options at non-default values, matched against what the run echoes), the materials options, failed
+  writes and the exit statuses; `cli_exit_status` also checks every option dependency and value range of `qec` and
+  `analyze` on a chip file that does not exist (exit 1 before any file is read).
 
 ### API changes
 - `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
@@ -122,8 +158,10 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `materials_from_json`, `load_materials`, `apply_materials` and the `materials_detail` namespace to `qpuforge`. Code
   that includes `qpuforge.hpp`, defines one of these names itself and uses `using namespace qpuforge` can now hit an
   ambiguity.
-- Nothing else changes: `device.hpp`, chip JSON files and the output of `qpuforge analyze` without `--materials` are
-  as before. `--loss-tangent` without `--materials` is an error.
+- `save_design` and `write_layout_svg` (`device.hpp`) throw `std::runtime_error` when the file cannot be opened or
+  written; they used to return as if it had been written.
+- The materials reader changes nothing else: chip JSON files and the output of `qpuforge analyze` without
+  `--materials` are as before.
 
 ### Added: lattice surgery
 

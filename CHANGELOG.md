@@ -55,6 +55,31 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   qubit gets none); `layout_presets` requires each committed chip to be connectivity-clean, with one junction per qubit
   and coupler and one flux line per qubit, and DRC 0 + 0. Four checks more than before (one and three).
 - `docs/design/mask-connectivity.md`.
+- Redesign, batch 1 (checks and models first; the layout itself is unchanged, so masks, previews and reviews are not
+  regenerated):
+  - `compute_connectivity(L, metal_map)`: the connectivity check as a function, rerunnable on a modified layout.
+    `clean()` now also requires the island end of every junction to be a qubit or coupler island, and every qubit and
+    coupler island to carry exactly one junction (`junctions_on_device`, `devices`, `devices_one_junction`): a mutant
+    with the qubit SQUIDs drawn to the XY lines, or with one qubit's SQUID moved to another qubit, now fails.
+  - RF ground, reported (`rf_ground_ok()`, `rf_ground_summary`, `connectivity_json` → `rf_ground`), not yet in
+    `clean()`: junction grounds on the plane's own metal, flux shorts on the plane's own metal, strapped returns and how
+    many hang on a single strap, junction grounds shared with a flux return, and the strap-chain inductance each junction
+    shares with a flux return (`junction_shared_pH`; strap = Grover bar, `detail::grover_bar_pH`,
+    `detail::strap_inductance_pH`, `kStrapT`). The committed masks: AF-17 7/41 junctions grounding on plane metal, 34
+    returns on a single strap, worst shared chain 371 pH; BF-49 14/129, 115, 604 pH; GF-97 21/265, 244, 909 pH.
+  - `LineCoupling::flux_panels`, `C_flux_at(f)`, `T1_us`, `f_ref_GHz`, `C_xy_coupler_fF`: `line_budget` weights the flux
+    line at each qubit's f01 instead of 5.5 GHz (AF-17 flux limit, coarse mesh: 19.05× instead of 22.60×).
+  - Flux-line mutual inductance model (`flux_line_mutual`, `FluxMutual`, `flux_line_centre`, `kPhi0`,
+    `detail::segment_Bz_per_A`, `detail::filament_flux_per_A`): Biot-Savart over the SQUID loop from the line's centre
+    line, return current not included (assumptions in the design note). Current cells: M ≈ 0.0008 pH, ~1.3 A for Φ0/2.
+  - `xy_window_crosstalk`: XY-line crosstalk from a window of the assembled mask (the review probe as a library
+    function). AF-17 Q2: C(XY, Q2) 0.039 fF, C(XY, C0-2) 1.575 fF.
+  - Tests: `layout_geometry` +2 (strap inductance; Biot-Savart against the infinite-wire field and flux),
+    `layout_presets` +2 (the two junction mutants on AF-17), new group `control_lines` (6: flux weighting at any
+    frequency, T1 formula, `line_budget` at each f01, the XY line outside the qubit cut-out, C_xy falling with
+    distance). New **pending** group `layout_electrical` (6 checks, AF-17): RF ground, shared-ground T1 limit ≥ 10×
+    design T1, I(Φ0/2) ≤ 2 mA in both cells, XY crosstalk < 5 %. It is not in the default `test_qpuforge` run;
+    CTest runs it and passes only if exactly its 5 known checks fail, so it turns red when the redesign changes them.
 - `layout.hpp` (earlier in this cycle):
   - `detail::fill_ground_slivers`: mask clean-up that merges two cut-outs separated by a strip of ground narrower than
     the minimum (projection metric). It removes ground only; a gap that touches island metal is left to the DRC.
@@ -151,8 +176,8 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `cli_materials_budget`, `cli_materials_run_refused`, `cli_materials_layout_refused`, `cli_materials_gds_refused`,
   `cli_materials_qec`, `cli_materials_cz_missing_chip`, `cli_materials_hwgate_missing_chip` and `cli_loss_tangent_alone`
   for the other sub-commands. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
-- 504 validation checks in all: 500 on `main` (`results/test_output.txt`, not regenerated for the mask-connectivity work) and
-  four more from it (below). Of the 500: 346 on `main` before the decoding work (the 321 of 0.4.0
+- 514 validation checks in all: 500 on `main` (`results/test_output.txt`, not regenerated for the mask-connectivity work) and
+  14 more from it (below; the pending `layout_electrical` group is not counted). Of the 500: 346 on `main` before the decoding work (the 321 of 0.4.0
   plus 25 in `materials`), plus 21 from the decoding work (#20), 48 from fabrication readiness (#19), 3 from the
   streaming decoder (#27) and 82 from lattice surgery (#21). The 0.4 groups now give 328: fabrication readiness added
   four `pulse_cz` checks and one `layout` check, the decoding work two `fault_enumeration` checks. The strict CLI (#24)
@@ -275,8 +300,9 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
     yet tune the qubits;
   - the XY bump pad is ~30 µm from two coupler pads (C ≈ 1.4–1.6 fF against 0.036 fF to the qubit): the 0.03 fF /
     23.8× control-line figures do not hold;
-  - the connectivity gate counts single-bridge chains as ideal ground; the junction rule and the control-line model
-    lack mutation-resistant tests; `line_budget` overstates the flux T1 limit by (f01/5.5 GHz)².
+  - the connectivity gate counts single-bridge chains as ideal ground: now measured and reported (`rf_ground_ok()`, the
+    pending `layout_electrical` group), gated once the layout is fixed. Closed in batch 1: the junction rule (mutation
+    tests), tests for the control-line model and the XY move, `line_budget` at each qubit's f01.
 - **Control-line budget missed on BF-49 and GF-97.** The flux line's T1 limit is 9.7× the design T1 of the worst
   qubit (budget 10×), so the budget is reported, not gated. The XY line meets it (11.4×).
 - **No foundry DRC deck has been run.** The masks pass the in-house checks (placement, 4 µm width/space on the merged

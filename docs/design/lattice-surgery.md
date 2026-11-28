@@ -148,23 +148,23 @@ patch with `beta1` the chip equals `beta1(3)` qubit for qubit (tested).
 
 ## Results
 
-From `results/surgery_study.txt` (100,000 shots per point; one separate round, d rounds per merge, one round after the
+From `results/surgery_study.txt` (CZ model v4; 100,000 shots per point; one separate round, d rounds per merge, one round after the
 split; ± is the 1σ Monte Carlo error). Logical error per operation:
 
 | Operation | Observable | Alpha-1 v1.1, d = 3 | d = 5 | Beta-1, d = 3 | d = 5 |
 |---|---|---|---|---|---|
-| ZZ on \|00⟩ | m_ZZ | 2.39 % ± 0.05 | 0.88 % ± 0.03 | 0.82 % ± 0.03 | 0.19 % ± 0.01 |
-| | any observable wrong | 4.21 % | 1.52 % | 1.36 % | 0.30 % |
-| XX on \|++⟩ | m_XX | 2.34 % ± 0.05 | 0.84 % ± 0.03 | 0.75 % ± 0.03 | 0.15 % ± 0.01 |
-| | any observable wrong | 4.10 % | 1.47 % | 1.31 % | 0.25 % |
-| CNOT on \|00⟩ (Z readout) | Z_C / Z_T | 2.45 % / 7.93 % | 1.23 % / 3.85 % | 0.69 % / 2.29 % | 0.15 % / 0.60 % |
-| | any observable wrong | 9.68 % | 4.83 % | 2.79 % | 0.72 % |
-| CNOT on \|++⟩ (X readout) | X_C / X_T | 8.48 % / 2.57 % | 4.22 % / 1.17 % | 2.42 % / 0.68 % | 0.65 % / 0.15 % |
-| | any observable wrong | 9.30 % | 4.52 % | 2.67 % | 0.71 % |
+| ZZ on \|00⟩ | m_ZZ | 2.35 % ± 0.05 | 0.82 % ± 0.03 | 0.74 % ± 0.03 | 0.14 % ± 0.01 |
+| | any observable wrong | 4.11 % | 1.48 % | 1.26 % | 0.24 % |
+| XX on \|++⟩ | m_XX | 2.29 % ± 0.05 | 0.80 % ± 0.03 | 0.76 % ± 0.03 | 0.16 % ± 0.01 |
+| | any observable wrong | 4.05 % | 1.46 % | 1.25 % | 0.27 % |
+| CNOT on \|00⟩ (Z readout) | Z_C / Z_T | 2.37 % / 7.81 % | 1.22 % / 3.71 % | 0.69 % / 2.24 % | 0.16 % / 0.58 % |
+| | any observable wrong | 9.49 % | 4.69 % | 2.74 % | 0.71 % |
+| CNOT on \|++⟩ (X readout) | X_C / X_T | 8.44 % / 2.47 % | 4.20 % / 1.25 % | 2.45 % / 0.67 % | 0.65 % / 0.15 % |
+| | any observable wrong | 9.22 % | 4.47 % | 2.71 % | 0.70 % |
 
-- Going from d = 3 to d = 5 lowers every error: by 2.0–2.8× with Alpha-1 v1.1 physics and by 3.7–5.5× with Beta-1
+- Going from d = 3 to d = 5 lowers every error: by 1.9–2.9× with Alpha-1 v1.1 physics and by 3.8–6.4× with Beta-1
   physics.
-- In the CNOT, the observable that carries the corrections (Z_T in the Z basis, X_C in the X basis) fails 3.1–4.4 times
+- In the CNOT, the observable that carries the corrections (Z_T in the Z basis, X_C in the X basis) fails 3.0–4.3 times
   as often as the other: it collects the merge outcome, the ancilla's readout and a split byproduct, each
   of which is decoded through the merged region and its time boundaries.
 - The CNOT takes 2d + 2 rounds (5.98 µs at d = 3, 9.06 µs at d = 5 on Beta-1) and 169 qubits at d = 5.

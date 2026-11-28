@@ -168,8 +168,8 @@ the chip in the same data file.
 
 - Two distance-5 patches with lattice surgery, giving a logical CNOT. **Simulated** (`surgery.hpp`,
   `docs/design/lattice-surgery.md`): logical ZZ and XX measurement between two patches and the three-patch CNOT, at
-  d = 3 and 5. With Beta-1 physics at d = 5 the ZZ outcome is wrong in 0.19 % of measurements and a CNOT on |00⟩ gets
-  some output wrong in 0.72 % of runs
+  d = 3 and 5. With Beta-1 physics at d = 5 the ZZ outcome is wrong in 0.14 % of measurements and a CNOT on |00⟩ gets
+  some output wrong in 0.71 % of runs
   (`results/surgery_study.txt`). Still open: a chip layout for two or three d = 5 patches and their routing region,
   real-time feed-forward of the corrections, and a joint decoder for all observables.
 - Real-time decoding at < 1 µs per round: FPGA first, then an ASIC. The exact software decoder is the reference.

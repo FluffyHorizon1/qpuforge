@@ -42,7 +42,7 @@ Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decod
 
 | Layer | Module | What it does |
 |---|---|---|
-| Lattice surgery | `surgery.hpp` | Several surface-code patches on one lattice with merge and split schedules: logical ZZ and XX measurement between two patches and the three-patch logical CNOT, with detectors and observables across the merge and split boundaries, Pauli-frame corrections, a stabiliser-tableau check of the noiseless circuit, one exact matching decoder per observable and the memory experiments' noise model. With Beta-1 physics the ZZ outcome is wrong in 0.82 % of measurements at d = 3 and 0.19 % at d = 5; a CNOT on \|00⟩ gets some output wrong in 2.8 % and 0.72 % of runs (`results/surgery_study.txt`, [design note](docs/design/lattice-surgery.md)) |
+| Lattice surgery | `surgery.hpp` | Several surface-code patches on one lattice with merge and split schedules: logical ZZ and XX measurement between two patches and the three-patch logical CNOT, with detectors and observables across the merge and split boundaries, Pauli-frame corrections, a stabiliser-tableau check of the noiseless circuit, one exact matching decoder per observable and the memory experiments' noise model. With Beta-1 physics the ZZ outcome is wrong in 0.74 % of measurements at d = 3 and 0.14 % at d = 5; a CNOT on \|00⟩ gets some output wrong in 2.7 % and 0.71 % of runs (`results/surgery_study.txt`, [design note](docs/design/lattice-surgery.md)) |
 
 ### What's new in v0.4
 

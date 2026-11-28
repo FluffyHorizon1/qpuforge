@@ -29,6 +29,13 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
 `forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
 
 ### Added
+- q17, FEM reference cross-check scaffold (decided by Finnian Bond 2026-11-28: both Elmer and Palace; deviation
+  reported first, tolerance enforced later). `fem.hpp` (not in `qpuforge.hpp`; include it with `layout.hpp`):
+  `FemReference`, the `qpuforge.fem_crosscheck.v0` reader / writer (`reference_from_json`, `reference_to_json`,
+  `load_reference`), `import_elmer` (`CapacitanceMatrix.dat`, lumped → Maxwell), `import_palace` (`terminal-C.csv`),
+  `FemTolerance` (`enforced = false`), `compare_fem`, `circuit_of`, `comparison_summary`, `comparison_json`.
+  `docs/DATA_CONTRACT.md` §6. Test group `fem` (label layout) with synthetic fixtures in `tests/data/fem/`. No solver
+  is a build dependency; no committed number changes.
 - q18, opt-in flux-line distortion term (docs/design/flux-line-distortion.md; decided by Finnian Bond 2026-11-28:
   additive to `residual_ctrl_err`, off by default, no regeneration). `device.hpp`: `FluxTail`, `FluxLineSpec`,
   `ChipDesign::flux_line` (design JSON `tunable_coupler.flux_line`, written only when enabled). `pulse.hpp`:

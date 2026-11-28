@@ -2190,11 +2190,13 @@ static void test_layout_geometry() {
         CHECK(S.size() >= 1 && S.size() <= 2 && p1 && !over_q, "ground straps: %zu, pocket %d, over qubit %d", S.size(), int(p1), int(over_q));
     }
     {   // strap feet stand on ground metal only, with kStrapFootEnclosure around them: a shorted line (R9) fills most of a
-        // pocket and is the same metal component as the pocket, yet no foot may touch it; only the 20 um band above it
-        // can take a foot. The pocket gets two straps, kStrapSeparation apart.
-        const Rect outline{0, 0, 200, 140};
-        const std::vector<Rect> ring{{20, 20, 100, 30}, {20, 90, 100, 100}, {20, 30, 30, 90}, {90, 30, 100, 90}};
-        const std::vector<std::pair<std::string, std::vector<Rect>>> isl{{"R9", {{34, 34, 86, 70}}}};
+        // pocket and is the same metal component as the pocket, yet no foot may touch it; only the 20 um band below it
+        // can take a foot. The etch is thin (5 um) on the line's side and 60 um wide round the band, so a strap with a
+        // foot on the line would be the cheapest even with the line-crossing penalty of its span: the check, not the
+        // cost, has to keep the feet off it. The pocket gets two straps, kStrapSeparation apart.
+        const Rect outline{0, 0, 260, 220};
+        const std::vector<Rect> ring{{40, 40, 220, 100}, {40, 160, 220, 165}, {40, 100, 100, 160}, {160, 100, 220, 160}};
+        const std::vector<std::pair<std::string, std::vector<Rect>>> isl{{"R9", {{104, 120, 156, 156}}}};
         const auto M = detail::metal_map(outline, detail::etch_of(ring, {}));
         const auto I = detail::island_index(isl);
         const std::vector<char> eligible(std::size_t(M.n_comp), 1);

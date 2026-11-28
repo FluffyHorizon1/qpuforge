@@ -7,6 +7,7 @@
 //      Gamma-1's own leakage and a 10x stressed case, decoded with and without the heralds
 //   4. impact veto: per-shot impact injection at d = 7, the veto's false-veto rate, catch rate and discard fraction,
 //      logical error with and without it; the floor over the burst profile with the veto, against burst_floor()
+//   5. streaming (sliding-window) union-find at d = 7: logical error against batch union-find and latency per round
 // Writes results/decoder_study.{txt,json}. Options as for the reviews ([shots] [--out DIR] [--cache FILE] [--smoke]).
 #include "review_util.hpp"
 #include <chrono>
@@ -184,11 +185,40 @@ int main(int argc, char** argv) {
         out.set("impact_veto_d7", vj);
     }
 
+    // ------------------------------------------------------------------ 5. streaming union-find
+    {
+        Json sj = Json::array();
+        const int RS = g_opt.smoke ? 12 : 50;
+        say("\n5. Streaming (sliding-window) union-find at d = 7, %d rounds, memory-Z (same syndromes; window / commit in rounds)\n", RS);
+        const auto M = prepare_memory(G7, R7, nm7, RS, 'Z');
+        const long n = at_least(20000, shots / 2);
+        FrameRunOptions bo; bo.method = DecodeMethod::UnionFind;
+        const auto rb = run_memory_frame(M, n, 601, bo), rx = run_memory_frame(M, n, 601);
+        say("   %ld shots: exact matching %ld failures (eps %.3e), batch union-find %ld (eps %.3e), %.2f us per round\n", n, rx.logical_errors,
+            rx.eps_per_round, rb.logical_errors, rb.eps_per_round, rb.decode_us_per_shot / RS);
+        for (auto [W, C] : std::vector<std::pair<int, int>>{{2, 1}, {4, 2}, {6, 3}, {10, 5}, {20, 10}}) {
+            const StreamingUnionFind S(int(M.exp.detectors.size()), M.dem.edges, M.exp.detector_round, W, C);
+            FrameRunOptions so; so.stream = &S;
+            const auto r = run_memory_frame(M, n, 601, so);
+            const double ratio = rb.logical_errors > 0 ? double(r.logical_errors) / double(rb.logical_errors) : 0.0;
+            say("   window %2d / commit %2d: %ld failures (x%.2f of batch union-find); %.2f us per window on average -> %.2f us per committed round (round %.2f us)\n",
+                W, C, r.logical_errors, ratio, r.stream_window_us_mean, r.stream_window_us_mean / C, r.round_ns / 1e3);
+            Json o = Json::object();
+            o.set("window", W); o.set("commit", C); o.set("failures", double(r.logical_errors)); o.set("ratio_to_batch_uf", ratio);
+            o.set("window_us_mean", r.stream_window_us_mean); o.set("us_per_committed_round", r.stream_window_us_mean / C);
+            sj.push(o);
+        }
+        Json o = Json::object();
+        o.set("rounds", RS); o.set("shots", double(n)); o.set("failures_exact", double(rx.logical_errors)); o.set("failures_batch_uf", double(rb.logical_errors));
+        o.set("windows", sj);
+        out.set("streaming_uf_d7", o);
+    }
+
     const double secs = since(t_all);
     say("\nstudy complete in %.0f s\n", secs);
     out.set("shots", double(shots)); out.set("runtime_s", secs);
     out.set("provenance", provenance(g_opt, "union-find: 11 + rounds (memory-X adds 7919, as the Gamma-1 review); heralds: 300 + d; veto: 401 (calibration), "
-                                            "403 (injection), 505 (burst ladders)"));
+                                            "403 (injection), 505 (burst ladders); streaming: 601"));
     {
         std::ofstream f(g_opt.path("results/decoder_study.json")); out.dump(f); f << "\n";
         std::ofstream t(g_opt.path("results/decoder_study.txt")); t << g_txt;

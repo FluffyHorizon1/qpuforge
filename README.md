@@ -26,6 +26,18 @@ chip.json ──► device physics ─────────► noise model �
 * [`designs/gamma1/GAMMA-1.md`](designs/gamma1/GAMMA-1.md): **Gamma-1 (GF-97)**, a 97-qubit distance-7 memory.
 * [`ROADMAP.md`](ROADMAP.md): programme phases (Alpha → Beta → Gamma → Delta) with simulation and hardware exit criteria.
 
+### Unreleased: Phase Gamma decoding
+
+| Layer | Module | What it does |
+|---|---|---|
+| Union-find decoder | `unionfind.hpp`, `qec.hpp` | Weighted union-find (Delfosse-Nickerson growth, peeling), `DecodeMethod::UnionFind`, `qpuforge qec --decoder uf`: the real-time candidate; exact matching stays the reference. On Gamma-1 (14 rounds, same syndromes) its logical error per round is 0.98-1.10x the exact decoder's at d = 3, 5 and 7 |
+| Heralded leakage | `qec.hpp` | 3-state readout of the measure qubits (`HeraldSpec`: herald fidelity, false-herald rate); the decoder lowers the weights of the edges of the heralded qubit's round, with exact matching on the per-shot re-weighted graph (`decode_scaled`). `qpuforge qec --herald`. With the leakage-removing reset on Gamma-1 d = 7: -10% logical error at the chip's own leakage, -46% at 10x |
+| Impact veto | `qec.hpp` | Per-shot impact injection at a random time and place (`ImpactSpec`, deterministic per (seed, shot)), a sliding space-time window veto calibrated to a false-veto rate (`VetoSpec`, `calibrate_veto`), and the floor over the burst profile with the veto (`burst_floor_veto`). `qpuforge qec --bursts --veto` |
+| Linear-time setup | `qec.hpp` | Single-fault enumeration is linear in the number of rounds (per-qubit tails from each measurement cut): Gamma-1 d = 7 at 50 rounds in 1.3 s against 41 s for the 0.4 routine, identical output |
+
+Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decoder_study.cpp`). Design notes:
+[`docs/design/`](docs/design/).
+
 ### What's new in v0.4
 
 | Layer | Module | What it does |
@@ -54,7 +66,7 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 346 validation checks (~6 min on 4 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 367 validation checks (~6 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
@@ -123,7 +135,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 346 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 367 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -168,8 +180,18 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
   the decoder it agrees with the exact dynamic programme on 2,075 defect sets (weights to 3e-14, same logical
   prediction every time) and is never heavier than greedy on large sets. On a 30-round distance-5 run it fails
   3× less often than the old greedy fallback on the same syndromes.
-* Fault enumeration: the fast version reproduces the reference fault by fault on 184,870 faults (detectors, logical
-  flip, probability, order), on chips with equal and with unequal CZ durations.
+* Fault enumeration: the sparse and the linear-time versions both reproduce the reference fault by fault on 188,932
+  faults (detectors, logical flip, probability, order; d = 3 and 5, both bases, 1 to 8 rounds, DQLR, equal and
+  unequal CZ durations). The linear-time version's work per fault does not grow with the number of rounds (d = 5:
+  0.85 time slices per fault at both 10 and 40 rounds, against 33.7 and 141.9 for the sparse version).
+* Union-find decoder: every correction clears its syndrome (12,000 syndromes), every single fault the priors allow is
+  decoded correctly (55,917 mechanisms), and at d = 3 and 5 its logical error is 1.01-1.08x the exact decoder's on
+  the same syndromes (limit 1.5x).
+* Heralded leakage: matching on a re-weighted graph equals brute force on 300 random cases (to 9e-16); at d = 5 with
+  stressed measure-qubit leakage, heralds cut failures from 928 to 694 (exact) and from 984 to 763 (union-find) on
+  the same syndromes.
+* Impact veto: impacts without excess noise leave every shot unchanged; a calibrated threshold holds its false-veto
+  rate on fresh data; the veto catches 69% of chip-wide impacts at d = 5 and removes most of their excess error.
 * Memory-X: noiseless runs are deterministic, the detector error model is graph-like, and every single fault is
   corrected at d = 3 and d = 5. On the exact state-vector emulator a logical-Z chain flips the X memory and fires no
   detector, and leaves the Z memory alone; the same holds with X and Z exchanged.
@@ -228,14 +250,19 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
   1/f flux noise at the excursion point is added analytically (quasi-static). Spectator crossings use a Landau-Zener
   estimate, not a many-qubit pulse simulation.
 * Leakage is modelled at the frame level (flags, phase scrambling, transport, seepage, removal), not with 3-level
-  dynamics in the QEC circuits. The decoder is leakage-unaware: no heralding from 3-state readout.
+  dynamics in the QEC circuits. Heralded leakage (3-state readout) covers the measure qubits only, and the decoder
+  uses fixed weight factors for heralded edges, not a posterior from the leakage model.
 * **No layout in this repository is fabrication-ready.** All three chips pass the placement and island-spacing checks
   and fail the mask-level width/space check on the merged etch layer (4 µm / 4 µm). Violations, width + space:
   AF-17 34 + 202, BF-49 98 + 504, GF-97 194 + 1,016.
 * **The hardware-gate chain has only seen synthetic data.** The virtual chip is generated by the same simulator that
   evaluates it, so the rehearsal tests the plumbing and the gate logic, not the model's agreement with a real chip.
-* **Impacts are a chip-wide, uniform burst** with one recovery time. Hot spots, the spatial spread of phonons and the
-  scrambling of two-level-system defects by an impact are not modelled. The impact rate is an assumed round figure.
+* **Impacts are a uniform burst with one recovery time.** `burst_floor` treats them as chip-wide; per-shot injection
+  (`ImpactSpec`) adds a Gaussian spatial profile. The spread of phonons and the scrambling of two-level-system defects
+  by an impact are not modelled. The impact rate is an assumed round figure. The veto discards whole shots; on
+  Gamma-1, shot-by-shot discard does not lower the impact floor (the weak tail of a 25 ms burst still randomises the
+  logical qubit). A latched hold of 5 recovery times leaves it unchanged too; from 7 recovery times on it falls below
+  what the study resolves at 20,000 shots per severity (`results/decoder_study.txt`, `docs/design/impact-veto.md`).
 * **Capacitances come from a quasi-static MoM on an infinitely thick substrate.** Box modes, airbridges, the
   flip-chip interposer, kinetic inductance, flux and readout crosstalk, and participation ratios (TLS loss) are not
   extracted. Before tape-out, cross-check the cells with a full-wave/FEM tool (Palace, Sonnet, Q3D).
@@ -249,9 +276,9 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
 * Not modelled: measurement-induced dephasing, readout and flux crosstalk.
 * Pauli-frame QEC model: accurate for incoherent noise. Strong coherent ZZ (tens of kHz and up) is under-counted, so use
   `--statevector` to cross-check such designs.
-* Setting up a memory experiment enumerates every single fault and propagates it to the end of the circuit, which costs
-  time quadratic in the number of rounds (on two cores: 46 s for 40 rounds at distance 7, 87 s for 100 rounds at
-  distance 5).
+* Setting up a memory experiment is linear in the number of rounds for the fault enumeration, but the matching
+  decoder's all-pairs shortest paths cost the cube of the detector count (Gamma-1, d = 7: whole setup 1.3 s at 25
+  rounds, 3.8 s at 50, on four threads).
 * Results from before v0.4 with more than 22 defects in a shot used a greedy decoder fallback and were pessimistic. The
   design reviews in this repository have been re-run with the exact decoder, except the historical Alpha-1 v1.0 review.
 * The statevector backend is practical to about 26–28 qubits; the Pauli-frame backend handles d = 5–7 easily.
@@ -262,8 +289,9 @@ See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on t
 
 1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
 2. Multi-qubit pulse simulation of spectator crossings; flux-pulse distortion and predistortion model.
-3. Leakage heralding (3-state readout) and a leakage-aware decoder.
-4. Multi-patch circuits (lattice surgery) for Phase Gamma; a streaming decoder as the reference for the FPGA.
+3. Multi-patch circuits (lattice surgery) for Phase Gamma; a streaming (sliding-window) union-find decoder as the
+   reference for the FPGA.
+4. Data-qubit leakage heralding, and herald weights derived from the leakage model.
 5. Materials loop: atomforge → DFT for junction barriers, oxides and TLS defects. Loss tangents → Q → T1.
 6. Dear ImGui/ImPlot front-end; GPU kernels for 30+ qubit statevector emulation.
 

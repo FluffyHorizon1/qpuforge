@@ -8,8 +8,9 @@
 //
 // Workloads: run_memory_frame on a distance-3 memory with leakage on (exercises the leaked-time double sums) and a shot
 // count that is not a multiple of the block size, in both memory bases and with two decode methods, including the setup
-// (parallel fault enumeration -> DEM) and the 0.4 syndrome statistics; and the trajectory emulator's sampled XEB (a double
-// reduction).
+// (parallel fault enumeration -> DEM) and the 0.4 syndrome statistics; the same memory decoded with union-find, with
+// heralded leakage, and with per-shot impact injection and a calibrated veto; and the trajectory emulator's sampled XEB
+// (a double reduction).
 #include "qpuforge/qpuforge.hpp"
 #include <cstdio>
 #include <cstring>
@@ -51,6 +52,17 @@ static std::string frame_digest() {
                    " o22=" + hex(r.frac_over_22) + " dem=" + std::to_string(M.dem.edges.size()) + ":" + hex(pe) + " byr=";
             for (double v : r.detection_by_round) out += hex(v) + ",";
             out += " ";
+            if (basis != 'Z') continue;
+            FrameRunOptions uf; uf.method = DecodeMethod::UnionFind;                          // union-find decoder
+            out += "uf=" + std::to_string(run_memory_frame(M, 3000, 23 + unsigned(rounds), uf).logical_errors) + " ";
+            FrameRunOptions h; h.herald.on = true;                                             // heralded leakage
+            const auto rh = run_memory_frame(M, 3000, 29 + unsigned(rounds), h);
+            out += "her=" + std::to_string(rh.logical_errors) + "/" + hex(rh.heralds_per_shot) + "/" + hex(rh.herald_true_frac) + " ";
+            VetoSpec V; V.threshold = calibrate_veto(M, 3000, 31 + unsigned(rounds), 5e-3, V).threshold; V.on = true;   // impacts + veto
+            FrameRunOptions iv; iv.impact.p_shot = 0.1; iv.impact.burst.radius = 1.5; iv.veto = V;
+            const auto ri = run_memory_frame(M, 3000, 37 + unsigned(rounds), iv);
+            out += "imp=" + std::to_string(V.threshold) + "/" + std::to_string(ri.impacts) + "/" + std::to_string(ri.impacts_vetoed) + "/" +
+                   std::to_string(ri.discarded) + "/" + std::to_string(ri.errors_kept) + "/" + std::to_string(ri.errors_impacted) + " ";
         }
     return out;
 }

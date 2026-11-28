@@ -10,6 +10,10 @@ refuses to cut), adds a metal-connectivity check of the masks, and brings every 
 limit of the Alpha gate. **The masks are not fabrication-ready:** the connectivity check finds floating ground, shorted
 lines that do not reach the ground plane, and qubit junctions that do not land on metal (see Known issues).
 
+The decoding items of Phase Gamma: a union-find decoder, leakage-aware decoding from heralded leakage, per-shot impact
+injection with an impact veto, and linear-time fault enumeration. Study: `examples/decoder_study.cpp` ->
+`results/decoder_study.{txt,json}`.
+
 The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_CONTRACT.md`): a reader for the
 `forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
 
@@ -39,6 +43,21 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   3 minutes). `pulse_cz` checks the two pair classes with the most leakage with and without the fallback.
 - `docs/design/cz-leakage.md`.
 
+- `unionfind.hpp`: `UnionFindDecoder`, Delfosse-Nickerson union-find with weighted growth and peeling
+  (docs/design/union-find-decoder.md). `DecodeMethod::UnionFind`; `qpuforge qec --decoder uf`.
+- `qec.hpp`:
+  - Heralded leakage (docs/design/heralded-leakage.md): `HeraldSpec` in `FrameRunOptions` (3-state readout of the
+    measure qubits with a herald fidelity and a false-herald rate), `MatchingDecoder::decode_scaled` (exact matching on
+    a per-shot re-weighted graph), `herald_touch_edges`, `herald_footprints`, `MemorySetup::herald_edges`.
+    `qpuforge qec --herald [--herald-fidelity F] [--herald-false P] [--herald-factor X] [--herald-rule footprint|detector]`.
+  - Impact injection and veto (docs/design/impact-veto.md): `ImpactSpec` and `VetoSpec` in `FrameRunOptions`,
+    `BurstSpec::radius`, `impact_shot_seed`, `calibrate_veto`, `burst_floor_veto`. `qpuforge qec --bursts --veto
+    [--veto-window R] [--veto-radius L] [--veto-false P] [--impact-p P] [--burst-radius L]`.
+  - `MemoryResult`: herald counts, impact and discard counts, `p_logical_kept`, `eps_kept`, `veto_hist`.
+  - `MemorySetup::sim_xy`, `det_xy` (lattice positions); `FrameProgram::FMoment::known` (known basis state per slice).
+  - `enumerate_faults_direct`: the 0.4 sparse enumeration, kept for timing comparisons.
+- Tests: groups `union_find`, `heralds`, `impact_veto` (label qec); `fault_enumeration` now also checks the linear-time
+  version and its scaling (a deterministic work count: the optional `steps` output of both enumerations); the thread-count determinism digest covers union-find, heralds, and impacts with the veto.
 - `materials.hpp`: `load_materials` / `materials_from_json` read and check a `forge.materials.v0` sidecar, and
   `apply_materials` writes it into a `ChipDesign`. The sidecar's `Q_dielectric` (unit `dimensionless`) sets
   `ChipDesign::Q_dielectric` and its `junction_gap_ueV` (unit `ueV`) sets `ChipDesign::gap_ueV`; a value must be
@@ -54,7 +73,7 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   atomforge's placeholder sidecar byte for byte. Outside the validation checks: the `cli_materials`,
   `cli_materials_placeholder`, `cli_materials_loss_tangent`, `cli_materials_refused` and `cli_usage_materials` CLI
   guards. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
-- 346 validation checks in all. The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
+- 367 validation checks in all (346 on `main` before the decoding work, plus 21 from it). The 0.4 groups alone give 321, two more than the 319 quoted under 0.4.0: the
   `fix/cz-tuned-alpha-solve` merge added two `transmon` checks after that count was taken.
 - `docs/DATA_CONTRACT.md`: an "Implementation status" section. The proposal text is unchanged.
 
@@ -86,8 +105,14 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   at 100000 shots, `BETA-1.md` and `GAMMA-1.md`, the Alpha-1 v1.1 characterisation rehearsal, the three GDS files and
   their previews, and the test log. Alpha-1 v1.1: memory-Z 0.377 % ± 0.004 % per round, memory-X 0.360 %, Λ(3→5)
   projection 2.95 ± 0.18; the Alpha gate, now computed per pair, passes. Beta-1: 9 of 9 criteria pass; Gamma-1: 8 of 8.
+- `enumerate_faults` is linear in the number of rounds (docs/design/linear-fault-enumeration.md): faults are propagated
+  to the next measurement cut and finished with precomputed per-qubit tails. Output unchanged, fault by fault.
+- The matching decoder's DP, blossom and greedy paths read distances through an oracle, so that `decode_scaled` can
+  reuse them; results of `decode` are unchanged.
 
 ### API changes
+- `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
+- `frame_detail::FaultDesc` (internal) gained `owner`.
 - New header `include/qpuforge/materials.hpp`, included by `qpuforge.hpp`. It adds `MaterialsQuantity`,
   `MaterialsProducer`, `MaterialsSidecar`, `MaterialsApplyOptions`, `MaterialsReportLine`, `MaterialsReport`,
   `materials_from_json`, `load_materials`, `apply_materials` and the `materials_detail` namespace to `qpuforge`. Code
@@ -209,7 +234,7 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - Setting up a memory experiment takes time quadratic in the number of rounds (single-fault enumeration).
 - The hardware-gate chain has only been run on synthetic data from the virtual chip.
 
-## [0.3.0] - YYYY-MM-DD
+## [0.3.0] - 2026-11-27
 
 
 First tagged release. Adds pulse-level CZ calibration, a leakage-modelled QEC frame simulator, layout synthesis with

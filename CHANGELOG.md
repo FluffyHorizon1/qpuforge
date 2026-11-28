@@ -26,6 +26,12 @@ Phase Gamma logical operations: lattice surgery between surface-code patches (lo
 and a three-patch CNOT). Each operation is checked noiselessly with a stabiliser tableau and simulated with the
 Pauli-frame Monte Carlo. Study: `examples/surgery_study.cpp` -> `results/surgery_study.{txt,json}` (CZ model version 4).
 
+The next decoding items of Phase Gamma: herald weights derived from the leakage model instead of fixed factors,
+heralding of data-qubit leakage through DQLR (measured, and found to cost more than it recovers), and an
+operation-count model of the streaming union-find decoder with two stated hardware cost models. The hardware part is a
+model: nothing was synthesised or run on an FPGA. Study: `examples/decoder_study2.cpp` ->
+`results/decoder_study2.{txt,json}`.
+
 A strict command line: each command accepts only its own options, and an unknown, misspelt or repeated option, a
 missing value or a malformed number is a usage error (exit 1), reported before any file is read.
 
@@ -171,8 +177,34 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
   `cli_materials_budget`, `cli_materials_run_refused`, `cli_materials_layout_refused`, `cli_materials_gds_refused`,
   `cli_materials_qec`, `cli_materials_cz_missing_chip`, `cli_materials_hwgate_missing_chip` and `cli_loss_tangent_alone`
   for the other sub-commands. `test_qpuforge` is built with `QPUFORGE_TEST_DATA`, the path of `tests/data`.
-- 504 validation checks in all: 500 on `main` (`results/test_output.txt`, not regenerated for the mask-connectivity work) and
-  four more from it (below). Of the 500: 346 on `main` before the decoding work (the 321 of 0.4.0
+- `qec.hpp`, herald weights derived from the leakage model (docs/design/derived-herald-weights.md):
+  - `HeraldSpec::derived`; `HeraldModel` (`MemorySetup::herald_model`), `build_herald_model`, `prepare_herald_model`.
+    Per heralded readout: the probability that the qubit was leaked, and the probability of a fault on each
+    decoder-graph edge given that it was. Weights are log-likelihood ratios; an edge more likely than not is applied.
+  - `frame_detail::leak_chain` (`LeakChain`): one leakage excitation followed through the circuit with the sampler's
+    transitions (forward pass, backward smoothing per readout, forward continuation).
+  - `fault_signatures(F, E, list, steps)`: the linear-time enumeration for any list of mechanisms.
+  - `qpuforge qec --herald --herald-weights fixed|derived` (`--herald-factor` and `--herald-rule` apply to `fixed`).
+- Data-qubit leakage heralding (docs/design/data-leakage-herald.md): `LeakageSpec::dqlr_transfer` (`dqlr_transfer` in
+  the chip JSON, written only when set), `NoiseModel::dqlr_transfer`, `FrameProgram::dqlr_transfer`,
+  `FrameProgram::FMoment::dqlr_to`. The DQLR pulse leaves the leakage on the measure qubit, and that qubit's next
+  3-state readout heralds it. `qpuforge qec --leakage-removal lrr+dqlr --herald --dqlr-herald`.
+- `unionfind.hpp`, for the hardware model (docs/design/streaming-union-find-fpga.md):
+  - `UFOpCounts` and `UnionFindDecoder::decode_counted`: loads, growth steps, edge visits and updates, finds, pointer
+    hops, unions, peeling steps, corrections. The plain `decode()` is the same template with an empty counter.
+  - `StreamOptions` for `StreamingUnionFind::decode`: `scaled` (heralds through the streaming decoder), `predecode`
+    (an isolated-pair pre-decoder), `count` (per-window counts in `StreamScratch::counts` and `cleared`).
+    `StreamingUnionFind::global()`, `window_vertices`, `window_edges`, `committed_rounds`.
+  - `UFCostModel`, with `serial_bram()` and `parallel_growth()`: cycles per window from the counts.
+- `qec.hpp`: `run_stream_profile` and `StreamProfile`: histograms per window of every counter, of the cycles per
+  committed round and of the queueing latency, for a list of cost models.
+- `examples/decoder_study2.cpp` and `results/decoder_study2.{txt,json}`; `docs/design/derived-herald-weights.md`,
+  `data-leakage-herald.md`, `streaming-union-find-fpga.md`.
+- Tests: groups `herald_weights` (7 checks), `dqlr_herald` (6) and `stream_ops` (5), label `qec`: 18 checks on top of
+  the 500 below (`results/test_output.txt` predates them). The thread-count determinism digest also covers the herald
+  model, derived weights through the batch and the streaming decoder, DQLR with heralding, and the operation profile.
+  CLI guards for the two new options, and `cli_herald_stream` (below).
+- 500 validation checks in all (`results/test_output.txt`): 346 on `main` before the decoding work (the 321 of 0.4.0
   plus 25 in `materials`), plus 21 from the decoding work (#20), 48 from fabrication readiness (#19), 3 from the
   streaming decoder (#27) and 82 from lattice surgery (#21). The 0.4 groups now give 328: fabrication readiness added
   four `pulse_cz` checks and one `layout` check, the decoding work two `fault_enumeration` checks. The strict CLI (#24)
@@ -212,6 +244,13 @@ Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> 
 - CLI: `hwgate --out`, `cz --out`, the `synth-chip` data file and the `gds --cells` write-back fail with "cannot write"
   (exit 2) when the file cannot be opened or written, as `gds::write` does. `save_design` (`qpuforge new`) and
   `write_layout_svg` (`qpuforge layout`) throw likewise. All of them used to report "wrote" for a missing directory.
+
+- `qpuforge qec --decoder uf-stream --herald` decoded with the batch union-find decoder in two places. The
+  "decoded without heralds" comparison copied the options before the streaming decoder was attached. And
+  `run_memory_frame` sent every shot that had a herald to `decode_scaled`, whatever `FrameRunOptions::stream` said, so
+  the run itself was a mixture of the two decoders. Heralds now go through the streaming decoder
+  (`StreamOptions::scaled`), and the comparison copies the run's own options. `cli_herald_stream` pins it: with heralds
+  that never fire, the run and its comparison must agree, and must differ from `--decoder uf`.
 
 ### Changed
 - **Qubit SQUID.** `xmon` cuts a 10 µm ground lead out of the qubit's (−x, −y) inner corner, 10 µm from the SQUID stub;
@@ -282,6 +321,15 @@ the entries under Fixed do not already state; unknown, misspelt, repeated and mi
   which asserts exit status 0, an empty stderr and the usage text on stdout; a pass regex alone cannot see the exit status.
 
 ### API changes
+- `UnionFindDecoder::decode` is now a wrapper around a private template; its signature and results are unchanged.
+  `StreamingUnionFind::decode(defects, ws)` is unchanged; `decode(defects, ws, StreamOptions)` is new. `StreamScratch`
+  gained members. A `StreamingUnionFind` now also keeps the whole detector graph (`global()`).
+- `FrameRunOptions::stream` together with heralds used in the decoder: the shots with a herald are decoded by the
+  streaming decoder (they were decoded by the batch one). The streaming decoder must then be built from the setup's
+  own detector error model; `run_memory_frame` throws otherwise.
+- `unionfind.hpp` adds `UFOpCounts`, `UFCostModel`, `StreamOptions` and the `uf_detail` namespace to `qpuforge`;
+  `qec.hpp` adds `HeraldModel`, `StreamProfile`, `fault_signatures`, `build_herald_model`, `prepare_herald_model`,
+  `run_stream_profile`, and `frame_detail::LeakChain` / `leak_chain`.
 - `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
 - `frame_detail::FaultDesc` (internal) gained `owner`.
 - `enumerate_faults(F, E, long* steps = nullptr)` and `optimize_cz(S, fluxc_on, t_rise, dt, max_eval, leak_weight = 0,

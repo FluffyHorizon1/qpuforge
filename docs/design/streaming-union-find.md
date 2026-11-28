@@ -82,7 +82,7 @@ stands.
 
 - Latency is software wall clock. The maximum per window is dominated by preemption and first-touch allocation
   (milliseconds against microseconds on average), so only the mean is used. A hardware estimate needs an operation
-  count per window.
+  count per window: `streaming-union-find-fpga.md` gives one, with two stated hardware cost models.
 - Windows are decoded one after another. A pipelined or parallel-window scheme, in which independent windows are
   decoded concurrently and their seams are fixed afterwards, is not implemented.
 - The decoder works on whole shots from the frame simulator. It does not take rounds incrementally from a stream,

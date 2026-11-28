@@ -33,7 +33,7 @@ endif()
 # enough to change eps from 0.01200 to 0.01223 at 8 threads (see results/PROVENANCE.md).
 # Every target, including the fp_contract guard, must use this list (see tests/check_fp_contract_flags.cmake).
 set(QPUFORGE_COMPILE_OPTIONS -Wall -Wextra -O3 -ffp-contract=off)
-foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp surgery_study:examples/surgery_study.cpp flux_distortion_study:examples/flux_distortion_study.cpp test_fp_contract:tests/test_fp_contract.cpp)
+foreach(t qpuforge_cli:src/qpuforge.cpp test_qpuforge:tests/test_qpuforge.cpp design_study:examples/design_study.cpp alpha1_review:examples/alpha1_review.cpp alpha1_v11_review:examples/alpha1_v11_review.cpp beta1_review:examples/beta1_review.cpp gamma1_review:examples/gamma1_review.cpp decoder_study:examples/decoder_study.cpp decoder_sweeps:examples/decoder_sweeps.cpp decoder_study2:examples/decoder_study2.cpp surgery_study:examples/surgery_study.cpp test_fp_contract:tests/test_fp_contract.cpp)
   string(REPLACE ":" ";" parts ${t})
   list(GET parts 0 name)
   list(GET parts 1 src)
@@ -51,7 +51,7 @@ set_target_properties(qpuforge_cli PROPERTIES OUTPUT_NAME qpuforge)
 target_compile_definitions(test_qpuforge PRIVATE QPUFORGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 # `qpuforge --version` prints this (the version comes from project(... VERSION ...) above)
 target_compile_definitions(qpuforge_cli PRIVATE QPUFORGE_VERSION="${PROJECT_VERSION}")
-foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps surgery_study flux_distortion_study)
+foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps decoder_study2 surgery_study)
   target_compile_definitions(${name} PRIVATE QPUFORGE_GIT_SHA="${QPUFORGE_GIT_SHA}" QPUFORGE_GIT_DIRTY=${QPUFORGE_GIT_DIRTY})
 endforeach()
 # the materials group reads its forge.materials.v0 sidecar fixtures from the source tree
@@ -110,6 +110,11 @@ qpuforge_cli_test(burst_options_need_bursts "qpuforge qec: --burst-rate needs --
 qpuforge_cli_test(veto_needs_bursts "qpuforge qec: --veto needs --bursts" qec ${CLI_CHIP} --veto)
 qpuforge_cli_test(veto_options_need_veto "qpuforge qec: --impact-p needs --veto" qec ${CLI_CHIP} --bursts --impact-p 0.1)
 qpuforge_cli_test(herald_options_need_herald "qpuforge qec: --herald-rule needs --herald" qec ${CLI_CHIP} --herald-rule detector)
+qpuforge_cli_test(herald_weights_need_herald "qpuforge qec: --herald-weights needs --herald" qec ${CLI_CHIP} --herald-weights derived)
+qpuforge_cli_test(herald_factor_is_fixed_only "qpuforge qec: --herald-factor applies to --herald-weights fixed only"
+  qec ${CLI_CHIP} --herald --herald-weights derived --herald-factor 0.3)
+qpuforge_cli_test(dqlr_herald_needs_dqlr "qpuforge qec: --dqlr-herald needs --leakage-removal lrr\\+dqlr" qec ${CLI_CHIP} --herald --dqlr-herald)
+qpuforge_cli_test(bad_herald_weights "qpuforge qec: --herald-weights expects fixed or derived, got 'model'" qec ${CLI_CHIP} --herald --herald-weights model)
 qpuforge_cli_test(window_needs_stream "qpuforge qec: --window needs --decoder uf-stream" qec ${CLI_CHIP} --window 4)
 qpuforge_cli_test(commit_below_window "qpuforge qec: --commit \\(4\\) must be smaller than --window \\(4\\)"
   qec ${CLI_CHIP} --decoder uf-stream --window 4 --commit 4)
@@ -149,6 +154,11 @@ qpuforge_cli_test(ok_qec_decoding
   --impact-p 0.1 --burst-radius 2)
 qpuforge_cli_test(ok_qec_stream "decoder: streaming union-find.*window 4 rounds, committing 2 per step.*logical error per round"
   qec ${CLI_CHIP} --rounds 4 --shots 50 --seed 3 --decoder uf-stream --window 4 --commit 2)
+# derived herald weights and DQLR with heralding, through the streaming decoder: each is echoed
+qpuforge_cli_test(ok_qec_herald_derived
+  "decoder: streaming union-find.*weights derived from the leakage model.*DQLR with heralding.*decoded without heralds \\(streaming union-find\\)"
+  qec ${CLI_CHIP} --rounds 4 --shots 50 --seed 3 --decoder uf-stream --window 4 --commit 2 --leakage-removal lrr+dqlr --herald
+  --herald-weights derived --dqlr-herald)
 qpuforge_cli_test(ok_surgery "CNOT d=3 .*noiseless tableau check, 2 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
   surgery --op cnot --d 3 --input 00 --readout Z --chip beta1 --shots 0 --seed 1 --merge-rounds 0 --pre 1 --post 1 --samples 2
   --cache ${CLI_OUT}_unused_cache.json)   # --shots 0: the noiseless check only (no CZ calibration)
@@ -182,6 +192,11 @@ add_test(NAME cli_exit_status COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpufo
          -DOUT=${CLI_OUT}_exit_status_synth.json
          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_exit_status.cmake)
 set_tests_properties(cli_exit_status PROPERTIES LABELS unit)
+# `qec --decoder uf-stream --herald`: the "decoded without heralds" comparison must run the streaming decoder too (it
+# used to run the batch decoder). With heralds that never fire the two runs are the same decoding of the same syndromes.
+add_test(NAME cli_herald_stream COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:qpuforge_cli> -DCHIP=${CLI_CHIP}
+         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_herald_stream.cmake)
+set_tests_properties(cli_herald_stream PROPERTIES LABELS unit)
 # usage on request (exit 0, stdout): the pass-regex tests cannot see the exit status, so a script checks it
 foreach(m long:cli_help short:cli_help_short word:cli_help_word command:cli_help_command)
   string(REPLACE ":" ";" mp ${m})
@@ -267,7 +282,7 @@ set(QPUFORGE_TESTS
   "surface_geometry:qec" "qec_circuits:qec" "frame_vs_statevector:qec" "eigensolver:unit" "pulse_cz:pulse" "flux_predistortion:pulse"
   "leakage_frame:qec" "calibrated_noise_plumbing:qec" "layout:layout" "layout_geometry:layout" "layout_presets:layout" "json_rfc:unit" "json_depth:unit" "gds_write:layout"
   "matching:qec" "fault_enumeration:qec" "memory_bases:qec" "bursts:qec" "characterisation:qec" "designs_v04:physics"
-  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "surgery:qec" "surgery_cnot:qec")
+  "union_find:qec" "heralds:qec" "impact_veto:qec" "streaming_uf:qec" "herald_weights:qec" "dqlr_herald:qec" "stream_ops:qec" "surgery:qec" "surgery_cnot:qec")
 # fast unit groups for the serialisation layers (JSON parser/writer + design files, GDSII stream writer)
 list(APPEND QPUFORGE_TESTS "json:unit" "gds:unit")
 # forge.materials.v0 sidecar reader (atomforge -> qpuforge, docs/DATA_CONTRACT.md); fixtures in tests/data

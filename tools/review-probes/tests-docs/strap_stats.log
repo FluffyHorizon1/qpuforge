@@ -1,0 +1,12 @@
+== chip 0
+qubits whose flux line is shorted into the same metal component as their SQUID ground lead: 17 of 17
+longest chain 12 bridges; most qubit flux returns through one bridge: 4
+qubit SQUID ground leads: airbridges in series to the plane: 1 bridge(s): 9 qubits; 4 bridge(s): 2 qubits; 6 bridge(s): 1 qubits; 7 bridge(s): 1 qubits; 8 bridge(s): 1 qubits; 9 bridge(s): 1 qubits; 10 bridge(s): 1 qubits; 12 bridge(s): 1 qubits; ground lead's pocket touched by exactly one strap: 17 of 17
+== chip 1
+qubits whose flux line is shorted into the same metal component as their SQUID ground lead: 49 of 49
+longest chain 22 bridges; most qubit flux returns through one bridge: 7
+qubit SQUID ground leads: airbridges in series to the plane: 1 bridge(s): 17 qubits; 4 bridge(s): 8 qubits; 7 bridge(s): 6 qubits; 10 bridge(s): 6 qubits; 13 bridge(s): 4 qubits; 15 bridge(s): 8 qubits; ground lead's pocket touched by exactly one strap: 49 of 49
+== chip 2
+qubits whose flux line is shorted into the same metal component as their SQUID ground lead: 97 of 97
+longest chain 34 bridges; most qubit flux returns through one bridge: 11
+qubit SQUID ground leads: airbridges in series to the plane: 1 bridge(s): 25 qubits; 4 bridge(s): 12 qubits; 7 bridge(s): 10 qubits; 10 bridge(s): 10 qubits; 13 bridge(s): 8 qubits; 15 bridge(s): 32 qubits; ground lead's pocket touched by exactly one strap: 97 of 97

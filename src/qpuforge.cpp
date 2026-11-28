@@ -72,7 +72,7 @@ static const UsageBlock kUsageCommands[] = {
      "                pulse-level CZ calibration of every pair (physical tunable coupler)\n"},
     {"gds",
      "  qpuforge gds <chip.json> <out.gds> [--cells cells.json] [--synthesize [--from cells0.json]] [--cell NAME]\n"
-     "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, GDSII\n"},
+     "                physical layout: MoM capacitance synthesis of the cells, chip assembly, DRC, metal connectivity, GDSII\n"},
     {"surgery",
      "  qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input 00|01|++|+-|..] [--readout Z|X] [--chip beta1|alpha1_v11]\n"
      "                [--shots N] [--seed S] [--merge-rounds R] [--pre R] [--post R] [--samples N] [--cache file]\n"
@@ -95,13 +95,12 @@ static const UsageBlock kUsageNotes[] = {
     {"run budget fab qec cz synth-chip hwgate",
      "  --materials <sidecar.json> [--loss-tangent] is also accepted by run, budget, fab, qec, cz, synth-chip and hwgate (as for\n"
      "                analyze; not layout or gds, which refuse it); the sidecar is applied in memory, the chip JSON file is not changed\n"},
-    {"layout gds", "  --materials and --loss-tangent are refused here: the layout follows the chip JSON, so write a copy with the sidecar\n"
-                   "                applied first (qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json>)\n"},
+    {"layout gds", "  --materials and --loss-tangent are refused here: the layout follows the chip JSON, so apply the sidecar values to a copy first\n"},
     {"run budget", "  <circuit> = file.qasm | ghz:N | qft:N | bv:N | xeb:CYCLES\n"},
     {"run qec", "  noise sources: T1 Tphi thermal zz exchange control readout reset leakage (all: every source)\n"},
     {"qec cz synth-chip hwgate surgery", "  qec/cz/synth-chip/hwgate/surgery on a chip with a physical coupler calibrate CZs first (--cache file reuses them)\n"},
     {"*", "  each command takes only the options shown for it; an unknown option, a missing value or a bad number is an error\n"},
-    {"*", "  exit status: 0 done; 1 usage error; 2 error while running (also: gds layout not DRC-clean); 3 hwgate: gate not passed,\n"
+    {"*", "  exit status: 0 done; 1 usage error; 2 error while running (also: gds layout not DRC- and connectivity-clean); 3 hwgate: gate not passed,\n"
            "               surgery: a noiseless check failed\n"},
 };
 
@@ -585,21 +584,7 @@ static ChipDesign load_design_cli(const Args& a, const std::string& path) {
 static void refuse_materials(const Args& a, const char* cmd) {
     if (a.has("--materials") || a.flag("--loss-tangent"))
         throw UsageError(std::string("--materials is not supported by `") + cmd +
-                         "`: the layout follows the chip JSON (write a copy with `qpuforge materials apply <chip.json> <sidecar.json> --out <new-chip.json>` first)");
-}
-
-// materials apply <chip.json> <sidecar.json> --out <new-chip.json> [--loss-tangent]: the sidecar applied and saved (D2)
-static int cmd_materials(const Args& a) {
-    if (a.pos(0) != "apply") throw UsageError("unknown materials action '" + a.pos(0) + "' (the only action is apply)");
-    if (!a.has("--out") || a.text("--out").empty()) throw UsageError("materials apply needs --out <new-chip.json> (the chip file it writes)");
-    MaterialsApplyOptions o;
-    o.use_loss_tangent = a.flag("--loss-tangent");
-    const std::string out = a.text("--out");
-    const auto r = materials_apply_file(a.pos(1), a.pos(2), out, o);
-    print_materials(a.pos(2), r.sidecar, r.report);
-    std::printf("wrote %s: %d applied, %d skipped; materials_source records the sidecar (sha256 %s)\n", out.c_str(),
-                r.report.applied(), r.report.skipped(), r.chip["materials_source"]["sidecar_sha256"].str().c_str());
-    return 0;
+                         "`: the layout follows the chip JSON (apply the sidecar values to a copy of the chip JSON first)");
 }
 
 static int cmd_analyze(const Args& a) {
@@ -775,7 +760,7 @@ static int cmd_gds(const Args& a) {
     write_gds(L, a.pos(1), a.text("--cell", "TOP"));
     std::printf("\n%s — layout: %.1f x %.1f mm, %zu etch polygons, %zu junction regions, %zu bump pads -> %s\n", D.name.c_str(),
                 L.outline.w() / 1e3, L.outline.h() / 1e3, L.etch.size(), L.jj.size(), L.bumps.size(), a.pos(1).c_str());
-    std::printf("  DRC: %s\n", drc_summary(L).c_str());
+    std::printf("  DRC: %s\n  %s\n", drc_summary(L).c_str(), connectivity_summary(L).c_str());
     for (const auto& s : L.problems) std::printf("    %s\n", s.c_str());
     for (std::size_t i = 0; i < L.drc.size() && i < 10; ++i)
         std::printf("    %s %.3f um at (%.3f, %.3f) um\n", L.drc[i].rule.c_str(), L.drc[i].value, L.drc[i].box.cx(), L.drc[i].box.cy());
@@ -792,7 +777,7 @@ static int cmd_gds(const Args& a) {
     std::printf("  re-null by parking the couplers at %.3f GHz (%.0f MHz below the sweet spot, df/dPhi %.2f GHz/Phi0): residual gap %.3f MHz, ZZ %+.2f kHz\n",
                 P.park_fc_GHz, (D.coupler.f_max_GHz - P.park_fc_GHz) * 1e3, P.park_dfdphi_GHz, P.park_gap_MHz, P.park_zz_kHz);
     for (const auto& r : L.resonators) if (std::abs(r.drawn_um - r.target_um) > 1) std::printf("    resonator R%d length %.0f um vs target %.0f um\n", r.qubit, r.drawn_um, r.target_um);
-    return L.drc_clean() ? 0 : 2;
+    return L.drc_clean() && L.conn.clean() ? 0 : 2;
 }
 
 static int cmd_qec(const Args& a) {
@@ -1096,7 +1081,6 @@ static const std::vector<Command>& commands() {
         {"cz", cmd_cz, {"<chip.json>"}, with_materials({text("--out"), text("--cache"), real("--g-qc"), real("--f-on"), real("--rise")})},
         {"gds", cmd_gds, {"<chip.json>", "<out.gds>"},
          {text("--cells"), flag("--synthesize"), text("--from"), text("--cell"), text("--materials"), flag("--loss-tangent")}},   // refused
-        {"materials", cmd_materials, {"apply", "<chip.json>", "<sidecar.json>"}, {text("--out"), flag("--loss-tangent")}},
         {"surgery", cmd_surgery, {},
          {choice("--op", "zz|xx|cnot"), int_list("--d", 3), text("--input"), choice("--readout", "Z|X"),
           choice("--chip", "beta1|alpha1_v11"), integer("--shots", 0, 1000000000L),

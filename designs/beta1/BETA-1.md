@@ -4,10 +4,10 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Rev C. Simulation review complete (9 of 9 simulation-gate criteria pass). Layout (GDSII) passes the mask width/space DRC but is not fabrication-ready: metal connectivity open (§6). |
+| **Status** | Rev C. Simulation review complete (10 of 10 simulation-gate criteria pass). Layout (GDSII) is DRC- and connectivity-clean in the model (2D LVS-lite connectivity with modelled airbridges; airbridges, EM and inductance not verified); control-line T1 budget **not met** (flux line); foundry DRC not yet run (§6). |
 | **Purpose** | Show that the logical error falls with code size: a distance-5 rotated surface code on 49 qubits |
 | **Builds on** | Alpha-1 v1.1 (AF-17): same architecture and frequency plan; cells re-synthesised for the stronger readout coupling |
-| **Tooling** | qpuforge v0.4: `beta1_review` (1141 s, 100,000 shots per point) |
+| **Tooling** | qpuforge v0.4: `beta1_review` (2277 s, 100,000 shots per point) |
 
 All performance numbers are **simulation results**. The assumptions are in §8.
 
@@ -35,7 +35,7 @@ Rev A → rev B (first review):
 Rev B → rev C (second review, with qpuforge v0.4):
 
 4. **Too many resonators per feedline.** Three feedlines for 49 qubits put 17 resonators on each line across almost 1 GHz. Readout chains are run at 6–8 per line today. Rev C uses 6 feedlines with at most 9 resonators each, in 6.90–7.38 GHz. Cost: 6 more coaxial lines.
-5. **The reused Alpha-1 cells could not deliver the Beta-1 readout.** Beta-1 doubles the dispersive shift, which needs a qubit–readout coupling of 229 MHz. The Alpha-1 cell gives about 160 MHz (9.4 fF where 13.3 fF is needed): half the intended shift, and a slower or noisier readout than the model assumed. Rev B passed because its layout gate checked design rules only. Rev C re-synthesises the cells (readout pad 38.4 → 64.1 µm in the current cells, arms shortened to hold E_C) and the gate now checks the extracted circuit.
+5. **The reused Alpha-1 cells could not deliver the Beta-1 readout.** Beta-1 doubles the dispersive shift, which needs a qubit–readout coupling of 229 MHz. The Alpha-1 cell gives about 160 MHz (9.4 fF where 13.3 fF is needed): half the intended shift, and a slower or noisier readout than the model assumed. Rev B passed because its layout gate checked design rules only. Rev C re-synthesises the cells (readout pad 38.2 → 63.4 µm in the current cells, arms shortened to hold E_C) and the gate now checks the extracted circuit.
 6. **Decoding above 22 defects is now exact.** Rev B's decoder fell back to greedy matching there, and its long runs suffered for it. On identical syndromes of a 50-round distance-5 run (4,000 shots, 19.1 defects per shot, 27 % of shots above 22), the fallback fails in 4.8 % of shots (193 failures) and exact matching in 0.7 % (26). Rev B's long-run numbers were pessimistic; the leakage decision is re-tested with the exact decoder in §3.
 
 **Device model (rev C):** mean T1 147 µs (best 157 µs), T2 201 µs, readout error 0.55 % at 300 ns.
@@ -95,12 +95,13 @@ Next-step sensitivity: dielectric Q 6e6 → 1.2e7 -39 %, readout 300 → 200 ns 
   - 6 feedlines with 8.2 resonators each on average, 6.90–7.38 GHz in 60 MHz steps (spacing/κ = 7.5).
   - The wiring needs high-density flex cabling and a large-format dilution refrigerator. Each readout output chain is a TWPA plus a HEMT.
 - **Cells:** `layout_cells.json`, synthesised against the Beta-1 circuit targets by method-of-moments extraction.
-  - Extracted against target: E_C within 0.1 %, couplings within 5.5 %, qubit–readout capacitance -0.0 % (13.29 fF; readout g 229 MHz for a design value of 229 MHz).
-  - Parked exchange re-nulled by parking the couplers at 8.417 GHz (residual ZZ -4.36 kHz).
+  - Extracted against target: E_C within 0.1 %, couplings within 5.4 %, qubit–readout capacitance +0.3 % (13.34 fF; readout g 230 MHz for a design value of 229 MHz).
+  - Parked exchange re-nulled by parking the couplers at 8.407 GHz (residual ZZ -4.35 kHz).
 - **Layout:** `BF49.gds` (cell `BF49_BETA1`).
-  - 9.4 × 9.4 mm, 42,111 etch polygons, 129 junction regions, 227 bump pads.
+  - 9.4 × 9.4 mm, 33,470 etch polygons, 129 junction regions, 227 bump pads.
   - DRC: placement and island-spacing checks clean. Minimum width/space on the merged etch layer (4 µm / 4 µm, projection metric): clean.
-  - Metal connectivity (reported, not gated): 405 floating ground fragments; 33 of 178 shorted lines reach the ground plane (qubit flux lines 0 of 49); 80 of 129 junctions land on metal at both ends; 0 conductors share metal with another island.
+  - Metal connectivity: **clean**: 0 floating ground fragments; 178 of 178 shorted lines reach the ground plane (qubit flux lines 49 of 49); 129 of 129 junctions join an island to the plane; 0 conductors share metal with another island; 373 ground straps (modelled airbridges; 129 over lines, 146 over coupler or bus strips), 0 small ground fragments removed.
+  - Control lines (reported, not gated): XY line 0.030 / 0.030 fF (measure / data qubit), flux line 0.032 / 0.032 fF effective (2.37 / 2.32 fF if it were open); T1 limits at least 1.56 ms (XY) and 1.32 ms (flux), 11.4× and 9.7× the design T1 of the worst qubit (budget 10×: **not met**).
 - **Interposer** (feedlines, Purcell filters, fan-out to edge launchers): designed in Beta; not drawn here.
 
 ## 7. Beta simulation gate (ROADMAP.md)
@@ -114,7 +115,8 @@ Next-step sensitivity: dielectric Q 6e6 → 1.2e7 -39 %, readout 300 → 200 ns 
 | trimmed fabrication yield ≥ 80 % collision-free | ✔ pass |
 | chosen leakage scheme at least as good as the alternative over 50 rounds | ✔ pass |
 | detection rate flat over 100 rounds with the leakage-removing reset (drift < 5 %) | ✔ pass |
-| layout passes placement and island-spacing checks (mask DRC and metal connectivity reported, not gated; see §6) | ✔ pass |
+| layout passes placement, island-spacing and mask width/space checks (§6) | ✔ pass |
+| metal connectivity clean: conductors separate, shorted lines and all ground on the plane, SQUIDs island-to-plane (§6) | ✔ pass |
 | extracted E_C within 3 %, couplings and readout capacitance within 6 %; parked exchange re-nullable | ✔ pass |
 
 ## 8. Assumptions and limitations
@@ -124,10 +126,10 @@ Next-step sensitivity: dielectric Q 6e6 → 1.2e7 -39 %, readout 300 → 200 ns 
 - **`residual_ctrl_err` is an assumed allowance, not a simulation result.** It covers pulse distortion, calibration drift, TLS defects and crosstalk, none of which are simulated: 5e-4 per CZ for Beta-1 and 1e-3 for Alpha-1 v1.1. It is added on top of each pair's simulated coherent, flux-noise and decoherence error. The 5e-4 target assumes predistortion and closed-loop recalibration work as planned (§1).
 - **Leakage is modelled, not decoded, in this review.** The frame simulator tracks leakage, but the review's decoder gets no leakage herald, so a leaked qubit's outcomes reach it as ordinary detection events. Leakage-aware decoding now exists for Phase Gamma (3-state readout heralds the leaked measure qubits and the matching is re-weighted: `HeraldSpec`, `qpuforge qec --herald`, `../../docs/design/heralded-leakage.md`); this review does not use it.
 - **Λ is a matched-model best case** (§2): the decoder is built from the true error model.
-- **The mask is not fabrication-ready.** The layout passes the placement and island-spacing checks and the mask-level width/space check (4 µm on the merged etch layer, projection metric) with no violations (§6), but the metal connectivity check (`layout.hpp`, `ConnectivityReport`; reported, not gated) is not clean: 405 floating ground fragments; 33 of 178 shorted lines reach the ground plane (qubit flux lines 0 of 49); 80 of 129 junctions land on metal at both ends; 0 conductors share metal with another island. The extraction treats every enclosed ground fragment as grounded, so the extracted circuit is that of an ideal ground. Open before tape-out: the enclosed ground between the qubit arms and around the buses (ground straps or airbridges), the qubit flux-line short (drawn open), junction landing, the coupling of the XY and flux lines to the qubits, the foundry's DRC deck.
+- **Mask.** The layout passes the placement and island-spacing checks and the mask-level width/space check (4 µm on the merged etch layer, projection metric) with no violations; the metal connectivity check is clean with its ground straps; the control-line T1 budget (reported, not gated) is **not met**: XY line 0.030 / 0.030 fF (measure / data qubit), flux line 0.032 / 0.032 fF effective (2.37 / 2.32 fF if it were open); T1 limits at least 1.56 ms (XY) and 1.32 ms (flux), 11.4× and 9.7× the design T1 of the worst qubit (budget 10×: **not met**) (§6). Not verified: the airbridges (their capacitance to the coupler and bus strips they cross is not in the extraction cells), EM (full-wave) extraction, inductance (the flux lines' coupling to the SQUIDs), a foundry DRC deck.
 - **CZ leakage.** The largest per-pair leakage, 1.2e-04 per gate, is within the 2e-4 limit of the Alpha simulation gate (ROADMAP.md). Beta-1 uses the same 16 qubit-frequency combinations as Alpha-1 v1.1, so this is the pair class reported there (`../alpha1-v11/ALPHA-1-v1.1.md` §6).
 - The frequency-collision yield uses the v0.2 collision rules with static (sweet-spot) frequencies. Tunable qubits and per-pair CZ calibration give extra margin that the rules do not credit.
-- The couplers park 83 MHz below their sweet spot to null the exchange left by the layout. Their flux noise there is not in the error-correction model.
+- The couplers park 93 MHz below their sweet spot to null the exchange left by the layout. Their flux noise there is not in the error-correction model.
 - The cell synthesis meets the layout tolerances with little margin on the qubit–coupler couplings: it fits their mean, and the measure and data arms differ in length, so one lies above target and the other below. Junction sizes are set from the extracted E_C before tape-out.
 
 ## 9. Files

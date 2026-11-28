@@ -244,22 +244,6 @@ set_tests_properties(cli_materials_qec PROPERTIES FAIL_REGULAR_EXPRESSION "error
 # command line and read the chip first (the sidecar is applied after the chip has loaded, so "cannot open" comes first)
 set_tests_properties(cli_materials_cz_missing_chip cli_materials_hwgate_missing_chip PROPERTIES PASS_REGULAR_EXPRESSION "error: cannot open .*cli_no_chip.json")
 set_tests_properties(cli_materials_gds_refused cli_materials_qec cli_materials_cz_missing_chip cli_materials_hwgate_missing_chip PROPERTIES LABELS unit)
-# `materials apply --out` (decision D2): writes a copy of the chip with the sidecar applied and a materials_source block;
-# analyze then reads the copy without --materials and sees the applied values (each qubit kept its Rn_kOhm, D1)
-set(QPUFORGE_CLI_APPLIED ${CMAKE_CURRENT_BINARY_DIR}/cli_materials_applied.json)
-add_test(NAME cli_materials_apply COMMAND qpuforge_cli materials apply ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json --out ${QPUFORGE_CLI_APPLIED})
-add_test(NAME cli_materials_apply_analyze COMMAND qpuforge_cli analyze ${QPUFORGE_CLI_APPLIED})
-add_test(NAME cli_materials_apply_no_out COMMAND qpuforge_cli materials apply ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json)
-add_test(NAME cli_materials_apply_action COMMAND qpuforge_cli materials merge ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json --out ${CMAKE_CURRENT_BINARY_DIR}/cli_materials_never.json)
-add_test(NAME cli_materials_apply_overwrite COMMAND qpuforge_cli materials apply ${QPUFORGE_CLI_CHIP} ${QPUFORGE_CLI_DATA}/materials-values.json --out ${QPUFORGE_CLI_CHIP})
-set_tests_properties(cli_materials_apply PROPERTIES FIXTURES_SETUP materials_applied FAIL_REGULAR_EXPRESSION "error:" PASS_REGULAR_EXPRESSION
-  "applied +Q_dielectric +materials.Q_dielectric 3e\\+06 -> 1e\\+06.*applied +junction_gap_ueV .*180 -> 190.*wrote .*cli_materials_applied.json: 2 applied, 1 skipped; materials_source records the sidecar \\(sha256 [0-9a-f]+\\)")
-set_tests_properties(cli_materials_apply_analyze PROPERTIES FIXTURES_REQUIRED materials_applied FAIL_REGULAR_EXPRESSION "materials sidecar|error:" PASS_REGULAR_EXPRESSION
-  "materials: Q_diel=1e\\+06  junction gap 190 ueV.*mean T1")
-set_tests_properties(cli_materials_apply_no_out PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge materials: materials apply needs --out <new-chip.json>")
-set_tests_properties(cli_materials_apply_action PROPERTIES PASS_REGULAR_EXPRESSION "qpuforge materials: unknown materials action 'merge' \\(the only action is apply\\)")
-set_tests_properties(cli_materials_apply_overwrite PROPERTIES PASS_REGULAR_EXPRESSION "error: materials apply: --out .*alpha1_v11.json would overwrite an input file")
-set_tests_properties(cli_materials_apply cli_materials_apply_analyze cli_materials_apply_no_out cli_materials_apply_action cli_materials_apply_overwrite PROPERTIES LABELS unit)
 add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)

@@ -25,6 +25,12 @@ def load(path):
         return fix(json.load(f))
 
 
+def ratio(num, den, places=4):
+    """num/den rounded half-up from the exact counts (binary floats can round an exact half the wrong way)."""
+    from decimal import Decimal, ROUND_HALF_UP
+    return str((Decimal(int(num)) / Decimal(int(den))).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP))
+
+
 def div(a, b):
     return a / b if b else float('nan')
 
@@ -200,7 +206,7 @@ def gamma(scratch=None):
         'DEF_MEAN': f'{dec["mean_defects_d7"]:.1f}', 'DEF_MAX': int(dec['max_defects_d7']), 'DEF_OVER': f'{100 * dec["frac_over_22_d7"]:.2f} %',
         'DEC_US': f'{dec["decode_us_per_round_d7"]:.2f}',
         'LONG_R': int(lg['rounds']), 'LONG_N': f'{int(lg["shots"]):,}', 'LONG_DEF': f'{lg["mean_defects"]:.1f}', 'LONG_OVER': f'{100 * lg["frac_over_22"]:.0f} %',
-        'LONG_PL_EX': f'{lg["P_L_exact"]:.4f}', 'LONG_PL_LG': f'{lg["P_L_legacy"]:.4f}', 'LONG_F_EX': int(lg['failures_exact']), 'LONG_F_LG': int(lg['failures_legacy']),
+        'LONG_PL_EX': ratio(lg['failures_exact'], lg['shots']), 'LONG_PL_LG': ratio(lg['failures_legacy'], lg['shots']), 'LONG_F_EX': int(lg['failures_exact']), 'LONG_F_LG': int(lg['failures_legacy']),
         'LONG_US_EX': f'{lg["decode_us_per_round_exact"]:.1f}', 'LONG_US_LG': f'{lg["decode_us_per_round_legacy"]:.0f}',
         'B1_RATE': f'{b1["rate_hz"]:g}', 'B1_TAU': f'{b1["tau_ms"]:g}', 'B1_T1': f'{b1["t1_peak_us"]:g}', 'B1_PF': f'{b1["p_fail"]:.2f}',
         'B1_DEAD': f'{b1["dead_time_ms"]:.0f}', 'B1_VIS': f'{b1["detectable_ms"]:.0f}', 'B1_FLOOR': f'{b1["floor_per_round"]:.1e}', 'B1_SHARE': share(b1),

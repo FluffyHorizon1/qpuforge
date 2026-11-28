@@ -30,7 +30,7 @@ chip.json ──► device physics ─────────► noise model �
 
 | Layer | Module | What it does |
 |---|---|---|
-| Exact decoding at any size | `matching.hpp`, `qec.hpp` | Edmonds' blossom algorithm (primal-dual, O(n³)) for minimum-weight perfect matching of any number of defects. The dynamic programme is kept for up to 8 defects, where it is faster. The greedy fallback above 22 defects is gone. On a 30-round distance-5 run (20 defects per shot on average) decoding takes about 40 µs per shot, against 39 ms for the v0.3 decoder |
+| Exact decoding at any size | `matching.hpp`, `qec.hpp` | Edmonds' blossom algorithm (primal-dual, O(n³)) for minimum-weight perfect matching of any number of defects. The dynamic programme is kept for up to 8 defects, where it is faster. The greedy fallback above 22 defects is gone. On a 30-round distance-5 run (20 defects per shot on average) decoding takes about 33 µs per shot, against 43 ms for the v0.3 decoder |
 | Both memory bases | `qec.hpp` | Memory experiments in the X basis (\|+⟩ logical state, X-type detectors, logical X) beside the Z basis |
 | Correlated bursts | `qec.hpp` | High-energy impacts as a chip-wide excess decay or dephasing rate that relaxes exponentially; the decoder keeps its quiet-chip priors. Gives the probability that one impact flips the logical qubit, the unprotected time, how long the burst is visible in the syndrome, and the logical-error floor |
 | Hardware gate | `characterise.hpp` | A data-file format for measured chip parameters, a model built from them, and automatic evaluation of the roadmap's hardware gates, including model versus measurement. A virtual chip generates test data until hardware exists |
@@ -52,7 +52,7 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 235 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 235 validation checks (~10 min on 2 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
@@ -135,7 +135,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 * Circuit distance: every single fault is corrected at d = 3 (6,434 faults). At d = 5 every single fault (12,975) and 20,000
   random fault pairs are corrected.
 * Pauli-frame model vs exact statevector trajectories (1,000): detection rates and logical error agree within statistics
-  (P_L 0.0240 ± 0.0048 vs 0.0243).
+  (P_L 0.0240 ± 0.0048 vs 0.0248 ± 0.0003).
 * Eigensolver: Householder + QL vs Jacobi on random symmetric matrices (eigenvalues to 1e-13, orthogonality 4e-15).
 * Pulse-level CZ: charge matrix elements stay continuous over a 0–0.32 Φ0 flux sweep (no sign flips). Idle evolution
   reproduces the static ZZ phase to 1e-14 rad. The |11⟩–|20⟩ gap with the coupler on matches 2nd-order perturbation theory
@@ -187,10 +187,6 @@ distance 5 gives 0.18 % (Λ ≈ 2.6). Full data is in `results/` and `designs/al
 
 The tunable coupler wins clearly. With fixed coupling, faster gates and always-on ZZ crosstalk trade against each other.
 
-**v0.4 results** (simulation; see the design specs for assumptions). Logical error per round, memory-Z / memory-X:
-
-| Design | Code distance | Logical error per round | Notes |
-|---|---|---|---|
 **v0.4 results** (simulation; see the design specs for assumptions). Logical error per round, memory-Z / memory-X:
 
 | Design | Code distance | Logical error per round | Notes |

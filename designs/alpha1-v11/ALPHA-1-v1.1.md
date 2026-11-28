@@ -38,7 +38,7 @@ All performance numbers are **simulation results** under the assumptions in §8.
 
 **Protocol.** The measure qubit (the higher frequency) is the *mover*. For each CZ:
 
-1. Its flux pulse brings |11⟩ into resonance with |20⟩ (f_mover + α = f_data). The interaction point is 5.33–5.50 GHz, an excursion of 310–665 MHz.
+1. Its flux pulse brings |11⟩ into resonance with |20⟩ (f_mover + α = f_data). The interaction point is 5.32–5.50 GHz, an excursion of 309–665 MHz.
 2. At the same time the coupler swings from 8.5 GHz down to ≈ 6.03–6.13 GHz, which turns on an effective coupling with a 36 MHz |11⟩–|20⟩ gap.
 3. One full |11⟩ → |20⟩ → |11⟩ cycle gives the conditional phase π.
 
@@ -91,7 +91,7 @@ v1.1 is better than v1.0 despite the slower CZ. The physically modelled control 
 | No leakage removal | 0.405 % | 0.170 | 1.2e-3 / 1.6e-3 |
 | **Leakage-removing reset (chosen)** | **0.368 %** | **0.156** | 7.8e-5 / 1.2e-4 |
 | + DQLR each round (30 ns, 5e-4 error) | 0.406 % | 0.171 | 7.3e-6 / 1.1e-4 |
-| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.195 / 0.205 | 6.2e-4 / 6.6e-5 |
+| Stress, 10× CZ leakage: LRR / LRR + DQLR | — | 0.195 / 0.205 | data only: 6.2e-4 / 6.6e-5 |
 
 **Decision:** the leakage-removing reset is enough for Alpha-1. DQLR removes data-qubit leakage but costs more than it
 saves at distance 3, even at 10× leakage. It is carried to Beta as an option to re-test at distance 5.

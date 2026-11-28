@@ -59,7 +59,7 @@ blossom algorithm beyond.
 | Decoder | Logical failure probability | Failures | Decode time per round |
 |---|---|---|---|
 | Exact matching (v0.4) | **0.0013** | 5 | 2.1 µs |
-| Greedy above 22 defects (v0.3) | 0.0777 | 311 | 288 µs |
+| Greedy above 22 defects (v0.3) | 0.0778 | 311 | 288 µs |
 
 ## 4. High-energy impacts
 

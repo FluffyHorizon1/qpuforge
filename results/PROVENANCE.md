@@ -5,33 +5,35 @@ the commands below to reproduce them.
 
 | Output | Program and arguments | Source | Compiler | OpenMP threads | Finished (UTC) | Runtime |
 |---|---|---|---|---|---|---|
-| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T18:32:36Z | 744 s |
-| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T17:45:52Z | 2249 s |
-| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` | `1cfa2b14162e149f34a0f996e9e129cdf661577d` + working tree | g++ 13.3.0 | 2 | 2026-11-26T18:19:28Z | 1664 s |
+| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` (`.txt` = stdout) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-27T23:47:04Z | 353 s |
+| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (`.txt` = stdout) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-28T00:03:39Z | 995 s |
+| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-28T00:17:57Z | 858 s |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
-| `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | `bff9d108eb60886e2b6cb258de831142785457ce` (unchanged since 0.3) | g++ 14.2.0 | — | 2026-11-26 | — |
-| `designs/beta1/layout_cells.json` | `qpuforge gds designs/beta1/beta1.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` | 0.4 development tree, before it moved onto CZ model version 2 (see below) | g++ 13.3.0 | — | 2026-11-26 | 366 s |
-| `results/cz_cache.json` | written by the 0.3 Alpha run from an empty cache (16 calibrations simulated); the 0.4 runs reuse it (0 simulated, 16 cached) | `bff9d108eb60886e2b6cb258de831142785457ce` (unchanged since 0.3) | g++ 14.2.0 | 8 | 2026-11-25 | — |
+| `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` (warm start from the 0.4 cell file, `git show 5125500:designs/alpha1-v11/layout_cells.json`), output copied to the committed path | `0900b14` (`layout.hpp` and `src/` unchanged since) | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 267 s |
+| `designs/beta1/layout_cells.json` (also used by GF-97) | same, with `designs/beta1/beta1.json` and the 0.4 Beta-1 cell file | same | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 280 s |
+| `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | same | g++ 13.3.0 | — | 2026-11-27T23:34:33Z | — |
+| `designs/alpha1-v11/AF17_v11_layout.{png,svg}`, `AF17_v11_detail.{png,svg}`, `docs/from-committed-layout/af17-{full,zoom,q5}.svg` | `python3 tools/gds_preview.py designs/alpha1-v11/AF17_v11.gds <out>`; detail `--zoom 1550,2450,2250,3150`, zoom `--zoom 1350,2250,2700,3600`, Q5 `--zoom 1580,2480,2020,2920` | matplotlib 3.10 | — | — | 2026-11-27 | — |
+| `designs/beta1/BF49_layout.{png,svg}`, `designs/gamma1/GF97_layout.{png,svg}` | `python3 tools/gds_preview.py designs/beta1/BF49.gds <out>`, `python3 tools/gds_preview.py designs/gamma1/GF97.gds <out>` | matplotlib 3.10 | — | — | 2026-11-28 | — |
+| `results/cz_cache.json` | `qpuforge cz designs/alpha1-v11/alpha1_v11.json --cache results/cz_cache.json` from an empty cache (16 calibrations simulated); every review reuses it (0 simulated, 16 cached) | `pulse.hpp` as committed in `262f8cb` (CZ model version 3; `b3f6373` later rewrote one line for C++17 without changing any value) | g++ 13.3.0 | 1 | 2026-11-27T23:28Z | 453 s |
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
-  The 0.4 outputs were generated from the 0.4 working tree on top of `1cfa2b14162e149f34a0f996e9e129cdf661577d`, before that tree was committed:
-  each JSON says `source_tree_dirty: true`. Regenerate them from the release commit before tagging; with the same
-  thread count the numbers do not change.
+  The Alpha-1 v1.1, Beta-1 and Gamma-1 reviews were regenerated on `scs-bot/fab-readiness` from the committed tree
+  `d47ced4` (each JSON says `source_tree_dirty: false`), with CZ model version 3 and the re-synthesised cells. A later
+  commit on that branch (`b3f6373`) rewrote one line of `pulse.hpp` for C++17 without changing any value.
 - **Seeds** are fixed in the programs. Each JSON carries the list under `provenance.seeds`:
   - alpha: frame Monte Carlo seeds 101 + rounds (v1.0 vs v1.1), 111 + rounds (memory-X), 202/303/404 + rounds (leakage schemes), 505 + rounds (budget), 606 + rounds (sensitivity), 707 + rounds (distance 5).
   - beta: frame Monte Carlo seeds 11 + rounds (distance scaling, reference; memory-X adds 7919), 12 + rounds (d=5 at 9 rounds), 21 + rounds (50-round runs), 77 (decoder comparison), 23 + rounds (100-round runs), 31 + rounds (budget), 41 + rounds (sensitivity); fab Monte Carlo seed 7.
   - gamma: frame Monte Carlo seeds 11 + rounds (distance scaling; memory-X adds 7919), 77 (decoder comparison), 505 (impacts), 21 + rounds (long runs); fab Monte Carlo seed 7.
-- **Thread count matters.** The Pauli-frame Monte Carlo gives each OpenMP thread its own RNG stream (`seed`,
-  thread id). An exact rerun therefore needs the same thread count: `OMP_NUM_THREADS=2`. A
-  different count gives a statistically equivalent but different sample. The 0.3 outputs were made with 8 threads, so
-  0.4 values differ from them within Monte Carlo error even where nothing else changed.
+- **Thread count.** Since the deterministic Monte Carlo (`docs/design/deterministic-mc.md`) every shot has its own
+  RNG stream (`seed`, shot), so the reviews regenerated on this branch reproduce at any `OMP_NUM_THREADS`; they were run
+  with 4. Outputs made before it (Alpha-1 v1.0, and any row above with 2 or 8 threads) need their recorded thread count.
 - **Machine-dependent fields.** `runtime_s` and the decode times (`decode_us_per_round*`) are wall-clock measurements
   and change from run to run. A rerun with the same thread count reproduces every other number.
-- **Beta-1 cell file.** `designs/beta1/layout_cells.json` was synthesised before the 0.4 work moved onto CZ model
-  version 2, which shifted one circuit target (the direct qubit–qubit coupling) in the fifth digit. Running the
-  synthesis command above on the release code reproduces every cell dimension to within 2 nm. The reviews evaluate
-  the committed cells against the current targets.
+- **Cell files.** Both were synthesised with the DRC-aware generator (bus no narrower than its strip, shorted staircase
+  ends, ground-sliver clean-up of the extraction cells, G_md aimed 1.5 % high) in one run each, warm-started from the 0.4
+  cell file. The synthesis is deterministic: rerunning the command on the same code and starting file gives the same
+  cells. The reviews evaluate the committed cells against the current targets.
 - **Alpha-1 v1.0 review (not regenerated for v0.3).** `results/alpha1_review.{json,txt}` reproduce digit for digit only
   with the binary that was committed alongside them, run with two threads from a checkout of `3fe4d23`:
   ```
@@ -61,10 +63,10 @@ the commands below to reproduce them.
   from `main` no longer reproduce `results/alpha1_review.{json,txt}` (Gen-0 rows use `gen0_surface17()`, which PR #2 did not
   touch); those files describe the pre-PR-#2 Alpha-1 v1.0 design
   and have not been regenerated for it.
-- **CZ model** version 2 (`CZModel::kVersion`): dt 0.1 ns, Nelder–Mead budget 260, levels 4/4/4
-  (qubit/coupler/qubit), charge cutoff 12. The cache keys encode all of these, and a cache from another model version
-  is rejected.
-- **GDS dates:** the GDS files carry the real write date. `BF49_layout.png` and `GF97_layout.png` are rendered from
-  them by `tools/gds_preview.py`.
-- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all tests, serial) built from the same
-  source.
+- **CZ model** version 3 (`CZModel::kVersion`): dt 0.1 ns, Nelder–Mead budget 260, levels 4/4/4
+  (qubit/coupler/qubit), charge cutoff 12, leakage fallback above `leak_cap` 1e-4 with `leak_weight` 10
+  (`docs/design/cz-leakage.md`). The cache keys encode all of these, and a cache from another model version is
+  rejected. 14 of the 16 entries are bit-identical to version 2.
+- **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
+- **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all tests, serial; 359 checks, 0 failed),
+  built from `b3f6373` with g++ 13.3.0, run on 2026-11-28 (618 s wall).

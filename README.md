@@ -54,7 +54,7 @@ chip.json ──► device physics ─────────► noise model �
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 319 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 359 validation checks (~8 min on 2 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
@@ -121,7 +121,7 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 319 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 359 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -156,7 +156,10 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 * Layout: unit square plate capacitance vs the accepted value 0.3667874·4πε0·a (−0.04 %). CPW capacitance per length vs
   conformal mapping (−1.3 % on the design mesh, −0.6 % refined). Overlapping conductors are rejected. The AF-17 chip
   passes the placement and island-spacing checks, all 17 resonators sit at their quarter-wave lengths, and the GDSII stream parses back record by record.
-  A synthetic layer exercises the merged-etch width/space DRC; the AF-17 first-cut layout is not clean on that check (34 width + 202 space violations at 4 µm).
+  A synthetic layer exercises the merged-etch width/space DRC; the ground-sliver clean-up, the bus knob and the shorted
+  staircase end have their own checks (`layout_geometry`). AF-17, BF-49 and GF-97, assembled from the committed cells, pass
+  the placement checks and the 4 µm width/space DRC with no violations, meet the extraction targets and re-null the
+  parked exchange (`layout_presets`).
   `tools/gds_preview.py` is an independent Python GDSII reader and renderer.
 * Matching: the blossom matcher agrees with brute force on 600 random graphs (complete and sparse, even and odd). In
   the decoder it agrees with the exact dynamic programme on 2,075 defect sets (weights to 3e-14, same logical

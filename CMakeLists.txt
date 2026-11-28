@@ -115,6 +115,11 @@ qpuforge_cli_test(commit_below_window "qpuforge qec: --commit \\(4\\) must be sm
   qec ${CLI_CHIP} --decoder uf-stream --window 4 --commit 4)
 qpuforge_cli_test(surgery_readout_needs_cnot "qpuforge surgery: --readout applies to --op cnot only" surgery --readout Z --shots 0)
 qpuforge_cli_test(surgery_even_distance "qpuforge surgery: --d expects odd distances from 3 to 15, got 4" surgery --d 3,4 --shots 0)
+qpuforge_cli_test(unknown_option_surgery "qpuforge surgery: unknown option '--shot' \\(did you mean '--shots'\\?\\)" surgery --shot 100)
+qpuforge_cli_test(bad_number_surgery_shots "qpuforge surgery: --shots expects an integer >= 0, got '1e5'" surgery --shots 1e5)
+qpuforge_cli_test(bad_seed_surgery "qpuforge surgery: --seed expects an integer from 0 to 18446744073709551615, got '-1'" surgery --shots 0 --seed -1)
+qpuforge_cli_test(bad_choice_surgery "qpuforge surgery: --op expects zz, xx or cnot, got 'zzz'" surgery --op zzz)
+qpuforge_cli_test(surgery_extra_argument "qpuforge surgery: unexpected argument 'extra'" surgery extra)
 qpuforge_cli_test(bad_probability "qpuforge qec: --herald-fidelity expects a number from 0 to 1, got '1.5'" qec ${CLI_CHIP} --herald --herald-fidelity 1.5)
 qpuforge_cli_test(loss_tangent_needs_materials "qpuforge analyze: --loss-tangent needs --materials <sidecar.json>"   # before the chip is read
   analyze ${CLI_NO_CHIP} --loss-tangent)
@@ -147,6 +152,12 @@ qpuforge_cli_test(ok_qec_stream "decoder: streaming union-find.*window 4 rounds,
 qpuforge_cli_test(ok_surgery "CNOT d=3 .*noiseless tableau check, 2 random branches: 0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
   surgery --op cnot --d 3 --input 00 --readout Z --chip beta1 --shots 0 --seed 1 --merge-rounds 0 --pre 1 --post 1 --samples 2
   --cache ${CLI_OUT}_unused_cache.json)   # --shots 0: the noiseless check only (no CZ calibration)
+# the ZZ and XX measurements (ok_surgery is the CNOT); a "FAILED" or an error in the output is a regression
+qpuforge_cli_test(ok_surgery_zz "ZZ measurement d=3 \\|00>.*0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
+  surgery --op zz --d 3 --input 00 --shots 0 --seed 5)
+qpuforge_cli_test(ok_surgery_xx "XX measurement d=3 \\|\\+\\+>.*0 detector firings, 0 wrong observables, 0 wrong reference bits  \\(ok\\)"
+  surgery --op xx --d 3 --shots 0)
+set_tests_properties(cli_ok_surgery cli_ok_surgery_zz cli_ok_surgery_xx PROPERTIES FAIL_REGULAR_EXPRESSION "FAILED|error:")
 qpuforge_cli_test(ok_synth_chip "wrote .*cli_synth.json: 17 qubits"
   synth-chip ${CLI_CHIP} ${CLI_OUT}_synth.json --seed 1 --shots 50 --rounds 2 --z-only --hidden-dephasing-us 0 --cache ${CLI_OUT}_unused_cache.json)
 qpuforge_cli_test(ok_hwgate "wrote .*cli_gate.json"   # exit 3 (gate not passed) is ignored by the pass regex

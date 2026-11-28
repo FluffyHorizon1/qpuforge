@@ -95,7 +95,8 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   `--op cnot` only. Exit status 3 when a noiseless check fails.
 - `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
 - Tests: `surgery` and `surgery_cnot` groups (82 checks); the determinism guard also covers
-  `run_surgery_frame`; a smoke entry for the study.
+  `run_surgery_frame` (the ZZ measurement and the three-patch CNOT); a smoke entry for the study; `cli_*surgery*` guards
+  for the command line (outside the validation checks).
 - Tests: `cli_*` guards (label `unit`) for unknown options, missing values, malformed numbers and choices, repeated and
   extra arguments, one accepted invocation per command with every option given (two for `new`, a topology and
   `--preset`; three for `qec`: the burst options, then the decoding options and the streaming decoder at non-default

@@ -156,10 +156,11 @@ qpuforge run chip.json qft:6 --off zz,control               # ablation: switch n
 * Layout: unit square plate capacitance vs the accepted value 0.3667874·4πε0·a (−0.04 %). CPW capacitance per length vs
   conformal mapping (−1.3 % on the design mesh, −0.6 % refined). Overlapping conductors are rejected. The AF-17 chip
   passes the placement and island-spacing checks, all 17 resonators sit at their quarter-wave lengths, and the GDSII stream parses back record by record.
-  A synthetic layer exercises the merged-etch width/space DRC; the ground-sliver clean-up, the bus knob and the shorted
-  staircase end have their own checks (`layout_geometry`). AF-17, BF-49 and GF-97, assembled from the committed cells, pass
-  the placement checks and the 4 µm width/space DRC with no violations, meet the extraction targets and re-null the
-  parked exchange (`layout_presets`).
+  A synthetic layer exercises the merged-etch width/space DRC; the ground-sliver clean-up and its connectivity guard, the
+  metal-connectivity map, the bus knob and the shorted staircase end have their own checks (`layout_geometry`). AF-17,
+  BF-49 and GF-97, assembled from the committed cells, pass the placement checks, meet the extraction targets and re-null
+  the parked exchange; their only DRC markers are the ground necks the guard keeps (4 on AF-17, none on the others), and
+  their connectivity report is printed (`layout_presets`). The masks are not fabrication-ready: see CHANGELOG, Known issues.
   `tools/gds_preview.py` is an independent Python GDSII reader and renderer.
 * Matching: the blossom matcher agrees with brute force on 600 random graphs (complete and sparse, even and odd). In
   the decoder it agrees with the exact dynamic programme on 2,075 defect sets (weights to 3e-14, same logical

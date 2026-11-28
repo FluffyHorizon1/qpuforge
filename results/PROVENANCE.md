@@ -5,16 +5,16 @@ the commands below to reproduce them.
 
 | Output | Program and arguments | Source | Compiler | OpenMP threads | Finished (UTC) | Runtime |
 |---|---|---|---|---|---|---|
-| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` (`.txt` = stdout) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-27T23:47:04Z | 353 s |
-| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (`.txt` = stdout) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-28T00:03:39Z | 995 s |
-| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-28T00:17:57Z | 858 s |
+| `designs/alpha1-v11/alpha1_v11_review.{json,txt}`, `alpha1_v11.json` | `alpha1_v11_review 100000` (`.txt` = stdout and stderr) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-27T23:47:04Z | 353 s |
+| `designs/beta1/beta1_review.{json,txt}`, `beta1.json`, `BF49.gds` | `beta1_review 100000` (`.txt` = stdout and stderr) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-28T00:03:39Z | 995 s |
+| `designs/gamma1/gamma1_review.{json,txt}`, `gamma1.json`, `GF97.gds` | `gamma1_review 100000` (`.txt` = stdout and stderr) | `d47ced4462561399629b163f380bea1a62162506` (clean tree) | g++ 13.3.0 | 4 | 2026-11-28T00:17:57Z | 858 s |
 | `designs/beta1/BETA-1.md`, `designs/gamma1/GAMMA-1.md` | `python3 tools/fill_spec.py beta`, `python3 tools/fill_spec.py gamma` (review JSON + template) | same | — | — | — | — |
 | `designs/alpha1-v11/layout_cells.json` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json <out.gds> --cells <cells.json> --synthesize --from designs/alpha1-v11/layout_cells.json` (warm start from the 0.4 cell file, `git show 5125500:designs/alpha1-v11/layout_cells.json`), output copied to the committed path | `0900b14` (`layout.hpp` and `src/` unchanged since) | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 267 s |
 | `designs/beta1/layout_cells.json` (also used by GF-97) | same, with `designs/beta1/beta1.json` and the 0.4 Beta-1 cell file | same | g++ 13.3.0 | 2 | 2026-11-27T23:33Z | 280 s |
 | `designs/alpha1-v11/AF17_v11.gds` | `qpuforge gds designs/alpha1-v11/alpha1_v11.json designs/alpha1-v11/AF17_v11.gds --cells designs/alpha1-v11/layout_cells.json --cell AF17_V11` | same | g++ 13.3.0 | — | 2026-11-27T23:34:33Z | — |
 | `designs/alpha1-v11/AF17_v11_layout.{png,svg}`, `AF17_v11_detail.{png,svg}`, `docs/from-committed-layout/af17-{full,zoom,q5}.svg` | `python3 tools/gds_preview.py designs/alpha1-v11/AF17_v11.gds <out>`; detail `--zoom 1550,2450,2250,3150`, zoom `--zoom 1350,2250,2700,3600`, Q5 `--zoom 1580,2480,2020,2920` | matplotlib 3.10 | — | — | 2026-11-27 | — |
 | `designs/beta1/BF49_layout.{png,svg}`, `designs/gamma1/GF97_layout.{png,svg}` | `python3 tools/gds_preview.py designs/beta1/BF49.gds <out>`, `python3 tools/gds_preview.py designs/gamma1/GF97.gds <out>` | matplotlib 3.10 | — | — | 2026-11-28 | — |
-| `results/cz_cache.json` | `qpuforge cz designs/alpha1-v11/alpha1_v11.json --cache results/cz_cache.json` from an empty cache (16 calibrations simulated); every review reuses it (0 simulated, 16 cached) | `pulse.hpp` as committed in `262f8cb` (CZ model version 3; `b3f6373` later rewrote one line for C++17 without changing any value) | g++ 13.3.0 | 1 | 2026-11-27T23:28Z | 453 s |
+| `results/cz_cache.json` | `qpuforge cz designs/alpha1-v11/alpha1_v11.json --cache results/cz_cache.json` from an empty cache (16 calibrations simulated); every review reuses it (0 simulated, 16 cached) | CZ model version 4 (`pulse.hpp` and `src/` as committed with this file) | g++ 13.3.0 | 2 | 2026-11-28T01:32:18Z | 259 s |
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
@@ -63,10 +63,10 @@ the commands below to reproduce them.
   from `main` no longer reproduce `results/alpha1_review.{json,txt}` (Gen-0 rows use `gen0_surface17()`, which PR #2 did not
   touch); those files describe the pre-PR-#2 Alpha-1 v1.0 design
   and have not been regenerated for it.
-- **CZ model** version 3 (`CZModel::kVersion`): dt 0.1 ns, Nelder–Mead budget 260, levels 4/4/4
-  (qubit/coupler/qubit), charge cutoff 12, leakage fallback above `leak_cap` 1e-4 with `leak_weight` 10
-  (`docs/design/cz-leakage.md`). The cache keys encode all of these, and a cache from another model version is
-  rejected. 14 of the 16 entries are bit-identical to version 2.
+- **CZ model** version 4 (`CZModel::kVersion`): dt 0.1 ns, Nelder–Mead budget 260, levels 4/4/4
+  (qubit/coupler/qubit), charge cutoff 12, guarded leakage fallback (`leak_limit` 2e-4, `coh_limit` 5e-4,
+  `leak_weight` 10; `docs/design/cz-leakage.md`). The cache keys encode all of these, and a cache from another model
+  version is rejected. 15 of the 16 entries are bit-identical to version 2.
 - **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
 - **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all tests, serial; 359 checks, 0 failed),
   built from `b3f6373` with g++ 13.3.0, run on 2026-11-28 (618 s wall).

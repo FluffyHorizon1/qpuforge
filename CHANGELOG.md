@@ -5,49 +5,71 @@ every such change is listed under **API changes**.
 
 ## [Unreleased]
 
-Makes the committed chips fabrication-ready in simulation: AF-17, BF-49 and GF-97 pass the merged-etch width/space DRC,
-and every CZ pair class is under the 2e-4 leakage limit of the Alpha gate.
+Clears the merged-etch width/space DRC of BF-49 and GF-97 (AF-17 keeps four ground necks the connectivity guard
+refuses to cut), adds a metal-connectivity check of the masks, and brings every CZ pair class within the 2e-4 leakage
+limit of the Alpha gate. **The masks are not fabrication-ready:** the connectivity check finds floating ground, shorted
+lines that do not reach the ground plane, and qubit junctions that do not land on metal (see Known issues).
 
 ### Added
 - `layout.hpp`:
   - `detail::fill_ground_slivers`: mask clean-up that merges two cut-outs separated by a strip of ground narrower than
     the minimum (projection metric). It removes ground only; a gap that touches island metal is left to the DRC.
-    `assemble_chip` runs it on the chip, and the extraction cells get the same clean-up (`cell_ground_holes`), so the
-    MoM extraction sees the fabricated geometry. `ChipLayout::slivers_filled` and `drc.ground_sliver_fills` in the
-    review JSON count the fills.
-  - `detail::etch_of` (cut-outs minus metal, factored out of `assemble_chip`).
+  - `detail::guarded_fill`: the clean-up as `assemble_chip` runs it, with a connectivity guard: a fill that would cut
+    ground off the ground plane is undone, and the DRC reports the neck it leaves.
+  - `detail::metal_map` (`MetalMap`): exact connected components of the metal (outline minus etch) by scanline and
+    union-find.
+  - `ConnectivityReport` (`ChipLayout::conn`), `connectivity_summary`, `connectivity_json` (LVS-lite): conductors
+    sharing metal, conductors on the plane, shorted lines (resonators, qubit and coupler flux lines) reaching the plane,
+    floating ground fragments, junctions landing on metal at both ends, fills undone. The reviews report it under
+    `layout.connectivity`; it is not gated.
+  - `detail::etch_of` (cut-outs minus metal, factored out of `assemble_chip`); `cell_ground_holes` (the same clean-up
+    on the ground cut-outs of the extraction cells).
   - `set_bus_knob` / `bus_knob`, `kBusRetract`, `CouplerGeom::g_b` (`bus_end_gap_um` in the cell file),
     `CouplerGeom::bus_gap()`, `CouplerGeom::bus_tbar()`, `LayoutTargets::G_md_renull_margin`.
-- `pulse.hpp`: `CZModel::leak_cap` and `CZModel::leak_weight`; `optimize_cz(..., leak_weight, leak_cap)`.
-- Tests: `layout_geometry` (bus knob, shorted staircase end, ground-sliver fill) and `layout_presets` (the three
-  committed chips: placement and mask DRC clean, extraction on target, exchange re-nullable; label `layout`, about
-  3 minutes). `pulse_cz` checks the worst pair class with and without the leakage fallback; `layout` asserts the AF-17
-  mask DRC. 359 checks in all (319 in 0.4.0).
+- `pulse.hpp`: `CZModel::leak_limit`, `CZModel::coh_limit`, `CZModel::leak_weight`;
+  `optimize_cz(..., leak_weight, leak_limit, coh_limit)`.
+- `alpha1_v11_review`: the Alpha simulation gate computed from per-pair maxima (`exit_criteria`), the extraction errors,
+  the re-null check and the connectivity report.
+- Tests: `layout_geometry` (bus knob, shorted staircase end, ground-sliver fill, metal map, guarded fill) and
+  `layout_presets` (the three committed chips: placement clean, no DRC marker except the necks the guard kept, no
+  conductor shorted or merged, extraction on target, exchange re-nullable; connectivity printed; label `layout`, about
+  3 minutes). `pulse_cz` checks the two pair classes with the most leakage with and without the fallback.
 - `docs/design/cz-leakage.md`.
 
 ### Changed
-- **Layout cells (DRC-aware).** The bus is never drawn narrower than its strip: below that, the direct-coupling knob of
-  the synthesis pulls the bus ends back from the qubits instead of shrinking the T-bar to a sliver (0.075 µm on the 0.4
-  AF-17 cells, 0.25 µm on BF-49). The shorted end of a staircase line (the qubit flux line) trims the neighbouring trench
-  to the short, so the short meets the ground plane; in 0.4 a 1 µm etch slit separated them. The synthesis aims the
-  direct coupling 1.5 % above target so that the parked exchange can always be re-nulled by parking the coupler below
-  its sweet spot.
+- **Layout cells.** The bus is never drawn narrower than its strip: below that, the direct-coupling knob of the
+  synthesis pulls the bus ends back from the qubits instead of shrinking the T-bar to a sliver (0.075 µm on the 0.4
+  AF-17 cells, 0.25 µm on BF-49). The synthesis aims the direct coupling 1.5 % above target so that the parked exchange
+  can always be re-nulled by parking the coupler below its sweet spot.
+- **Qubit flux line.** In 0.4 it ended in a "short" that a 1 µm etch slit separated from the ground next to the SQUID
+  (a DRC width violation at every qubit). That ground is enclosed by the arm and T-bar cut-outs and floats, so no short
+  drawn into it reaches the plane. The line now ends open with a full 6 µm trench; the short to the plane is open
+  (Known issues). `stair(..., short_end)` trims the trench beside a shorted end, for lines that end on real ground.
 - **Cells and masks regenerated.** `designs/alpha1-v11/layout_cells.json` and `designs/beta1/layout_cells.json`
   (also used by GF-97) were re-synthesised; `AF17_v11.gds`, `BF49.gds`, `GF97.gds` and their previews regenerated. Mask
-  DRC, 0.4 → now: AF-17 34 + 202 → 0 + 0, BF-49 98 + 504 → 0 + 0, GF-97 194 + 1,016 → 0 + 0 (width + space
-  violations). Fine-mesh extraction: AF-17 cells E_C within 0.05 %, couplings within 4.6 %, readout capacitance −0.5 %;
-  BF-49 cells E_C within 0.08 %, couplings within 5.5 %, readout capacitance −0.05 %. The couplers re-null 83–95 MHz
-  below their sweet spot (205 MHz on the 0.4 AF-17 cells).
-- **CZ calibration (CZ model version 3).** A pair whose plain `1 - F_avg` calibration leaks more than 1e-4 is
-  re-calibrated with the objective `1 - F_avg + 10 · leakage`, and the result kept if it leaks less. 14 of the 16 pair
-  classes keep their version-2 calibration bit for bit. 5.81/5.29 GHz (Q8–Q11 on AF-17) goes from 2.33e-4 to 1.60e-5
-  leakage (coherent error 4.06e-4 → 3.55e-4), 5.87/5.29 GHz from 1.20e-4 to 1.94e-5 (2.08e-4 → 2.68e-4). Largest
-  leakage over the 16 classes: 8.4e-5. `results/cz_cache.json` regenerated; version-2 caches are rejected.
-- The Beta and Gamma simulation gates now include the mask width/space DRC (criterion `drc`); ROADMAP.md lists it in
-  the Alpha, Beta and Gamma layout criteria. `alpha1_v11_review` reports the extraction errors and the re-null check.
-- Review outputs regenerated at 100000 shots (`results/PROVENANCE.md`): Alpha-1 v1.1 memory-Z 0.374 % ± 0.004 % per round
-  (memory-X 0.368 %), Λ(3→5) projection 3.07 ± 0.19; Beta-1 9 of 9 and Gamma-1 8 of 8 gate criteria pass, the mask DRC
-  now among them. `BETA-1.md` and `GAMMA-1.md` refilled; `ALPHA-1-v1.1.md` updated.
+  DRC (width + space violations), 0.4 → now: AF-17 34 + 202 → 0 + 4, BF-49 98 + 504 → 0 + 0, GF-97 194 + 1,016 → 0 + 0.
+  The four AF-17 markers are ground necks (0.42 and 1.59 µm) that are the only link between a ground region and the
+  plane. Fine-mesh extraction: AF-17 cells E_C within 0.05 %, couplings within 4.6 %, readout capacitance −0.5 %; BF-49
+  cells E_C within 0.08 %, couplings within 5.5 %, readout capacitance −0.05 %. The couplers re-null 75–95 MHz below
+  their sweet spot (205 MHz on the 0.4 AF-17 cells). The extraction treats enclosed ground fragments as grounded.
+- **CZ calibration (CZ model version 4).** A pair whose plain `1 - F_avg` calibration fails the 2e-4 leakage limit is
+  re-calibrated with the objective `1 - F_avg + 10 · leakage`; the repeat is kept only if it meets the limit, its
+  1 − F_avg is no worse and it stays within 5e-4. 15 of the 16 pair classes keep their version-2 calibration bit for bit.
+  5.81/5.29 GHz (Q8–Q11 on AF-17) goes from 2.33e-4 to 1.60e-5 leakage and from 4.06e-4 to 3.55e-4 coherent error; its
+  gate is 3.5 ns longer and its total CZ error 0.5 % higher. Largest leakage over the 16 classes: 1.20e-4 (5.87/5.29).
+  `results/cz_cache.json` regenerated; caches of other model versions are rejected.
+- The layout criteria of the Alpha, Beta and Gamma gates (ROADMAP.md) list the mask DRC and metal connectivity as
+  reported, required before fabrication, and not gated in simulation.
+
+### Known issues
+- **The masks are not fabrication-ready.** Metal connectivity (`layout.connectivity` in the reviews):
+  - ground enclosed by cut-outs floats: between the qubit arms (the arm and T-bar cut-outs seal the inner corners for
+    arm lengths below about 132 µm), around the buses, and in pockets near the resonators and coupler flux lines;
+  - shorted lines that end in such a pocket do not reach the plane, and the qubit flux lines end open: no DC return;
+  - the qubit SQUID junctions end in etch on their ground side; the coupler junctions land;
+  - the XY and flux lines' capacitance to the qubits, and the resulting T1 limit, are not modelled;
+  - the extraction treats every enclosed ground fragment as grounded.
+- AF-17 keeps four DRC space violations (ground necks below 4 µm), one each at Q7, Q10, Q13 and Q16.
 
 ## [0.4.0] (unreleased)
 
@@ -143,6 +165,9 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - CLI: the usage text lists `--version` / `-V`.
 
 ### Known issues
+- No layout passes the merged-etch width/space DRC (4 µm / 4 µm, projection metric): AF-17 has 34 width + 202 space violations,
+  BF-49 rev C 98 width + 504 space violations, and GF-97 194 width + 1,016 space violations. The
+  masks are not fabrication-ready.
 - Setting up a memory experiment takes time quadratic in the number of rounds (single-fault enumeration).
 - The hardware-gate chain has only been run on synthetic data from the virtual chip.
 

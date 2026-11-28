@@ -54,6 +54,8 @@ add_dependencies(qpuforge_git_stamp qpuforge_git_stamp_update)
 target_include_directories(qpuforge_git_stamp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)   # git_stamp.hpp
 target_compile_definitions(qpuforge_git_stamp PUBLIC QPUFORGE_GIT_STAMP)   # git_stamp.hpp: the stamp is linked in
 target_compile_options(qpuforge_git_stamp PRIVATE ${QPUFORGE_COMPILE_OPTIONS})
+# Every program that includes git_stamp.hpp (through review_io.hpp) belongs in this list. One that is left out says
+# "unknown" in its outputs; the CTest guard git_stamp_wiring fails for it.
 foreach(name alpha1_v11_review beta1_review gamma1_review decoder_study decoder_sweeps surgery_study)
   target_link_libraries(${name} PRIVATE qpuforge_git_stamp)
 endforeach()
@@ -201,13 +203,22 @@ add_test(NAME fp_contract_flags COMMAND ${CMAKE_COMMAND}
   -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fp_contract_flags.cmake)
 set_tests_properties(fp_contract_flags PROPERTIES LABELS unit)
-# Stamp guard (not one of the validation checks): on a scratch git repository in the build tree, cmake/git_stamp.cmake
-# must follow HEAD and the dirty flag from one run to the next, and leave the stamp file alone when nothing changed.
-# No network. Without git only the "unknown" stamp is checked and the test is reported as skipped, not failed.
+# Stamp guards (not validation checks). Each works on a scratch git repository in the build tree, without network.
+# git_stamp: cmake/git_stamp.cmake must follow HEAD and the dirty flag from one run to the next, and leave the stamp
+# file alone when nothing changed.
+# git_stamp_wiring: this file must run that script on every build and link its result into every program that includes
+# git_stamp.hpp. A copy of this file, with a few lines in place of each program source, is configured once with this
+# build's generator and compiler and built again after each commit; each program must then print the new commit.
+# Without git each checks the "unknown" stamp only and is reported as skipped, not failed.
 add_test(NAME git_stamp COMMAND ${CMAKE_COMMAND} -DSTAMP_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/cmake/git_stamp.cmake
          -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR} -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_git_stamp.cmake)
+add_test(NAME git_stamp_wiring COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+         -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR} -DGENERATOR=${CMAKE_GENERATOR} -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+         -DCXX_COMPILER=${CMAKE_CXX_COMPILER} -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_git_stamp_wiring.cmake)
 set_tests_properties(git_stamp PROPERTIES LABELS unit SKIP_REGULAR_EXPRESSION "git_stamp: skipped")
+set_tests_properties(git_stamp_wiring PROPERTIES LABELS unit SKIP_REGULAR_EXPRESSION "git_stamp_wiring: skipped")
 # Thread-count determinism guard (not one of the validation checks): Monte Carlo results must be bit-identical for any
 # OpenMP thread count (docs/design/deterministic-mc.md). 'determinism' compares 1/2/3/4/8 threads in one process;
 # 'determinism_env' runs separate processes under OMP_NUM_THREADS=1,2,4,8 and compares their digests.

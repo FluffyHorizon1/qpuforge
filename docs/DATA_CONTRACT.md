@@ -233,3 +233,52 @@ Units in this file must be explicit on every quantity. Recommended conventions, 
 ## 5. Recommended next software step (not part of this proposal's implementation)
 
 Once the DFT `ExternalPotential` can relax and evaluate a named QPU-stack system, write one `forge.materials.v0` file by hand from those results, set `Q_dielectric` (or tanδ plus an explicit conversion), and patch a copy of `designs/alpha1-v11/alpha1_v11.json` to see the T1 change through existing `analyze()`. That exercise validates the contract against the code that already exists. It does not require a new API.
+
+---
+
+## 6. FEM reference cross-check (`qpuforge.fem_crosscheck.v0`, q17)
+
+*Added Saturday 28 November 2026 on branch `feat/q17-fem-reference`. Decided by Finnian Bond, 2026-11-28: support both
+Elmer and Palace; report the FEM-vs-model tolerance first, tighten it later. Scope: `docs/design/q17-q18-feasibility.md`.*
+
+This is a second, separate contract: an offline FEM solver → qpuforge. No solver is a build dependency. The solver runs
+elsewhere, its native export is imported by `include/qpuforge/fem.hpp`, and the committed form is a small JSON file.
+
+```json
+{
+  "schema": "qpuforge.fem_crosscheck.v0",
+  "solver": {"name": "elmer" | "palace", "version": "..."},
+  "cell": "pair",                     // star_meas, star_data, pair (layout.hpp's extraction cells)
+  "cell_hash": "...",                 // optional: hash of the exported geometry
+  "units": "fF",                      // the only accepted unit
+  "conductors": ["qa", "coupler", "bus", "qb"],
+  "maxwell_fF": [[...], ...],         // Maxwell matrix, one row per conductor (negative off-diagonals)
+  "mesh": {...}, "domain": {...}      // free-form provenance, carried through
+}
+```
+
+| Solver | Native file | Importer | Convention handled |
+|---|---|---|---|
+| Elmer (StatElecSolver, `Calculate Capacitance Matrix`) | `CapacitanceMatrix.dat`: whitespace rows in F, no names, `!`/`#` comments | `fem::import_elmer(text, names, version, lumped = true)` | lumped (positive mutuals) → Maxwell by negating the off-diagonals; `lumped = false` reads a Maxwell file as is |
+| Palace (`Electrostatic`) | `terminal-C.csv`: header row, then `index, C[i][1] (F), ...` | `fem::import_palace(text, names, version)` | Maxwell; the index column must run 1..n |
+
+Names are given by the caller in Capacitance Body / terminal order. Every importer refuses: a row of the wrong length,
+a non-number, a duplicated or empty name, a non-positive diagonal, a positive off-diagonal (wrong convention), and an
+asymmetry above 5 %. A smaller asymmetry is kept (`FemReference::asymmetry`) and the matrix is symmetrised.
+`reference_from_json` additionally refuses another schema, a unit other than fF, and a solver other than elmer/palace.
+
+**Ground.** The MoM cell includes the ground plane as a conductor; the FEM uses it as a 0 V boundary. With ground at
+0 V the Maxwell matrix of the other conductors is the sub-matrix without ground, so `compare_fem` compares the
+conductors the reference names and lists the rest (`model_only`, normally `ground`). A reference conductor missing
+from the model is an error.
+
+**Deviation (reported, not enforced).** `fem::compare_fem(model, reference, FemTolerance)` gives the relative
+deviation of every Maxwell entry, of E_C per conductor and of G per pair (from the inverse of the shared sub-matrix, the
+convention of `layout::triple_circuit`), the worst of each, and whether they are within the stated tolerance
+(default 2 % C, 2 % E_C, 5 % G). `FemTolerance::enforced` is false: `comparison_summary` / `comparison_json` say
+"within" or "outside", and nothing fails on it. It becomes an enforced check once stage-one agreement has been measured.
+
+Tests: the `fem` group (label `layout`). Fixtures in `tests/data/fem/` are **synthetic** (no solver run): the same
+4-conductor pair-cell matrix as an Elmer file, a Palace file and the v0 JSON. Not yet done: the geometry export and
+driver (`tools/fem_crosscheck.py`), committed references from real solver runs, participation ratios (Palace
+`surface-Q.csv`).

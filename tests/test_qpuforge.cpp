@@ -1908,23 +1908,48 @@ static void test_materials() {
 }
 
 // ---------------------------------------------------------------- lattice surgery (surgery.hpp)
-// Every single fault is corrected by each observable's decoder (circuit distance >= 3), with uniform edge weights (a
-// pure distance check). Mechanisms below 1e-7 are left out of it: the coherent-ZZ twirl places the phase accumulated
-// over a long idle window at the window's end, and a few such 1e-8-level mechanisms (beside seam faces idling before
-// the merge) end up parallel to a time-boundary edge; with uniform weights they would tie with it.
-static int surgery_uncorrected_single_faults(SurgerySetup& M, int* tiny = nullptr) {
+// Single-fault distance check with uniform edge weights. The graph is built from every mechanism that flips one or two
+// decoded detectors; parallel edges (same detectors, different observable flag) keep the flag with the larger total
+// probability, then every weight is set equal. Every mechanism, hyperedges included, is then decoded. Mechanisms the
+// matching gets wrong are counted with their total probability and split into coherent-ZZ twirl terms and the rest.
+struct SingleFaults { std::size_t faults{0};   // mechanisms per observable's DEM
+                      int uncorrected{0}, uncorrected_other{0}, undetectable{0}; double uncorrected_p{0}; };
+static SingleFaults surgery_single_faults(SurgerySetup& M) {
     const auto fk = surgery_fault_signatures(M);
-    int wrong = 0, small = 0; DecodeScratch ws;
+    SingleFaults r; DecodeScratch ws;
+    r.faults = fk.empty() ? 0 : fk[0].size();
     for (std::size_t o = 0; o < fk.size(); ++o) {
-        std::vector<FaultSignature> big;
-        for (const auto& f : fk[o]) { if (f.p >= 1e-7) big.push_back(f); else ++small; }
-        DetectorErrorModel U = build_dem(big, M.dem[o].n_det);
-        for (auto& e : U.edges) e.p = 0.01;
+        std::map<std::pair<int, int>, std::pair<double, double>> acc;   // (a, b) -> total p with observable 0 / 1
+        for (const auto& f : fk[o]) {
+            if (f.dets.empty() || f.dets.size() > 2) continue;
+            auto& v = acc[{f.dets[0], f.dets.size() == 2 ? f.dets[1] : -1}];
+            (f.obs ? v.second : v.first) += f.p;
+        }
+        DetectorErrorModel U; U.n_det = M.dem[o].n_det;
+        for (const auto& [k, v] : acc) U.edges.push_back({k.first, k.second, v.second > v.first, 0.01});
         MatchingDecoder dec(U);
-        for (const auto& f : big) if (f.dets.size() <= 2) wrong += dec.decode(f.dets, ws) != int(f.obs);
+        for (const auto& f : fk[o]) {
+            if (f.dets.empty()) { r.undetectable += f.obs; continue; }
+            if (dec.decode(f.dets, ws) == int(f.obs)) continue;
+            ++r.uncorrected; r.uncorrected_p += f.p;
+            if (f.what != "ZZ") ++r.uncorrected_other;
+        }
     }
-    if (tiny) *tiny = small;
-    return wrong;
+    return r;
+}
+
+static bool surgery_failed(const SurgeryCheck& c) { return c.fired || c.wrong_observables || c.wrong_reference || c.random_reference; }
+
+// leakage-on variants of a noise model, for the comparisons of the two frame runners
+static NoiseModel with_leakage(const ChipDesign& D, const ChipReport& R, NoiseModel nm, bool removing_reset, bool dqlr) {
+    nm.leakage = true; nm.leak_1q = 1e-3; nm.leak_transport = 0.2; nm.reset_removes_leakage = removing_reset;
+    nm.dqlr = dqlr; nm.dqlr_eff = 0.98; nm.dqlr_err = 5e-4;
+    for (const auto& p : R.pairs) if (p.designed) {
+        const int a = D.index_of(p.a), b = D.index_of(p.b);
+        const int mover = D.qubits[std::size_t(a)].role == "data" ? b : a;
+        nm.leak_cz[{std::min(a, b), std::max(a, b)}] = {mover, 2e-3};
+    }
+    return nm;
 }
 
 static void test_surgery() {
@@ -1948,19 +1973,24 @@ static void test_surgery() {
         for (const auto& f : X.phase_faces[1]) if (!sepx.count(f.qubit)) { seam_x += f.type == 'X'; CHECK(f.type == 'X', "a new face of an XX merge is Z type"); }
         CHECK(seam_x == d + 1, "XX seam has %d new X faces (expected d+1)", seam_x);
     }
-    // noiseless tableau check: logical inputs, both parities, d = 3 and 5
+    // noiseless tableau check: logical inputs, both parities, d = 3 and 5, with and without a separate round before
+    // the merge; one seed per experiment
     int runs = 0, bad = 0;
+    std::uint64_t seed = 1000;
+    SurgeryRounds pre0; pre0.pre = 0;
     for (int d : {3, 5})
         for (char ty : {'Z', 'X'})
-            for (const char* in : {"00", "01", "10", "11", "++", "+-", "-+", "--"}) {
-                const auto E = surgery_parity(d, ty, in[0], in[1]);
-                const auto c = check_surgery_noiseless(E, d == 3 ? 4 : 2, 3);
-                ++runs;
-                if (c.fired || c.wrong_observables || c.wrong_reference || c.random_reference) {
-                    ++bad; std::printf("    %s: fired %d, wrong observables %d, reference %d/%d\n", E.sched.name.c_str(), c.fired, c.wrong_observables, c.wrong_reference, c.random_reference);
+            for (const char* in : {"00", "01", "10", "11", "++", "+-", "-+", "--"})
+                for (const auto& rr : {SurgeryRounds{}, pre0}) {
+                    if (d == 5 && rr.pre == 0) continue;
+                    const auto E = surgery_parity(d, ty, in[0], in[1], rr);
+                    const auto c = check_surgery_noiseless(E, d == 3 ? 4 : 2, ++seed);
+                    ++runs;
+                    if (surgery_failed(c)) {
+                        ++bad; std::printf("    %s (pre %d): fired %d, wrong observables %d, reference %d/%d\n", E.sched.name.c_str(), rr.pre, c.fired, c.wrong_observables, c.wrong_reference, c.random_reference);
+                    }
                 }
-            }
-    std::printf("  noiseless tableau check: %d parity experiments (|00> |01> |10> |11> |++> |+-> |-+> |--> x ZZ, XX x d=3,5), %d failed\n", runs, bad);
+    std::printf("  noiseless tableau check: %d parity experiments (8 inputs x ZZ, XX x d=3,5; d=3 also merging from the first round), %d failed\n", runs, bad);
     CHECK(bad == 0, "noiseless surgery: %d experiments with a fired detector or a wrong observable", bad);
     {
         const auto E = surgery_parity(3, 'Z', '0', '1');
@@ -1984,7 +2014,10 @@ static void test_surgery() {
         gs.insert(gs.begin() + std::ptrdiff_t(i), g);
         CHECK(check_surgery_noiseless(F, 1, 1).fired > 0, "an X error in the merged phase fired no detector");
     }
-    // single patch through the surgery engine = memory_experiment: same chip as beta1(3), same logical errors shot for shot
+    // single patch through the surgery engine = memory_experiment on the same chip as beta1(3). The two frame runners
+    // must agree shot for shot: the error counts after every prefix of 1..120 shots, and the totals over 6000 shots,
+    // with plain noise and with leakage (CZ leakage 2e-3, 1q 1e-3, transport 0.2; with a plain or a leakage-removing
+    // reset; with DQLR)
     {
         const auto E = surgery_memory(3, 3, 'Z');
         const auto D = surgery_chip(E.sched.lat, "beta1"), B = beta1(3);
@@ -1995,19 +2028,31 @@ static void test_surgery() {
                    D.qubits[k].feedline == B.qubits[k].feedline && D.qubits[k].role == B.qubits[k].role;
         for (std::size_t k = 0; same && k < D.couplings.size(); ++k) same = D.couplings[k].a == B.couplings[k].a && D.couplings[k].b == B.couplings[k].b && D.couplings[k].C_fF == B.couplings[k].C_fF;
         CHECK(same, "surgery_chip of one d=3 patch differs from beta1(3)");
-        const auto R = analyze(B); const auto nm = noise_model(B, R);
-        for (char basis : {'Z', 'X'}) {
-            const auto Em = basis == 'Z' ? E : surgery_memory(3, 3, 'X');
-            const auto M = prepare_memory(B, R, nm, 3, basis);
-            const auto S = prepare_surgery(B, R, nm, Em, basis);
-            const auto a = run_memory_frame(M, 6000, 21);
-            const auto b = run_surgery_frame(S, 6000, 21);
-            std::printf("  single patch d=3 memory-%c, 6000 shots: run_memory_frame %ld errors (detection %.5f), run_surgery_frame %ld (%.5f)\n",
-                        basis, a.logical_errors, a.detection_rate, b.errors[0], b.detection_rate);
-            CHECK(a.logical_errors == b.errors[0] && a.detection_rate == b.detection_rate && b.errors[0] > 0, "surgery engine differs from the memory experiment (%c)", basis);
-        }
+        const auto R = analyze(B); const auto nm0 = noise_model(B, R);
+        struct Variant { const char* name; NoiseModel nm; };
+        const std::vector<Variant> variants = {{"plain", nm0}, {"leakage, plain reset", with_leakage(B, R, nm0, false, false)},
+                                               {"leakage, leakage-removing reset", with_leakage(B, R, nm0, true, false)},
+                                               {"leakage, DQLR", with_leakage(B, R, nm0, true, true)}};
+        for (const auto& v : variants)
+            for (char basis : {'Z', 'X'}) {
+                if (std::string(v.name) == "leakage, DQLR" && basis == 'X') continue;
+                const auto Em = basis == 'Z' ? E : surgery_memory(3, 3, 'X');
+                const auto M = prepare_memory(B, R, v.nm, 3, basis);
+                const auto S = prepare_surgery(B, R, v.nm, Em, basis);
+                const auto a = run_memory_frame(M, 6000, 21);
+                const auto b = run_surgery_frame(S, 6000, 21);
+                int prefix_diff = 0;
+                for (long n = 1; n <= 120; ++n) prefix_diff += run_memory_frame(M, n, 33).logical_errors != run_surgery_frame(S, n, 33).errors[0];
+                std::printf("  single patch d=3 memory-%c, %s: run_memory_frame %ld errors (detection %.5f, %.3f leakage events/shot), run_surgery_frame %ld (%.5f, %.3f); per-shot prefixes differing %d/120\n",
+                            basis, v.name, a.logical_errors, a.detection_rate, a.leak_events_per_shot, b.errors[0], b.detection_rate, b.leak_events_per_shot, prefix_diff);
+                CHECK(a.logical_errors == b.errors[0] && a.detection_rate == b.detection_rate && a.leak_events_per_shot == b.leak_events_per_shot && b.errors[0] > 0,
+                      "surgery engine differs from the memory experiment (%c, %s)", basis, v.name);
+                CHECK(prefix_diff == 0, "surgery engine differs shot by shot (%c, %s)", basis, v.name);
+                CHECK(!v.nm.leak_cz.empty() == (a.leak_events_per_shot > 0), "variant %s: leakage events %.3f per shot", v.name, a.leak_events_per_shot);
+            }
     }
-    // d = 3 ZZ measurement on a Beta-1 physics chip: graph-like DEM, every single fault corrected, noiseless runs clean
+    // d = 3 ZZ measurement on a Beta-1 physics chip: which observables each basis decodes, graph-like DEM, single-fault
+    // distance, noiseless runs clean
     {
         const auto E = surgery_parity(3, 'Z', '0', '0');
         const auto D = surgery_chip(E.sched.lat, "beta1"); const auto R = analyze(D); const auto nm = noise_model(D, R);
@@ -2018,43 +2063,83 @@ static void test_surgery() {
         for (char ty : {'Z', 'X'}) {
             const auto Ey = ty == 'Z' ? E : surgery_parity(3, 'Z', '+', '+');
             auto M = prepare_surgery(D, R, nm, Ey, ty);
-            int tiny = 0;
-            const int wrong = surgery_uncorrected_single_faults(M, &tiny);
+            const auto sf = surgery_single_faults(M);
             const auto r = run_surgery_frame(M, 4000, 7);
-            std::printf("  d=3 ZZ measurement (%c-type decoding): %d detectors, %zu faults, hyperedges %d, undetectable %d, uncorrected single faults %d (%d below 1e-7 left out);",
-                        ty, r.n_detectors, M.n_faults, r.hyperedge_faults, r.undetectable_logical, wrong, tiny);
+            std::string names; for (const auto& n : r.names) names += (names.empty() ? "" : ",") + n;
+            std::printf("  d=3 ZZ measurement (%c-type decoding: %s): %d detectors, %zu fault mechanisms, hyperedges %d, undetectable %d; uniform-weight decoding "
+                        "leaves %d uncorrected (summed over the decoders) (total p %.2e, %d not ZZ-twirl terms);", ty, names.c_str(), r.n_detectors, sf.faults, r.hyperedge_faults,
+                        r.undetectable_logical, sf.uncorrected, sf.uncorrected_p, sf.uncorrected_other);
             for (std::size_t k = 0; k < r.names.size(); ++k) std::printf(" %s %.4f", r.names[k].c_str(), r.p[k]);
             std::printf("\n");
-            CHECK(r.hyperedge_faults == 0 && r.undetectable_logical == 0, "ZZ measurement DEM (%c) is not graph-like", ty);
-            CHECK(wrong == 0, "ZZ measurement (%c): %d single faults uncorrected", ty, wrong);
+            CHECK(names == (ty == 'Z' ? "m_ZZ,Z_A,Z_B" : "X_A X_B"), "ZZ measurement (%c) decodes %s", ty, names.c_str());
+            CHECK(r.hyperedge_faults == 0 && r.undetectable_logical == 0 && sf.undetectable == 0, "ZZ measurement DEM (%c) is not graph-like", ty);
+            CHECK(sf.uncorrected_other == 0 && sf.uncorrected_p < 1e-7, "ZZ measurement (%c): %d uncorrected single faults (p %.2e)", ty, sf.uncorrected, sf.uncorrected_p);
             CHECK(r.p_any > 0 && r.p_any < 0.05, "ZZ measurement (%c): implausible logical error %.4f", ty, r.p_any);
         }
+        // XX on |++> decodes m_XX and both patch logicals; an observable of the wrong type is refused at setup
+        {
+            const auto Ex = surgery_parity(3, 'X', '+', '+');
+            const auto Dx = surgery_chip(Ex.sched.lat, "beta1"); const auto Rx = analyze(Dx);
+            const auto Mx = prepare_surgery(Dx, Rx, noise_model(Dx, Rx), Ex, 'X');
+            std::string names; for (int k : Mx.obs) names += (names.empty() ? "" : ",") + Ex.observables[std::size_t(k)].name;
+            CHECK(names == "m_XX,X_A,X_B", "XX measurement decodes %s", names.c_str());
+        }
+        auto Bad = E; Bad.observables[0].type = 'X';            // m_ZZ mis-typed: decoded with X-type detectors
+        bool threw = false;
+        try { prepare_surgery(D, R, nm, Bad, 'X'); } catch (const std::exception&) { threw = true; }
+        CHECK(threw, "an observable decoded with detectors of the wrong type was accepted");
     }
 }
 
 static void test_surgery_cnot() {
-    std::puts("[surgery-cnot] three-patch lattice-surgery CNOT: logical stabiliser states (tableau), DEM distance, noise");
+    std::puts("[surgery-cnot] three-patch lattice-surgery CNOT: logical stabiliser states and reference qubits (tableau), DEM distance, noise");
     int runs = 0, bad = 0;
     const char* zin[] = {"00", "01", "10", "11"};
     const char* xin[] = {"++", "+-", "-+", "--"};
     const char* mix[] = {"+0", "+1", "-0", "-1", "0+", "1+", "0-", "1-"};
+    std::uint64_t seed = 2000;
+    SurgeryRounds pre0; pre0.pre = 0;
     for (int d : {3, 5}) {
-        auto run = [&](char c, char t, char ro) {
-            const auto E = surgery_cnot(d, c, t, ro);
-            const auto k = check_surgery_noiseless(E, d == 3 ? 3 : 1, 9);
+        auto run = [&](char c, char t, char ro, SurgeryRounds rr) {
+            const auto E = surgery_cnot(d, c, t, ro, rr);
+            const auto k = check_surgery_noiseless(E, d == 3 ? 6 : 2, ++seed);
             ++runs;
-            if (k.fired || k.wrong_observables || k.wrong_reference || k.random_reference) {
-                ++bad; std::printf("    %s readout %c: fired %d, wrong observables %d\n", E.sched.name.c_str(), ro ? ro : '-', k.fired, k.wrong_observables);
+            if (surgery_failed(k)) {
+                ++bad; std::printf("    %s readout %c (pre %d): fired %d, wrong observables %d\n", E.sched.name.c_str(), ro ? ro : '-', rr.pre, k.fired, k.wrong_observables);
             }
         };
-        for (const char* in : zin) run(in[0], in[1], 0);
-        for (const char* in : xin) run(in[0], in[1], 0);
-        if (d == 3) for (const char* in : mix) { run(in[0], in[1], 'Z'); run(in[0], in[1], 'X'); }
+        for (const char* in : zin) run(in[0], in[1], 0, {});
+        for (const char* in : xin) run(in[0], in[1], 0, {});
+        if (d == 3) {
+            for (const char* in : mix) { run(in[0], in[1], 'Z', {}); run(in[0], in[1], 'X', {}); }
+            for (const char* in : {"00", "11", "+-", "-+"}) run(in[0], in[1], 0, pre0);
+        }
     }
-    std::printf("  noiseless tableau check: %d CNOT experiments (Z and X basis inputs at d=3,5; Bell-state inputs at d=3), %d failed\n", runs, bad);
+    std::printf("  noiseless tableau check: %d CNOT experiments (Z and X basis inputs at d=3,5; Bell-pair inputs and merging from the first round at d=3), %d failed\n", runs, bad);
     CHECK(bad == 0, "noiseless CNOT: %d experiments with a fired detector or a wrong observable", bad);
+    // process check with reference qubits: every patch logical random, Bell pairs with two reference qubits
     {
-        // truth table: |10> -> |11>, |-+> -> X_C = 1, X_T = 0 ...
+        int rbad = 0, rruns = 0;
+        for (int d : {3, 5}) for (char prep : {'Z', 'X'}) for (char ro : {'Z', 'X'}) {
+            const auto E = surgery_cnot_reference(d, prep, ro);
+            const auto c = check_surgery_noiseless(E, d == 3 ? 8 : 2, ++seed);
+            ++rruns;
+            if (surgery_failed(c)) { ++rbad; std::printf("    %s: fired %d, wrong observables %d\n", E.sched.name.c_str(), c.fired, c.wrong_observables); }
+        }
+        std::printf("  reference-qubit process check: %d experiments (Z- and X-basis patches, Z and X readout, d=3,5), %d failed\n", rruns, rbad);
+        CHECK(rbad == 0, "reference-qubit CNOT check: %d experiments failed", rbad);
+        // mis-assembled frames the fixed-input checks cannot see: an input patch's round-0 faces of the readout type
+        // appended to the corrected logical (random for that patch, so the reference correlation breaks)
+        for (char ro : {'X', 'Z'}) {
+            auto M = surgery_cnot_reference(3, ro == 'X' ? 'Z' : 'X', ro);
+            const auto& L = M.sched.lat;
+            for (const auto& f : region_faces(L.patch_region(0), L.at)) if (f.type == ro) M.observables[0].bits.push_back(M.face_bit.at({f.qubit, 0}));
+            int caught = 0; for (int s = 0; s < 16; ++s) caught += check_surgery_noiseless(M, 1, std::uint64_t(300 + s)).wrong_observables > 0;
+            CHECK(caught > 0, "control's round-0 %c faces in the %c observable went unnoticed (%d/16)", ro, ro, caught);
+        }
+    }
+    {
+        // truth table: |10> -> |11>, and a Bell pair from |+0>
         const auto c = check_surgery_noiseless(surgery_cnot(3, '1', '0'), 1, 2);
         CHECK(c.observable_values.size() == 2 && c.observable_values[0] == 1 && c.observable_values[1] == 1, "CNOT |10> -> |11>");
         const auto b = check_surgery_noiseless(surgery_cnot(3, '+', '0', 'Z'), 1, 2);
@@ -2066,15 +2151,17 @@ static void test_surgery_cnot() {
         for (char ty : {'Z', 'X'}) {
             const auto Ey = ty == 'Z' ? E : surgery_cnot(3, '+', '+');
             auto M = prepare_surgery(D, R, nm, Ey, ty);
-            int tiny = 0;
-            const int wrong = surgery_uncorrected_single_faults(M, &tiny);
+            const auto sf = surgery_single_faults(M);
             const auto r = run_surgery_frame(M, 3000, 5);
-            std::printf("  d=3 CNOT (%c basis): %d detectors, %zu faults, hyperedges %d (p %.1e), undetectable %d, uncorrected single faults %d (%d below 1e-7 left out);",
-                        ty, r.n_detectors, M.n_faults, r.hyperedge_faults, r.hyperedge_p, r.undetectable_logical, wrong, tiny);
+            std::string names; for (const auto& n : r.names) names += (names.empty() ? "" : ",") + n;
+            std::printf("  d=3 CNOT (%c basis: %s): %d detectors, %zu fault mechanisms, hyperedges %d (p %.1e), undetectable %d; uniform-weight decoding leaves "
+                        "%d uncorrected (summed over the decoders) (total p %.2e, %d not ZZ-twirl terms);", ty, names.c_str(), r.n_detectors, sf.faults, r.hyperedge_faults, r.hyperedge_p,
+                        r.undetectable_logical, sf.uncorrected, sf.uncorrected_p, sf.uncorrected_other);
             for (std::size_t k = 0; k < r.names.size(); ++k) std::printf(" %s %.4f", r.names[k].c_str(), r.p[k]);
             std::printf("\n");
-            CHECK(r.undetectable_logical == 0 && r.hyperedge_p < 1e-5, "CNOT DEM (%c): undetectable logicals or hyperedge mass", ty);
-            CHECK(wrong == 0, "CNOT (%c): %d single faults uncorrected", ty, wrong);
+            CHECK(names == (ty == 'Z' ? "Z_C,Z_T" : "X_C,X_T"), "CNOT (%c) decodes %s", ty, names.c_str());
+            CHECK(r.undetectable_logical == 0 && sf.undetectable == 0 && r.hyperedge_p < 1e-5, "CNOT DEM (%c): undetectable logicals or hyperedge mass", ty);
+            CHECK(sf.uncorrected_other == 0 && sf.uncorrected_p < 1e-6, "CNOT (%c): %d uncorrected single faults (p %.2e)", ty, sf.uncorrected, sf.uncorrected_p);
             CHECK(r.p_any > 0 && r.p_any < 0.1, "CNOT (%c): implausible logical error %.4f", ty, r.p_any);
         }
     }

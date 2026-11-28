@@ -16,7 +16,7 @@ See `CHANGELOG.md` for the API changes, and the README "What's new in v0.4" tabl
 - Hardened JSON (RFC 8259, nesting limit) and GDSII (I/O errors) serialisation.
 - Alpha-1 v1.1, Beta-1 and Gamma-1 keep the 4 MHz direct coupling their design files were generated with; the CZ
   flux-noise term in `e_2q` is opt-in (Alpha-1 v1.0).
-- 319 validation checks (186 in 0.3.0) and three review smoke tests.
+- 321 validation checks (186 in 0.3.0) and three review smoke tests.
 
 ### Known issues
 - CZ leakage: the worst frequency combination leaks 2.3e-04 per gate, above the 2e-4 limit of the Alpha

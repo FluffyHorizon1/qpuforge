@@ -3,32 +3,32 @@ CZ calibration: 16 unique frequency combinations for 80 pairs (0 simulated, 16 c
    mean T1 147 us (best 157), T2 201 us, readout error 0.55% at 300 ns; 80 CZ pairs: 43.2 ns, error 9.08e-04, leakage 6.0e-05 (max 2.3e-04)
 
 2. Logical error per round vs code distance (Beta-1 physics; exact matching decoder)
-   d=3: memory-Z eps 0.0824% +- 0.0021%, memory-X eps 0.0752% +- 0.0021%   (round 729 ns)
-   d=5: memory-Z eps 0.0158% +- 0.0013%, memory-X eps 0.0136% +- 0.0013%   (round 734 ns)
-   d=7: memory-Z eps 0.0027% +- 0.0005%   (97 qubits, 9 rounds, 24 failures / 100000; d=5 at 9 rounds 0.0160%)
-   Lambda(3->5) = 5.22 (Z), 5.53 (X); Lambda(5->7) = 6.01;  d=5 logical lifetime 4.66 ms
-   reference, Alpha-1 v1.1 physics: d=3 0.3704%, d=5 0.1200%, Lambda 3.09
+   d=3: memory-Z eps 0.0777% +- 0.0021%, memory-X eps 0.0744% +- 0.0021%   (round 729 ns)
+   d=5: memory-Z eps 0.0157% +- 0.0013%, memory-X eps 0.0165% +- 0.0013%   (round 734 ns)
+   d=7: memory-Z eps 0.0031% +- 0.0006%   (97 qubits, 9 rounds, 28 failures / 100000; d=5 at 9 rounds 0.0216%)
+   Lambda(3->5) = 4.95 (Z), 4.51 (X); Lambda(5->7) = 6.94;  d=5 logical lifetime 4.67 ms
+   reference, Alpha-1 v1.1 physics: d=3 0.3745%, d=5 0.1202%, Lambda 3.12
 
 3. Long experiments at d=5: leakage removal (50 rounds) and detection-rate stability (100 rounds)
-   LRR only (Beta-1)            P_L(50) 0.0086, leaked data 9.0e-05 meas 1.2e-04, round 728 ns
-   LRR + DQLR (option)          P_L(50) 0.0095, leaked data 8.9e-06 meas 1.1e-04, round 758 ns
-   decoder, 50 rounds, 4000 shots, same syndromes (19.2 defects per shot, 27.8% above 22): exact matching P_L 0.0092 (37 failures), greedy above 22 defects P_L 0.0437 (175 failures)
-   100 rounds, leakage-removing reset:    detection drift +1.4% (first vs last 10 rounds), P_L 0.0169, 38.2 defects per shot (max 113)
-   100 rounds, plain reset:               detection drift +49.1% (first vs last 10 rounds), P_L 0.0976, 51.2 defects per shot (max 257)
+   LRR only (Beta-1)            P_L(50) 0.0084, leaked data 9.2e-05 meas 1.2e-04, round 728 ns
+   LRR + DQLR (option)          P_L(50) 0.0086, leaked data 8.2e-06 meas 1.1e-04, round 758 ns
+   decoder, 50 rounds, 4000 shots, same syndromes (19.2 defects per shot, 27.8% above 22): exact matching P_L 0.0065 (26 failures), greedy above 22 defects P_L 0.0455 (182 failures)
+   100 rounds, leakage-removing reset:    detection drift +0.2% (first vs last 10 rounds), P_L 0.0162, 38.2 defects per shot (max 93)
+   100 rounds, plain reset:               detection drift +49.8% (first vs last 10 rounds), P_L 0.0994, 51.5 defects per shot (max 239)
 
 4. Error budget (Beta-1 physics, d=3, leave one source out) and remaining sensitivity
-   without T1       eps 0.0195%  (-76%)
-   without Tphi     eps 0.0667%  (-19%)
-   without control  eps 0.0402%  (-51%)
-   without readout  eps 0.0693%  (-16%)
-   without reset    eps 0.0699%  (-15%)
-   without zz       eps 0.0767%  (-7%)
-   without leakage  eps 0.0686%  (-17%)
-   without thermal  eps 0.0782%  (-5%)
-   CZ residual 5e-4 -> 2.5e-4             eps 0.0660%  (-20%)
-   dielectric Q 6e6 -> 1.2e7              eps 0.0498%  (-39%)
-   readout 300 -> 200 ns                  eps 0.0649%  (-21%)
-   readout separation 0.5% -> 0.25%       eps 0.0768%  (-7%)
+   without T1       eps 0.0195%  (-75%)
+   without Tphi     eps 0.0726%  (-7%)
+   without control  eps 0.0359%  (-54%)
+   without readout  eps 0.0715%  (-8%)
+   without reset    eps 0.0780%  (+0%)
+   without zz       eps 0.0760%  (-2%)
+   without leakage  eps 0.0669%  (-14%)
+   without thermal  eps 0.0800%  (+3%)
+   CZ residual 5e-4 -> 2.5e-4             eps 0.0610%  (-21%)
+   dielectric Q 6e6 -> 1.2e7              eps 0.0493%  (-37%)
+   readout 300 -> 200 ns                  eps 0.0656%  (-16%)
+   readout separation 0.5% -> 0.25%       eps 0.0751%  (-3%)
 
 5. Fabrication yield at d=5 (junction resistance spread; frequency-collision rules)
    spread 2.0%: collision-free 192/200 (96%), frequency scatter 57 MHz rms
@@ -56,4 +56,4 @@ CZ calibration: 16 unique frequency combinations for 80 pairs (0 simulated, 16 c
    [PASS] first-cut layout passes placement and island-spacing checks (mask width/space DRC not gated)
    [PASS] extracted E_C within 3%, couplings and readout capacitance within 6%; parked exchange re-nullable
 
-review complete in 2249 s -> designs/beta1/beta1_review.json
+review complete in 960 s -> designs/beta1/beta1_review.json

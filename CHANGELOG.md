@@ -28,7 +28,27 @@ missing value or a malformed number is a usage error (exit 1), reported before a
 The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_CONTRACT.md`): a reader for the
 `forge.materials.v0` sidecar that atomforge writes, and a CLI flag that applies one before the device report.
 
+A model of the flux lines and of their digital correction (`fluxline.hpp`), and a study of what the CZ gates of
+Alpha-1 v1.1 and Beta-1 need from them (`examples/flux_distortion_study.cpp` -> `results/flux_distortion_study.{txt,json}`,
+`docs/design/flux-line-predistortion.md`). The calibration does not use the model: no cache entry or review number changes.
+
 ### Added
+- `fluxline.hpp`:
+  - `FluxLine` (first-order sections in cascade with the step response 1 + a exp(-t / tau), a single-pole low-pass, a
+    delay), `FluxLineFilter` (its response to a held drive in closed form), `FluxAwg` (sample-and-hold, DAC resolution),
+    `FluxChannel`, `Predistorter` (digital first-order inverses of a fit of the line), `flux_line_output` (the flux a
+    channel delivers for a train of pulses).
+  - `CZDrive`, `simulate_cz_drive` (the propagator and fidelity of `simulate_cz` for any mover and coupler flux),
+    `cz_ideal_drive` (reproduces `simulate_cz`), `CZFrame`, `cz_frame`, `cz_fidelity_in_frame` (the fidelity with virtual Z
+    gates calibrated in another context), `cz_offset_response` (added error per unit of constant flux offset, with free
+    and with fixed virtual Z gates).
+  - `FluxSetup`, `cz_gate_drive`, `cz_train_drive` (a gate on two channels, on its own or inside pulse trains),
+    `cz_matched_command` and `flux_amplitude_scale` (the amplitude calibration on a distorted line), `cz_system_of` (the
+    pair system of a stored calibration), `cz_starts` (CZ start times of a compiled program).
+- `pulse.hpp`: `pair_system` (the system `design_pair_system` builds for a given direct coupling; no change of arithmetic).
+- `examples/flux_distortion_study.cpp` and its smoke test (`smoke_flux_distortion_study`).
+- Tests: group `flux_line` (label `pulse`, 32 checks, about 3 s). 532 validation checks in all; the committed
+  `results/test_output.txt` predates the group and holds 500.
 - `layout.hpp`:
   - `detail::fill_ground_slivers`: mask clean-up that merges two cut-outs separated by a strip of ground narrower than
     the minimum (projection metric). It removes ground only; a gap that touches island metal is left to the DRC.

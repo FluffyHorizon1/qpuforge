@@ -22,6 +22,7 @@ the commands below to reproduce them.
 | `results/alpha1_review.{json,txt}` (= `designs/alpha1/alpha1_review.{json,txt}`), Alpha-1 v1.0, **historical: pre-PR #2 model, not regenerated** (see `designs/alpha1/README.md`) | `alpha1_review` (default: 100000 frame shots, 300 statevector shots) | binary `examples/alpha1_review` as committed in `3fe4d23` (not rebuilt from source; see below) | g++ 13.3.0 (Ubuntu 24.04), built with AVX-512/FMA code generation, i.e. not the CMake flags | 2 | 2026-11-25 (not recorded) | 421 s |
 | `results/decoder_study.{json,txt}` | `decoder_study 100000` (`OMP_NUM_THREADS=4 ./build/decoder_study 100000`) | `86bfdab97c68960fa308e82c6ca28d914abf1a47` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:28:50Z | 2671 s |
 | `results/decoder_sweeps.{json,txt}` | `decoder_sweeps` (`OMP_NUM_THREADS=4 ./build/decoder_sweeps`) | `5e69544f153985be9ae2b042b467f762f06f85d2` (clean tree) | g++ 13.3.0 | 4 (informational) | 2026-11-28T02:30:44Z | 57 s |
+| `results/flux_distortion_study.{txt,json}` | `flux_distortion_study` (`OMP_NUM_THREADS=2 ./build/flux_distortion_study`; pulse simulations only, no Monte Carlo; CZ model v4) | `a1fcda1d95b8428bac9372e0f5a6ff4a9c4de4f7` (clean tree) | g++ 13.3.0 | 2 (informational) | 2026-11-28T10:40:55Z | 976 s |
 
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j`, run from the repository root.
   The reviews, the GDS files and the characterisation rehearsal were regenerated from the clean tree
@@ -93,3 +94,5 @@ the commands below to reproduce them.
 - **GDS dates:** the GDS files carry the real write date; the previews are rendered from them by `tools/gds_preview.py`.
 - **Test log:** `results/test_output.txt` is the output of `test_qpuforge` (all groups, serial) built from `8de7512`
   (tree a0a5686, which `main` has after #21 and #24): 500 checks passed, 0 failed.
+  The `flux_line` group (32 checks, `fluxline.hpp`) was added after this log, so the suite now has 532 checks; the log
+  has not been regenerated for it.

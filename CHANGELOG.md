@@ -81,8 +81,8 @@ Phase Gamma logical operations: lattice surgery between surface-code patches.
     decoder per observable, and the Pauli-frame Monte Carlo (thread-count independent).
 - CLI: `qpuforge surgery [--op zz|xx|cnot] [--d 3,5] [--input ..] [--readout Z|X] [--chip beta1|alpha1_v11] ...`.
 - `examples/surgery_study.cpp` and `results/surgery_study.{txt,json}`; `docs/design/lattice-surgery.md`.
-- Tests: `surgery` and `surgery_cnot` groups (54 checks); the determinism guard also covers `run_surgery_frame`; a
-  smoke entry for the study.
+- Tests: `surgery` and `surgery_cnot` groups (82 checks; 449 in all with them); the determinism guard also covers
+  `run_surgery_frame`; a smoke entry for the study.
 
 ## [0.4.0] (unreleased)
 

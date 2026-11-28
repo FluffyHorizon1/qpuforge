@@ -232,6 +232,8 @@ inline MaterialsReport apply_materials(const MaterialsSidecar& S, ChipDesign& D,
             L.applied = true;
             L.after = *q.value;
             L.note = q.provenance.empty() ? "no provenance given" : "provenance " + q.provenance;
+            if (is_gap && *q.value != D.gap_ueV)
+                L.note += "; each qubit keeps its Rn_kOhm, so E_J and f01 scale with the gap (Ambegaokar-Baratoff)";
         }
         R.lines.push_back(L);
     }

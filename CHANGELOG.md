@@ -150,6 +150,30 @@ The qpuforge side of the atomforge → qpuforge materials contract (`docs/DATA_C
   writes and the exit statuses; `cli_exit_status` also checks every option dependency and value range of `qec` and
   `analyze` on a chip file that does not exist (exit 1 before any file is read).
 
+### Breaking CLI changes
+
+Every sub-command now reads its options from one per-command table, and anything outside it is an error. Scripts that
+relied on the old, lenient parser can break; each item below was checked against the code and by running the binary.
+
+- Unknown or misspelt options and commands are errors: exit status 1, a message naming the command and the offending
+  token, a did-you-mean hint when a close name exists (`qec --shotz` suggests `--shots`; `analize` suggests `analyze`),
+  and the usage text. `--help`, `-h` and `help` as the first argument are unknown too (`unknown option '--help'` or
+  `unknown command 'help'`, exit 1, with the usage text, as before). `--version` and `-V` still print the version, exit 0.
+- Options given to the wrong command are rejected, and the message says which commands do read the option
+  (`analyze --shots`: "an option of run, qec, synth-chip, hwgate and surgery").
+- Duplicate options are errors (`option '--seed' given more than once`, exit 1). Main kept the last value; this covers
+  `new --arch` and `gds --cell`, which main accepted twice.
+- `budget --shots` is removed. Main parsed it and then set the per-trajectory shot count to zero, so it never had an
+  effect; `budget` takes `--traj` and `--seed` only.
+- `new --plan` accepts only 2, 4 or 8 (`--plan expects 2, 4 or 8`), as the usage line always said and `device.hpp`
+  handles. Other values, such as 16, used to be accepted.
+- Dependent flags require their parent flag, and a lone dependent flag is a usage error (exit 1):
+  - `qec`: `--burst-rate`, `--burst-tau-ms`, `--burst-t1-us`, `--burst-tphi-us` and `--veto` need `--bursts`;
+  - `--veto-window`, `--veto-radius`, `--veto-false`, `--impact-p` and `--burst-radius` need `--veto`;
+  - `--herald-fidelity`, `--herald-false`, `--herald-factor` and `--herald-rule` need `--herald`;
+  - `--window` and `--commit` need `--decoder uf-stream`;
+  - `analyze`: `--loss-tangent` needs `--materials`; `new`: `--distance` needs `--preset`.
+
 ### API changes
 - `BurstSpec` is now defined before `FrameRunOptions` (same members, plus `radius`, default 0).
 - `frame_detail::FaultDesc` (internal) gained `owner`.

@@ -68,4 +68,16 @@ and the union-find study counts, are identical before and after.
 - d = 5, 10 rounds, CZ leakage 2e-3, leakage-removing reset, 20,000 shots, same syndromes: exact matching
   928 → 694 failures with the footprint rule (1,035 with the detector rule); union-find 984 → 763.
 
-Gamma-1 with its own leakage and with 10× leakage: `results/decoder_study.txt`, section 3.
+Gamma-1, memory-Z, 14 rounds, leakage-removing reset, CZ leakage as calibrated (×1) and ×10, same syndromes with
+and without heralds (`results/decoder_study.txt`, section 3):
+
+| d | leakage | heralds per shot (leaked) | exact: ε without → with | union-find: ε without → with |
+|---|---|---|---|---|
+| 5 | ×1 | 0.40 (16%) | 1.68e-4 → 1.57e-4 (−6%) | 1.85e-4 → 1.74e-4 (−6%) |
+| 5 | ×10 | 0.95 (65%) | 6.30e-4 → 3.95e-4 (−37%) | 6.71e-4 → 4.20e-4 (−37%) |
+| 7 | ×1 | 0.81 (17%) | 3.25e-5 → 2.93e-5 (−10%) | 3.65e-5 → 3.14e-5 (−14%) |
+| 7 | ×10 | 2.00 (66%) | 2.16e-4 → 1.17e-4 (−46%) | 2.27e-4 → 1.26e-4 (−45%) |
+
+At the chip's own leakage most heralds are false (the false-herald rate of 1e-3 per readout dominates), and the
+gains at ×1 rest on 9 to 15 failures out of about 90 to 260: they are within two standard errors. At ×10 the gain is
+large and clear.

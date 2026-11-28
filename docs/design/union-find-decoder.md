@@ -44,12 +44,25 @@ an edge whose length rounds to 0 is an erasure: it is merged before growth start
 - Logical error on the same syndromes (40,000 shots at d = 3, 6 rounds; 60,000 at d = 5, 5 rounds):
   ratio to exact 1.01 (d = 3, Z), 1.03 (d = 3, X), 1.08 (d = 5, Z), 1.08 (d = 5, X). The test requires < 1.5.
 
-Gamma-1 at d = 3, 5 and 7: see `results/decoder_study.txt`, section 2.
+Gamma-1, 14 rounds, same syndromes (`results/decoder_study.txt`, section 2; 100,000 shots, 200,000 at d = 7):
+
+| d | basis | exact ε per round (failures) | union-find ε (failures) | ratio | decode µs per round, exact / UF |
+|---|---|---|---|---|---|
+| 3 | Z | 8.77e-4 (1214) | 9.32e-4 (1289) | 1.06 | 0.11 / 0.06 |
+| 3 | X | 8.11e-4 (1123) | 8.19e-4 (1135) | 1.01 | 0.03 / 0.06 |
+| 5 | Z | 1.65e-4 (230) | 1.73e-4 (241) | 1.05 | 0.29 / 0.37 |
+| 5 | X | 1.68e-4 (235) | 1.85e-4 (259) | 1.10 | 0.27 / 0.38 |
+| 7 | Z | 3.65e-5 (102) | 3.57e-5 (100) | 0.98 | 0.87 / 0.78 |
+| 7 | X | 3.50e-5 (98) | 3.65e-5 (102) | 1.04 | 0.88 / 0.75 |
+
+At d = 7 the two are within Monte Carlo error of each other. Decode times are single-core software wall clock
+(11.6 defects per shot at d = 7) and say little about hardware.
 
 ## Limits
 
 - The software implementation is not optimised for speed. At a few defects per shot the exact dynamic programme is
-  faster in software (d = 5: about 0.8 µs per shot against 1.6 µs). The comparison that matters is the number of
+  faster in software (test chip, d = 5: about 0.8 µs per shot against 1.6 µs); at Gamma-1 d = 7 union-find is
+  already slightly faster (0.78 against 0.87 µs per round). The comparison that matters is the number of
   operations per defect on hardware, which this code does not model.
 - There is no cluster-size bound and no sliding window: the decoder sees a whole shot. A streaming version is the
   next step towards the FPGA.

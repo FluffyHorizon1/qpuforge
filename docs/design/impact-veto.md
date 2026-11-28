@@ -64,7 +64,31 @@ What it shows: with shot-by-shot discard the floor does not come down. The burst
 weak part of it, which the veto cannot tell from noise in one shot, still randomises the logical qubit. On the d = 5
 test chip (T1 burst, τ = 25 ms) the floor is 4.3e-8 per round with and without the discard. A latched hold of 10 τ
 brings it to 9.8e-9 at 2.5% dead time; 15 τ gives 7.5e-11 at 3.75%. These points lie below the measured ladder and
-use its linear-tail extrapolation. Gamma-1 numbers: `results/decoder_study.txt`, section 4.
+use its linear-tail extrapolation.
+
+Gamma-1, d = 7, 14 rounds (`results/decoder_study.txt`, section 4; veto 3 rounds × radius 2, threshold 11 events for
+a 1e-3 target):
+
+| | T1 burst, τ = 25 ms (memory-Z) | dephasing burst, τ = 1 ms (memory-X) |
+|---|---|---|
+| false-veto rate, calibration / fresh shots | 7.2e-4 / 7.6e-4 | 7.1e-4 / 9.4e-4 |
+| impacts in 5% of shots: caught | 90% | 95% |
+| shots discarded | 4.64% | 4.89% |
+| ε per round: burst-free / impacts, no veto / impacts, veto | 3.36e-5 / 1.73e-3 / 7.20e-5 | 3.29e-5 / 1.80e-3 / 4.06e-5 |
+| failures of impacted shots, without → after the veto | 2322 → 51 | 2417 → 11 |
+| `burst_floor()` | 3.73e-8 per round | 3.73e-8 per round |
+| ladder with shot-by-shot discard | 3.73e-8 (58.4 ms discarded per impact) | 3.73e-8 (4.3 ms) |
+| latched hold, floor (dead-time fraction) | 5 τ: 3.7e-8 (1.3e-2); 7 τ and beyond: not resolved | 5 τ: 3.7e-8 (5e-4); 7 τ: 3.2e-9 (7e-4); 10 τ and beyond: not resolved |
+
+"Not resolved" means a reported floor of 0: the hold reaches past the last ladder point where the excess error is
+still above Monte Carlo noise (s = 1e-3 for the T1 burst, 1e-4 for the dephasing one), so the tail is below what
+20,000 shots per point can see. Every impact still flips the logical qubit with probability 1/2 unless the hold
+covers the strong part of the burst, so p_fail = 1/2 and the floor equals `burst_floor()` both without the veto and
+with shot-by-shot discard. The floor is 0.1% of the d = 7 error, so the Gamma gate (below 10%) holds either way. The
+veto's value at d = 7 is that impacts no longer corrupt the logical qubit silently: 98–99.5% of the failures in
+impacted shots are removed. A hold of 7 τ for the T1 burst (1.75% dead time) or 10 τ for the dephasing burst
+(0.1%) brings the floor below what the ladder resolves; that is the floor that would otherwise limit the code near
+d = 14.
 
 ## Validation
 

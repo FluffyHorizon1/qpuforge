@@ -144,7 +144,7 @@ CZ flux-noise term). See the README "What's new in v0.4" table.
 - Setting up a memory experiment takes time quadratic in the number of rounds (single-fault enumeration).
 - The hardware-gate chain has only been run on synthetic data from the virtual chip.
 
-## [0.3.0] - YYYY-MM-DD
+## [0.3.0] - 2026-11-27
 
 
 First tagged release. Adds pulse-level CZ calibration, a leakage-modelled QEC frame simulator, layout synthesis with

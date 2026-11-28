@@ -2429,6 +2429,14 @@ static void test_layout_checks() {
         const double t = line_T1_us(95.0, 0.03, 6.0);
         const double w = 2 * PI * 6e9, ref = 95e-15 / (w * w * 0.03e-15 * 0.03e-15 * 50) * 1e6;
         CHECK(std::abs(t / ref - 1) < 1e-12 && std::abs(line_T1_us(95.0, -0.03, 6.0) - t) < 1e-9 * t && line_T1_us(95.0, 0.0, 6.0) > 1e200, "line_T1_us %.4g us vs %.4g us", t, ref);
+        {   // shared return through the ground bumps: L_b / N for the metal a SQUID ground stands on, 3/4 of it for
+            // the qubit grounded there and 1/4 for a neighbour; it lowers the common-mode T1 limit
+            ChipLayout G; GroundRef g; g.name = "SQ1"; g.bumps = 8; G.grounds.push_back(g); g.name = "SQ2"; g.bumps = 0; G.grounds.push_back(g);
+            const double mb = bump_return_pH(G, "SQ1");
+            CHECK(std::abs(mb - kBumpInductance_pH / 8) < 1e-12 && bump_return_pH(G, "SQ2") == 0 && bump_return_pH(G, "SQ3") == 0 &&
+                  std::abs(kBumpOwnFraction - 0.75) < 1e-12 && std::abs(kBumpNeighbourFraction - 0.25) < 1e-12 &&
+                  flux_cm_T1_us(0.5 + kBumpOwnFraction * mb, 15.0, 5.5) < flux_cm_T1_us(0.5, 15.0, 5.5), "bump return: %.4f pH for 8 bumps", mb);
+        }
         LineCell c; c.win.flux_zq = {{100.0, 1.0}, {200.0, 0.5}};          // 1 fF at 100 um and 0.5 fF at 200 um from the short
         const double beta = 2 * PI * 5.5e9 * std::sqrt(0.5 * (11.45 + 1)) / 299792458.0 * 1e-6;
         CHECK(std::abs(c.C_flux_eff(5.5) - (std::sin(beta * 100) + 0.5 * std::sin(beta * 200))) < 1e-12, "C_flux_eff %.6f", c.C_flux_eff(5.5));

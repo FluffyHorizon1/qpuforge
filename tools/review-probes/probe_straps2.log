@@ -1,0 +1,27 @@
+AF-17: 122 straps; spans over qubit metal: 0; feet touching island metal: 0
+  largest single strap-over-island overlap: 200 um^2 over FQ4 (0.59 fF parallel-plate at 3 um)
+  couplers under straps: 11, worst summed overlap C0-2 0.59 fF; buses under straps: 24, worst B0-2 0.18 fF (parallel plate, no fringe)
+    C0-2: 200 um^2 -> 0.59 fF
+    C10-13: 200 um^2 -> 0.59 fF
+    C10-8: 200 um^2 -> 0.59 fF
+    C11-9: 200 um^2 -> 0.59 fF
+    C5-7: 200 um^2 -> 0.59 fF
+    C6-8: 200 um^2 -> 0.59 fF
+BF-49: 373 straps; spans over qubit metal: 0; feet touching island metal: 0
+  largest single strap-over-island overlap: 200 um^2 over FQ7 (0.59 fF parallel-plate at 3 um)
+  couplers under straps: 35, worst summed overlap C0-3 0.59 fF; buses under straps: 80, worst B0-3 0.18 fF (parallel plate, no fringe)
+    C0-3: 200 um^2 -> 0.59 fF
+    C1-5: 200 um^2 -> 0.59 fF
+    C10-14: 200 um^2 -> 0.59 fF
+    C10-5: 200 um^2 -> 0.59 fF
+    C11-15: 200 um^2 -> 0.59 fF
+    C17-13: 200 um^2 -> 0.59 fF
+GF-97: 774 straps; spans over qubit metal: 0; feet touching island metal: 0
+  largest single strap-over-island overlap: 200 um^2 over FQ10 (0.59 fF parallel-plate at 3 um)
+  couplers under straps: 77, worst summed overlap C0-4 0.59 fF; buses under straps: 168, worst B0-4 0.18 fF (parallel plate, no fringe)
+    C0-4: 200 um^2 -> 0.59 fF
+    C1-6: 200 um^2 -> 0.59 fF
+    C11-17: 200 um^2 -> 0.59 fF
+    C11-4: 200 um^2 -> 0.59 fF
+    C12-18: 200 um^2 -> 0.59 fF
+    C12-5: 200 um^2 -> 0.59 fF

@@ -1,6 +1,6 @@
 # Design note: herald weights derived from the leakage model
 
-Status: implemented on `scs-bot/decoding-next` (`HeraldSpec::derived`, `HeraldModel`, `frame_detail::leak_chain`,
+Status: implemented and merged into `main` in PR #35 (`HeraldSpec::derived`, `HeraldModel`, `frame_detail::leak_chain`,
 `build_herald_model`, `prepare_herald_model` in `include/qpuforge/qec.hpp`). The fixed-factor rules of
 `heralded-leakage.md` are unchanged and remain the default.
 
@@ -65,7 +65,8 @@ every re-weighted edge adds two terminals to the exact decoder's per-shot graph 
 removes 4% of the conditional probability and 93% of the entries, and leaves the failure counts unchanged to within one
 failure in 400 (measured on 100,000 shots while choosing the limit; not part of the committed study).
 
-`prepare_memory` does not build the model. `prepare_herald_model(M)` does, in SETUP_TIME at d = 7 and 14 rounds.
+`prepare_memory` does not build the model. `prepare_herald_model(M)` does; at d = 7 and 14 rounds it took 0.27 s in the
+study run (wall clock, 4 threads).
 
 ## From a herald to weights
 
@@ -96,7 +97,44 @@ decodes with its new length.
 
 ## What the derived weights look like
 
-HERALD_EXAMPLE
+`results/decoder_study2.txt`, section 1, prints a worked example at d = 5: the readouts of round 7 with the largest leak
+probability, one of a Z-type measure qubit (its bit feeds two detectors of the memory-Z experiment) and one of an X-type
+measure qubit (its bit feeds none), with their likeliest edges.
+
+At Gamma-1's own leakage the Z-type qubit is leaked at its readout with probability 2.36e-04. With a
+false-herald rate of 1e-3 a herald on it is true with probability 0.183:
+
+| Edge | P(fault \| leaked) | p: prior → with herald | weight: prior → derived | fixed rule |
+|---|---|---|---|---|
+| its measurement edge | 0.976 | 9.5e-03 → 0.185 | 4.65 → 1.49 | 0.00 |
+| another edge | 0.245 | 4.1e-03 → 0.049 | 5.50 → 2.98 | 2.20 |
+| another edge | 0.125 | 1.4e-03 → 0.024 | 6.54 → 3.69 | 2.61 |
+| another edge | 0.078 | 2.1e-03 → 0.016 | 6.17 → 4.10 | 2.47 |
+
+The same qubit at ten times the leakage (P(leaked) 2.33e-03, herald true with probability 0.689):
+
+| Edge | P(fault \| leaked) | p: prior → with herald | weight: prior → derived | fixed rule |
+|---|---|---|---|---|
+| its measurement edge | 0.978 | 9.5e-03 → 0.671 | 4.65 → 0.71 (applied) | 0.00 |
+| another edge | 0.248 | 4.1e-03 → 0.173 | 5.50 → 1.56 | 2.20 |
+| another edge | 0.127 | 1.4e-03 → 0.088 | 6.54 → 2.33 | 2.61 |
+| another edge | 0.078 | 2.1e-03 → 0.056 | 6.17 → 2.83 | 2.47 |
+
+The X-type qubit at ten times the leakage (herald true with probability 0.663); its own bit feeds no detector, so
+all of its effect is on the data qubits it touches:
+
+| Edge | P(fault \| leaked) | p: prior → with herald | weight: prior → derived | fixed rule |
+|---|---|---|---|---|
+| another edge | 0.388 | 3.8e-03 → 0.259 | 5.56 → 1.05 | 2.23 |
+| another edge | 0.278 | 1.5e-03 → 0.185 | 6.52 → 1.48 | 2.61 |
+| another edge | 0.169 | 1.4e-03 → 0.113 | 6.58 → 2.06 | 2.63 |
+| another edge | 0.062 | 3.6e-03 → 0.044 | 5.63 → 3.07 | 2.25 |
+
+Three things differ from the fixed rule. A herald that is probably false moves the weights little: at ×1 the measurement
+edge keeps a weight of 1.49, where the fixed rule erases it. A herald that is probably true does more than erase: the
+measurement edge is applied. And the data edges are not treated alike: the partner of the last CZ is the likeliest to
+carry an error, the partner of the first the least, because the leakage can have started at any of the four CZs and
+only the later ones are affected.
 
 ## Validation
 
@@ -122,9 +160,28 @@ digest includes the model and a derived-weight run, batch and streaming.
 false-herald rate 1e-3, CZ leakage as calibrated (×1) and ×10. Each row is one set of syndromes decoded three ways.
 Failures, with the change against no heralds:
 
-RESULTS_TABLE
+| d | leakage | shots | heralds per shot (leaked) | exact: none | fixed | derived | union-find: none | fixed | derived |
+|---|---|---|---|---|---|---|---|---|---|
+| 3 | ×1 | 100000 | 0.13 (12%) | 1111 | 1177 (+6%) | 1092 (-2%) | 1143 | 1194 (+4%) | 1113 (-3%) |
+| 3 | ×10 | 100000 | 0.26 (57%) | 1835 | 1609 (-12%) | 1521 (-17%) | 1951 | 1634 (-16%) | 1543 (-21%) |
+| 5 | ×1 | 100000 | 0.39 (14%) | 225 | 226 (+0%) | 207 (-8%) | 244 | 247 (+1%) | 225 (-8%) |
+| 5 | ×10 | 100000 | 0.85 (61%) | 603 | 416 (-31%) | 386 (-36%) | 638 | 445 (-30%) | 424 (-34%) |
+| 7 | ×1 | 200000 | 0.79 (14%) | 72 | 65 (-10%) | 65 (-10%) | 76 | 65 (-14%) | 65 (-14%) |
+| 7 | ×10 | 200000 | 1.76 (62%) | 375 | 227 (-39%) | 199 (-47%) | 380 | 235 (-38%) | 209 (-45%) |
 
-RESULTS_TEXT
+- **The model matches the sampler.** True heralds per shot from the model and from the Monte Carlo agree to within 3% in
+  all six cases (for example 1.0910 against 1.0908 at d = 7, ×10).
+- **At ten times the leakage the derived weights are better at every distance**, for both decoders: at d = 7, exact
+  matching goes from 375 failures to 227 with the fixed factors and 199 with the derived weights; union-find from 380
+  to 235 and 209. The difference between fixed and derived (227 against 199) is 28 failures on the same syndromes; the
+  two runs are strongly correlated, so this is more significant than the counting error of either number (about 15),
+  but it is one sample.
+- **At the chip's own leakage most heralds are false** (12 to 14% are true), and what matters is not to be misled by
+  them. At d = 3 the fixed factors make the logical error worse than using no heralds at all (1177 against 1111
+  failures, exact matching), because erasing a measurement edge on a false herald opens a free path in a small code.
+  The derived weights do not (1092). At d = 5 the fixed factors do nothing (226 against 225) and the derived weights
+  give 207. At d = 7 both give 65 against 72 without heralds: 7 failures, within the counting error.
+- **Union-find follows exact matching** in every row, at 0 to 10% more failures with the derived weights.
 
 ## Limits
 
@@ -145,4 +202,4 @@ RESULTS_TEXT
 - **The herald parameters are taken as known.** The fidelity and the false-herald rate enter π_c directly. A wrong
   false-herald rate changes every weight; the sensitivity has not been measured.
 - **Window.** Leakage that began more than `max_rounds` rounds before the herald is not attributed. On Gamma-1 without
-  DQLR this is at most UNEXPLAINED of a herald.
+  DQLR this is at most 0.020 of a herald (section 1 of the study).

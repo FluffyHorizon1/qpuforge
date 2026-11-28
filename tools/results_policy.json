@@ -40,7 +40,9 @@
     "results/test_output.txt",
     "results/cz_cache.json",
     "results/flux_distortion_study.json",
-    "results/flux_distortion_study.txt"
+    "results/flux_distortion_study.txt",
+    "results/decoder_study2.json",
+    "results/decoder_study2.txt"
   ],
   "gds": [
     {

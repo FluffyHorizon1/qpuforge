@@ -198,6 +198,16 @@ the chip in the same data file.
 
 - Leakage-aware decoding from heralded leakage (3-state readout of the measure qubits): `HeraldSpec`, with the
   leakage-removing reset. See `docs/design/heralded-leakage.md` and `results/decoder_study.txt`.
+- Herald weights derived from the leakage model (`HeraldSpec::derived`): better than the fixed factors at ten times
+  Gamma-1's leakage at every distance, and never worse than no heralds where the fixed factors are (d = 3). See
+  `docs/design/derived-herald-weights.md` and `results/decoder_study2.txt`.
+- Data-qubit leakage heralding through DQLR (`LeakageSpec::dqlr_transfer`): modelled and measured, with a negative
+  result. Leaving the leakage on a measure qubit for a round costs more than its herald recovers; DQLR that dumps the
+  leakage is better in every case tried. See `docs/design/data-leakage-herald.md`.
+- An operation-count model of the streaming union-find decoder with two stated hardware cost models
+  (`docs/design/streaming-union-find-fpga.md`; a model, nothing synthesised). At d = 7 and 250 MHz a serial block-RAM
+  design keeps up on average (78% of the round for a 10-round window) and falls up to 1205 rounds behind in its tail;
+  parallel cluster growth stays within 4.7 rounds. Open: synthesis, to test the model's timing assumptions.
 - An impact veto: per-shot impact injection, a sliding space-time window veto calibrated to a false-veto rate, and the
   floor with shot-by-shot discard or a latched hold. See `docs/design/impact-veto.md`.
 - Linear-time fault enumeration: setup cost linear in the number of rounds (Gamma-1, d = 7, 50 rounds: 1.4 s against

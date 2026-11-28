@@ -4,7 +4,7 @@ Copyright (c) 2026 Secured Cyber Solutions Ltd. All rights reserved.
 
 | | |
 |---|---|
-| **Status** | Memory review complete ({{GATE_SUMMARY}}). Layout (GDSII) {{MASK_STATUS}} (§7). Logical operations not yet reviewed (§9). |
+| **Status** | Memory review complete ({{GATE_SUMMARY}}). Layout (GDSII) {{MASK_STATUS}} (§7). Logical operations are simulated outside this review (lattice surgery at d = 3 and 5, `../../results/surgery_study.txt`) but not reviewed on this chip (§9). |
 | **Purpose** | A distance-7 logical memory on 97 qubits: the third point on the suppression curve, and the first chip where decoding and correlated errors need their own answers |
 | **Builds on** | Beta-1 rev C (BF-49): same physics, same frequency plan, same synthesised cells |
 | **Tooling** | qpuforge v0.4: `gamma1_review` ({{RUNTIME}} s; {{SHOTS}} shots per point, twice that at distance 7) |
@@ -120,14 +120,28 @@ higher. The rising detection rate is the signature to look for on hardware.
 
 ## 9. What Phase Gamma still needs
 
-This review covers the distance-7 memory. The rest of the phase is open:
+This review covers the distance-7 memory. Each other part of the phase now has software outside this review, which
+the review does not use; what is still open is named in each item:
 
-- **Logical operations.** Two distance-5 patches with lattice surgery (a logical CNOT). qpuforge needs multi-patch
-  circuits with merge and split schedules, and detectors that follow them.
-- **Leakage-aware decoding.** Three-state readout heralds a leaked measure qubit. Feeding that to the decoder should
-  recover part of the leakage cost in the budget.
-- **Real-time decoding.** A streaming decoder under 1 µs per round on an FPGA. §3 gives the software reference.
-- **Impact veto.** A detector on the detection-event rate and a restart protocol (§4).
+- **Logical operations.** Lattice surgery is simulated (`surgery.hpp`, `qpuforge surgery`,
+  `../../docs/design/lattice-surgery.md`): logical ZZ and XX measurement between two patches and the three-patch CNOT,
+  at d = 3 and 5 (`../../results/surgery_study.txt`). With Beta-1 physics (also Gamma-1's) at d = 5 the ZZ outcome is
+  wrong in 0.14 % of measurements and a CNOT on |00⟩ gets some output wrong in 0.71 % of runs. Open: a chip layout for
+  the patches and their routing region, real-time feed-forward of the corrections, a joint decoder for all observables.
+- **Leakage-aware decoding.** Implemented (`HeraldSpec`, `qpuforge qec --herald`,
+  `../../docs/design/heralded-leakage.md`): three-state readout heralds a leaked measure qubit and the matching is
+  re-weighted. At d = 7 with the leakage-removing reset and exact matching, heralds lower the logical error by 10 % at
+  the chip's own CZ leakage and by 46 % at ten times that (`../../results/decoder_study.txt` §3).
+- **Real-time decoding.** In software, union-find (`qpuforge qec --decoder uf`) gives 0.98–1.10× the logical error of
+  exact matching at d = 3 to 7. Its sliding-window version (`--decoder uf-stream`) comes within 1.16× of batch
+  union-find with a 10-round window committing 5, and takes 1.5–1.8 µs per committed round at d = 7, against a round of
+  0.73 µs in that 50-round run (`../../results/decoder_study.txt` §2, §5). §3 gives the exact-matching reference. Open:
+  a decoder under 1 µs per round on an FPGA, and a faster, pipelined window scheme.
+- **Impact veto.** Implemented in software (`qpuforge qec --bursts --veto`, `../../docs/design/impact-veto.md`): at
+  d = 7 a 3-round × radius-2 window catches 90–95 % of impacts and removes 98–99.5 % of the failures in impacted
+  shots. Shot-by-shot discard leaves the floor of §4 at 3.7e-08 per round; holding the chip for 7 recovery times (T1
+  burst) or 10 (dephasing burst) after a veto brings it below what the study resolves, at 1.8 % and 0.1 % dead time
+  (`../../results/decoder_study.txt` §4). Open: the restart protocol on hardware.
 
 ## 10. Assumptions and limitations
 

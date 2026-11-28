@@ -26,6 +26,17 @@ chip.json ──► device physics ─────────► noise model �
 * [`designs/gamma1/GAMMA-1.md`](designs/gamma1/GAMMA-1.md): **Gamma-1 (GF-97)**, a 97-qubit distance-7 memory.
 * [`ROADMAP.md`](ROADMAP.md): programme phases (Alpha → Beta → Gamma → Delta) with simulation and hardware exit criteria.
 
+### Unreleased: flux lines
+
+| Layer | Module | What it does |
+|---|---|---|
+| Flux-line model | `fluxline.hpp` | What a flux line does to the CZ pulse, and what the CZ needs from it. A line is a cascade of first-order sections (step response 1 + a exp(−t/τ)), a low-pass and a delay, evaluated in closed form; the AWG is a sample-and-hold with a DAC; the predistortion filter inverts a fit of the line. `simulate_cz_drive` runs the CZ of `pulse.hpp` on the flux that arrives, for a gate on its own or inside the pulse train of the memory cycle. `cz_fidelity_in_frame` scores a gate whose virtual Z gates were calibrated elsewhere, and `cz_offset_response` gives its error per unit of flux offset. The calibration does not use the model, so every review is unchanged |
+
+Study: [`results/flux_distortion_study.txt`](results/flux_distortion_study.txt) (`examples/flux_distortion_study.cpp`); design
+note: [`docs/design/flux-line-predistortion.md`](docs/design/flux-line-predistortion.md). A residual tail of 0.1 % with a time
+constant of 30–100 ns costs each CZ of the Alpha-1 v1.1 cycle 1.3e-3 when the gates are used as calibrated in isolation, and
+1.2e-4 when their virtual Z gates are calibrated in the cycle (the residual control-error allowance is 1e-3).
+
 ### Unreleased: Phase Gamma decoding
 
 | Layer | Module | What it does |
@@ -73,12 +84,13 @@ Study: [`results/decoder_study.txt`](results/decoder_study.txt) (`examples/decod
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-./build/test_qpuforge          # 504 validation checks (~15 min on 4 cores); or: ctest --test-dir build -LE smoke
+./build/test_qpuforge          # 541 validation checks (~15 min on 4 cores); or: ctest --test-dir build -LE smoke
 ./build/test_qpuforge matching bursts   # selected groups by name (--list prints the names)
 ./build/alpha1_v11_review      # Alpha-1 v1.1 review  -> designs/alpha1-v11/alpha1_v11_review.json
 ./build/beta1_review           # Beta-1 review        -> designs/beta1/beta1_review.json
 ./build/gamma1_review          # Gamma-1 review       -> designs/gamma1/gamma1_review.json
 ./build/surgery_study          # lattice surgery      -> results/surgery_study.{txt,json}
+./build/flux_distortion_study  # flux-line requirements -> results/flux_distortion_study.{txt,json}
 python3 tools/fill_spec.py beta    # BETA-1.md from its template and review data (also: gamma)
 ```
 
@@ -86,7 +98,7 @@ python3 tools/fill_spec.py beta    # BETA-1.md from its template and review data
 
 The `json` and `gds` unit groups (64 checks) cover the JSON parser/writer (including a lossless design-file round trip for the `gen0`, `alpha1`, `alpha1v11` and `beta1` presets) and the GDSII stream writer (record framing, UNITS encoding, coordinate/record-length guards, reproducible `SOURCE_DATE_EPOCH` dates).
 
-- The four `smoke` entries run the review programs and the surgery study end to end with 200 shots. They write into the build tree and
+- The five `smoke` entries run the review programs and the surgery study end to end with 200 shots, and the flux-line study on a reduced set. They write into the build tree and
   leave the committed outputs untouched.
 - Each review program also takes `--out DIR`, `--cache FILE` and `--smoke`; see `examples/review_io.hpp`.
 - Committed review outputs, except the historical Alpha-1 v1.0 review, record their source commit, compiler, seeds and
@@ -152,7 +164,7 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
 | Correlated errors | Logical-error floor from high-energy impacts | Chip-wide excess decay / dephasing with exponential recovery, sampled at a ladder of severities and integrated over the burst |
 | Hardware gate | Roadmap criteria from a measured-data file; model versus measurement | Measured parameters replace predicted ones; gate errors are split into decoherence, leakage and control parts; the memory experiment is re-simulated |
 
-## Validation (`tests/test_qpuforge.cpp`, 504 checks, all passing)
+## Validation (`tests/test_qpuforge.cpp`, 541 checks, all passing)
 
 * 1q native decomposition: 3,016 unitaries, worst error 8e-16.
 * Transmon spectra vs an independent numpy phase-grid solver (≤ 2e-4 GHz). Charge dispersion and ⟨0|n|1⟩ vs Koch et al.
@@ -179,6 +191,12 @@ status: 0 done, 1 usage error, 2 error while running (also `gds`: layout not DRC
   (36.2 vs 34.9 MHz). The designed g12 nulls the parked exchange (< 1e-5 MHz). Calibrated CZ: 40 ns, 1−F = 1.0e-4,
   leakage 6.6e-5, |φ−π| < 2e-3. Halving dt changes F by 6e-7. With 4/4/4 levels, one more coupler level changes the CZ
   phase by 6e-5 rad and one more qubit level by 2e-4 rad. The earlier default of 3 coupler levels was off by 4e-3 rad.
+* Flux lines: the partial fractions of a cascade with a low-pass match a step-by-step integration of the sections (8e-7), and
+  a section followed by its inverse is the identity. A pulse keeps its area through a line, and two pulses give the sum of
+  each. Predistortion at 1 GS/s is exact for one section. The CZ on a drive reproduces `simulate_cz` (3e-16). A slow 1 %
+  tail equals a pulse scaled by 1.01, and the amplitude calibration removes it. After an earlier pulse, the flux offset
+  matches a quadrature of the tail and the measure qubit's phase shift matches the bare transmon's frequency shift (−0.057
+  against −0.059 rad). The response to constant offsets matches the calibration's curvature recipe and a direct simulation.
 * Leakage frame model: bit-identical to the leakage-free model when all rates are zero. Gate-leakage plus seepage
   populations match the two-state Markov solution (within 4 %). A leakage-removing reset clears measure-qubit leakage
   (5× lower) and DQLR clears data-qubit leakage (3× lower).
@@ -271,7 +289,8 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
 * **CZ residual control error is an assumption.** The pulse simulation gives the coherent error (≈ 1e-4), leakage, and
   flux-noise terms. Pulse distortion, calibration drift, TLS defects and crosstalk are not simulated. They enter as one
   allowance: 1e-3 for Alpha-1 v1.1 and 5e-4 for Beta-1. This allowance dominates the CZ error and is the single most
-  important number to measure on hardware.
+  important number to measure on hardware. `fluxline.hpp` models the flux lines and says what the allowance asks of
+  them (`results/flux_distortion_study.txt`), but the calibration does not use it: the allowance still stands for all of it.
 * Pulse simulation is closed-system: T1 and Tφ during the gate are applied by the processor and QEC emulators, and the
   1/f flux noise at the excursion point is added analytically (quasi-static). Spectator crossings use a Landau-Zener
   estimate, not a many-qubit pulse simulation.
@@ -320,7 +339,8 @@ are 1σ Monte Carlo errors. The Beta-1 and Gamma-1 rows use different estimators
 See [`ROADMAP.md`](ROADMAP.md) for programme phases and exit criteria. Next on the tooling side:
 
 1. Full-wave/FEM cross-check of the cells; participation ratios → TLS-limited T1 per element.
-2. Multi-qubit pulse simulation of spectator crossings; flux-pulse distortion and predistortion model.
+2. Multi-qubit pulse simulation of spectator crossings; a net-zero (bipolar) CZ and a flux-line term in the calibration
+   (the line model and its study are in `fluxline.hpp`).
 3. An operation-count model of the streaming union-find decoder for the FPGA; for lattice surgery, a joint
    multi-observable decoder and routing between patches.
 4. Data-qubit leakage heralding, and herald weights derived from the leakage model.

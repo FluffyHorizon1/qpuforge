@@ -1550,6 +1550,69 @@ static void test_impact_veto() {
     }
 }
 
+// ---------------------------------------------------------------- streaming union-find
+static void test_streaming_uf() {
+    std::puts("[streaming] sliding-window union-find: clears the syndrome, one window = batch, logical error near batch, latency per round");
+    long syndromes = 0, uncleared = 0, singles = 0, single_wrong = 0;
+    double p_wrong = 0, p_all = 0;
+    // 1. corrections clear the syndrome; single faults the batch decoder gets right are decoded right
+    for (int d : {3, 5}) {
+        const auto D = surface_chip(d); const auto R = analyze(D); const auto nm = noise_model(D, R);
+        const auto M = prepare_memory(D, R, nm, 9);
+        const int nd = int(M.exp.detectors.size());
+        for (auto [W, C] : std::vector<std::pair<int, int>>{{2, 1}, {4, 2}, {6, 3}}) {
+            const StreamingUnionFind S(nd, M.dem.edges, M.exp.detector_round, W, C);
+            StreamScratch ss; DecodeScratch ws;
+            Xoshiro256 rng(77 + std::uint64_t(d * 10 + W));
+            std::vector<std::uint8_t> on(static_cast<std::size_t>(nd)), got(static_cast<std::size_t>(nd));
+            std::vector<int> def;
+            for (int trial = 0; trial < 1000; ++trial) {
+                std::fill(on.begin(), on.end(), 0);
+                if (trial % 2) { for (int k = 0; k < nd; ++k) on[std::size_t(k)] = rng.uniform() < 0.08; }
+                else for (const auto& e : M.dem.edges) if (rng.uniform() < 3 * e.p) { on[std::size_t(e.a)] ^= 1; if (e.b >= 0) on[std::size_t(e.b)] ^= 1; }
+                def.clear(); for (int k = 0; k < nd; ++k) if (on[std::size_t(k)]) def.push_back(k);
+                S.decode(def, ss);
+                std::fill(got.begin(), got.end(), 0);
+                for (auto [a, b] : ss.committed) { got[std::size_t(a)] ^= 1; if (b >= 0) got[std::size_t(b)] ^= 1; }
+                ++syndromes; if (got != on) ++uncleared;
+            }
+            for (const auto& f : enumerate_faults(M.frame, M.exp)) {
+                if (f.dets.empty() || f.dets.size() > 2) continue;
+                if (M.decoder->decode(f.dets, ws, DecodeMethod::UnionFind) != int(f.obs)) continue;
+                ++singles; p_all += f.p;
+                if (S.decode(f.dets, ss) != int(f.obs)) { ++single_wrong; p_wrong += f.p; }
+            }
+        }
+    }
+    std::printf("  %ld syndromes (d = 3, 5; windows 2/1, 4/2, 6/3 rounds): %ld not cleared; %ld single faults: %ld decoded wrongly "
+                "(%.1e of their total probability)\n", syndromes, uncleared, singles, single_wrong, p_wrong / std::max(p_all, 1e-300));
+    CHECK(uncleared == 0 && single_wrong == 0, "streaming union-find: %ld uncleared syndromes, %ld single faults wrong (probability share %.1e)",
+          uncleared, single_wrong, p_wrong / std::max(p_all, 1e-300));
+    // 2. logical error against batch union-find on the same syndromes (d = 5, 15 rounds)
+    const auto D = surface_chip(5); const auto R = analyze(D); const auto nm = noise_model(D, R);
+    const auto M = prepare_memory(D, R, nm, 15);
+    const int nd = int(M.exp.detectors.size());
+    const long shots = 30000;
+    FrameRunOptions bo; bo.method = DecodeMethod::UnionFind;
+    const auto rb = run_memory_frame(M, shots, 811, bo);
+    const StreamingUnionFind whole(nd, M.dem.edges, M.exp.detector_round, 17, 16);   // one window: the batch decoder
+    FrameRunOptions wo; wo.stream = &whole;
+    const auto rw = run_memory_frame(M, shots, 811, wo);
+    std::printf("  d=5, 15 rounds, %ld shots: batch union-find %ld failures; one window over the whole shot %ld\n", shots, rb.logical_errors, rw.logical_errors);
+    CHECK(whole.n_windows() == 1 && rw.logical_errors == rb.logical_errors, "a single window does not reproduce batch union-find (%ld vs %ld)", rw.logical_errors, rb.logical_errors);
+    double worst = 0;
+    for (auto [W, C] : std::vector<std::pair<int, int>>{{2, 1}, {3, 1}, {4, 2}, {6, 3}, {10, 5}}) {
+        const StreamingUnionFind S(nd, M.dem.edges, M.exp.detector_round, W, C);
+        FrameRunOptions so; so.stream = &S;
+        const auto rs = run_memory_frame(M, shots, 811, so);
+        const double ratio = double(rs.logical_errors) / double(std::max(rb.logical_errors, 1L));
+        if (W >= 4 && W >= 2 * C) worst = std::max(worst, ratio);
+        std::printf("  window %2d / commit %d rounds (%d windows): %ld failures (x%.2f of batch); per window %.2f us mean, %.1f us max -> %.2f us per committed round\n",
+                    W, C, S.n_windows(), rs.logical_errors, ratio, rs.stream_window_us_mean, rs.stream_window_us_max, rs.stream_window_us_mean / C);
+    }
+    CHECK(worst < 1.25, "streaming union-find with window >= 4 rounds and >= 2 x commit is %.2fx batch union-find's logical error", worst);
+}
+
 // ---------------------------------------------------------------- v0.4: memory in both bases
 static void test_memory_bases() {
     std::puts("[memory-X] X-basis memory: determinism, distance, logical operators (exact emulator), agreement with the Z basis");
@@ -2083,6 +2146,7 @@ static const std::vector<std::pair<const char*, void (*)()>> kTests = {
     {"union_find", test_union_find},
     {"heralds", test_heralds},
     {"impact_veto", test_impact_veto},
+    {"streaming_uf", test_streaming_uf},
 };
 
 // test_qpuforge            run every test

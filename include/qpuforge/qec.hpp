@@ -688,6 +688,7 @@ struct DecodeScratch {
     BlossomMatcher bm;
     std::vector<BlossomMatcher::W> w;
     UFScratch uf;
+    StreamScratch stream;
     struct Herald { std::vector<std::pair<int, double>> scaled; std::vector<int> term; std::vector<double> d; std::vector<std::uint8_t> p; } herald;
     double weight{0};                          // total weight of the last matching
     DecodeMethod used{DecodeMethod::Auto};     // what the last call ran
@@ -939,6 +940,7 @@ struct MemoryResult {
     int max_defects{0};
     double frac_over_22{0};                        // shots with more than 22 defects (decoded greedily before v0.4)
     double decode_us_per_shot{0};                  // software decoding time per shot on one core
+    double stream_window_us_mean{0}, stream_window_us_max{0};   // streaming union-find: time per window (wall clock)
     double heralds_per_shot{0};                    // heralded measure-qubit readouts per shot (HeraldSpec)
     double herald_true_frac{0};                    // fraction of those that were leaked
     // impact injection and veto (ImpactSpec, VetoSpec); logical_errors counts every shot, kept or not
@@ -1013,6 +1015,7 @@ struct HeraldSpec {
 struct FrameRunOptions {
     const MatchingDecoder* decoder{nullptr};         // decode with this instead of the setup's own (model-mismatch studies)
     DecodeMethod method{DecodeMethod::Auto};
+    const StreamingUnionFind* stream{nullptr};       // decode with this streaming union-find instead (method ignored)
     HeraldSpec herald;
     ImpactSpec impact;
     VetoSpec veto;
@@ -1173,7 +1176,7 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
     struct Tally {
         long errors{0}, fired{0}, leak_ev{0}, over22{0}, heralds{0}, heralds_true{0};
         long impacts{0}, impacts_vetoed{0}, errors_impacted{0}, errors_impacted_kept{0}, discarded{0}, errors_kept{0};
-        int max_def{0}; double leak_d{0}, leak_m{0}, decode_s{0};
+        int max_def{0}; double leak_d{0}, leak_m{0}, decode_s{0}, win_max{0}, win_sum{0}; long windows{0};
         std::vector<long> hist;
     };
     // impact injection: start time of each slice
@@ -1364,6 +1367,10 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
                         decoder.herald_touch_edges(heralded_dets, HS.erase_factor, HS.touch_factor, scaled);
                     }
                     predicted = decoder.decode_scaled(fired, scaled, ws, method);
+                } else if (opt.stream) {
+                    predicted = opt.stream->decode(fired, ws.stream);
+                    T_.win_max = std::max(T_.win_max, ws.stream.window_s_max);
+                    T_.win_sum += ws.stream.window_s_sum; T_.windows += ws.stream.windows;
                 } else predicted = decoder.decode(fired, ws, method);
                 T_.decode_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
                 bool vetoed = false;
@@ -1402,6 +1409,8 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
         heralds += t.heralds; heralds_true += t.heralds_true;
         leak_d += t.leak_d; leak_m += t.leak_m; decode_s += t.decode_s;
     }
+    double win_max = 0, win_sum = 0; long windows = 0;
+    for (const Tally& t : part) { win_max = std::max(win_max, t.win_max); win_sum += t.win_sum; windows += t.windows; }
     long impacts = 0, impacts_vetoed = 0, errors_impacted = 0, errors_impacted_kept = 0, discarded = 0, errors_kept = 0;
     std::vector<long> hist;
     for (const Tally& t : part) {
@@ -1430,6 +1439,8 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
     r.p_logical_kept = shots > discarded ? double(errors_kept) / double(shots - discarded) : 0.0;
     r.eps_kept = eps_from_PL(r.p_logical_kept, r.rounds);
     r.veto_hist = std::move(hist);
+    r.stream_window_us_max = 1e6 * win_max;
+    r.stream_window_us_mean = windows ? 1e6 * win_sum / double(windows) : 0.0;
     return r;
 }
 

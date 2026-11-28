@@ -84,7 +84,8 @@ static std::string frame_digest() {
                 UFCostModel cm; cm.fixed = 3; for (long& v : cm.per) v = 1;
                 const auto P = run_stream_profile(M, S, 3000, 23 + unsigned(rounds), true, {cm});
                 out += "prof=" + std::to_string(P.logical_errors) + "/" + std::to_string(P.windows_cleared) + "/" + hex(StreamProfile::mean(P.cycles_hist[0])) + "/" +
-                       std::to_string(StreamProfile::quantile(P.round_hist[0], 0.999)) + "/" + std::to_string(StreamProfile::max(P.latency_hist[0])) + " ";
+                       std::to_string(StreamProfile::quantile(P.round_hist[0], 0.999)) + "/" + std::to_string(StreamProfile::max(P.latency_hist[0])) + "/" +
+                       hex(StreamProfile::mean(P.stream_latency_hist[0])) + "/" + std::to_string(StreamProfile::max(P.stream_late_hist[0])) + " ";
             }
             VetoSpec V; V.threshold = calibrate_veto(M, 3000, 31 + unsigned(rounds), 5e-3, V).threshold; V.on = true;   // impacts + veto
             FrameRunOptions iv; iv.impact.p_shot = 0.1; iv.impact.burst.radius = 1.5; iv.veto = V;

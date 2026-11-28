@@ -200,6 +200,9 @@ int main(int argc, char** argv) {
         say("     S  serial, block RAM: one table access per cycle, 2-cycle reads, pipeline depth 4\n");
         say("     P  parallel growth: one cell per vertex and per edge, 5 cycles per growth step, 2 per union, serial peeling\n");
         say("     +pre: an isolated-pair pre-decoder runs first (2 cycles when it clears the window)\n");
+        say("   latency: from the arrival of a window's last round to the end of its decode, windows decoded one after another. \"one shot\": the decoder is idle\n"
+            "   when the shot starts. \"continuous stream\": %ld shots (%ld rounds) end to end, the queue carried over; \"last quarter\": its final %ld shots\n",
+            kFrameBlock, kFrameBlock * long(RS + 1), kFrameBlock / 4);
         Json pj = Json::object();
         for (int d : dists) {
             const ChipDesign D = gamma1(d);
@@ -248,15 +251,20 @@ int main(int argc, char** argv) {
                         const auto& rh = X.round_hist[mi]; const auto& lh = X.latency_hist[mi];
                         const double mean = StreamProfile::mean(rh) / 1e3;
                         const double over = StreamProfile::above(rh, std::lround(1e3 * budget));
-                        say("         %s%-4s cycles per committed round: %.1f / %.1f / %.1f / %.1f (mean = %.0f%% of the round; %.3f%% of windows over their budget);"
-                            " latency in rounds: mean %.2f, 99.9th %.1f, max %.1f\n", mi == 0 ? "S" : "P", pre ? "+pre" : "", mean,
+                        const auto& sh = X.stream_latency_hist[mi]; const auto& sl = X.stream_late_hist[mi];
+                        say("         %s%-4s cycles per committed round: %.1f / %.1f / %.1f / %.1f (mean = %.0f%% of the round; %.3f%% of windows over their budget)\n"
+                            "               latency in rounds, mean / 99.9th / max: one shot %.2f / %.1f / %.1f; continuous stream %.2f / %.1f / %.1f, its last quarter %.2f / %.1f / %.1f\n",
+                            mi == 0 ? "S" : "P", pre ? "+pre" : "", mean,
                             double(StreamProfile::quantile(rh, 0.99)) / 1e3, double(StreamProfile::quantile(rh, 0.999)) / 1e3, double(StreamProfile::max(rh)) / 1e3,
                             100 * mean / budget, 100 * over, StreamProfile::mean(lh) / budget, double(StreamProfile::quantile(lh, 0.999)) / budget,
-                            double(StreamProfile::max(lh)) / budget);
+                            double(StreamProfile::max(lh)) / budget, StreamProfile::mean(sh) / budget, double(StreamProfile::quantile(sh, 0.999)) / budget,
+                            double(StreamProfile::max(sh)) / budget, StreamProfile::mean(sl) / budget, double(StreamProfile::quantile(sl, 0.999)) / budget,
+                            double(StreamProfile::max(sl)) / budget);
                         Json m = Json::object();
                         m.set("cycles_per_committed_round", stats(rh, 1e-3)); m.set("cycles_per_window", stats(X.cycles_hist[mi], 1.0));
                         m.set("mean_fraction_of_round", mean / budget); m.set("frac_windows_over_budget", over);
                         m.set("latency_rounds", stats(lh, 1.0 / budget));
+                        m.set("stream_latency_rounds", stats(sh, 1.0 / budget)); m.set("stream_last_quarter_latency_rounds", stats(sl, 1.0 / budget));
                         mj.set(std::string(mi == 0 ? "serial" : "parallel") + (pre ? "_predecode" : ""), m);
                     }
                 o.set("models", mj);

@@ -1833,6 +1833,11 @@ inline MemoryResult run_memory_frame(const MemorySetup& M, long shots, std::uint
 // time from the arrival of its last round to the end of its decode, in cycles, when the windows of a shot are decoded
 // one after another and each starts when its syndrome is complete and the previous decode has finished. Everything is
 // an integer count, so the result does not depend on the thread count. See docs/design/streaming-union-find-fpga.md.
+// Backlog over a long run: the shots of one block (kFrameBlock = 1024) are also laid end to end as one continuous
+// stream of rounds, the decoder's queue carried from shot to shot. stream_latency_hist holds the latency of every
+// window of that stream, and stream_late_hist of the windows in the last quarter of each full block: if the two
+// differ, the queue is still growing after three quarters of the block. A block is a load model, not one long memory:
+// each shot still ends with its data readout and a window that commits everything.
 struct StreamProfile {
     using Hist = std::map<long, long>;                         // value -> number of windows
     int window{0}, commit{0}, n_windows{0};
@@ -1840,6 +1845,7 @@ struct StreamProfile {
     long windows{0}, windows_empty{0}, windows_cleared{0}, windows_uf{0};   // all; no defects; pre-decoder alone; union-find ran
     std::vector<Hist> count_hist;                              // per UFOpCounts field
     std::vector<Hist> cycles_hist, round_hist, latency_hist;   // per cost model
+    std::vector<Hist> stream_latency_hist, stream_late_hist;   // per cost model: continuous stream (see above)
     static double mean(const Hist& h) {
         double s = 0; long n = 0;
         for (const auto& [v, k] : h) { s += double(v) * double(k); n += k; }
@@ -1868,6 +1874,7 @@ inline StreamProfile run_stream_profile(const MemorySetup& M, const StreamingUni
     P.window = S.window(); P.commit = S.commit(); P.n_windows = S.n_windows(); P.shots = shots;
     P.count_hist.assign(UFOpCounts::kFields, {});
     P.cycles_hist.assign(models.size(), {}); P.round_hist.assign(models.size(), {}); P.latency_hist.assign(models.size(), {});
+    P.stream_latency_hist.assign(models.size(), {}); P.stream_late_hist.assign(models.size(), {});
     const double round_ns = M.prog.duration_ns / double(M.exp.rounds);
     // arrival of each window's last round, in rounds from the start of the shot (the final data readout counts as one)
     std::vector<int> arrive(std::size_t(S.n_windows()));
@@ -1881,17 +1888,21 @@ inline StreamProfile run_stream_profile(const MemorySetup& M, const StreamingUni
         StreamProfile T;
         T.count_hist.assign(UFOpCounts::kFields, {});
         T.cycles_hist.assign(models.size(), {}); T.round_hist.assign(models.size(), {}); T.latency_hist.assign(models.size(), {});
-        std::vector<double> busy(models.size());
+        T.stream_latency_hist.assign(models.size(), {}); T.stream_late_hist.assign(models.size(), {});
+        std::vector<double> busy(models.size()), sbusy(models.size());
         StreamOptions so; so.predecode = predecode; so.count = true;
         long leak_ev = 0; double leak_d = 0, leak_m = 0;
 #pragma omp for schedule(dynamic, 1)
         for (long b = 0; b < nblocks; ++b) {
             const long s_end = std::min(shots, (b + 1) * kFrameBlock);
+            std::fill(sbusy.begin(), sbusy.end(), 0.0);            // the continuous stream starts with an idle decoder
+            const bool full_block = s_end - b * kFrameBlock == kFrameBlock;
             for (long s = b * kFrameBlock; s < s_end; ++s) {
                 rng = Xoshiro256(frame_shot_seed(seed, std::uint64_t(s)));
                 std::fill(x.begin(), x.end(), 0); std::fill(z.begin(), z.end(), 0); std::fill(flips.begin(), flips.end(), 0);
                 std::fill(L.begin(), L.end(), 0);
                 frame_detail::sample_shot(F, M.is_data, rng, x, z, flips, L, leak_ev, leak_d, leak_m);
+                const long in_block = s - b * kFrameBlock;
                 fired.clear();
                 for (std::size_t d = 0; d < M.exp.detectors.size(); ++d) {
                     std::uint8_t v = 0; for (int c : M.exp.detectors[d]) v ^= flips[std::size_t(c)];
@@ -1913,6 +1924,11 @@ inline StreamProfile run_stream_profile(const MemorySetup& M, const StreamingUni
                         const double t_arr = arrive[std::size_t(i)] * per_round;
                         busy[mi] = std::max(busy[mi], t_arr) + double(cyc);
                         T.latency_hist[mi][std::lround(busy[mi] - t_arr)] += 1;
+                        const double s_arr = (double(in_block) * double(M.exp.rounds + 1) + arrive[std::size_t(i)]) * per_round;
+                        sbusy[mi] = std::max(sbusy[mi], s_arr) + double(cyc);
+                        const long lat = std::lround(sbusy[mi] - s_arr);
+                        T.stream_latency_hist[mi][lat] += 1;
+                        if (full_block && 4 * in_block >= 3 * kFrameBlock) T.stream_late_hist[mi][lat] += 1;
                     }
                 }
             }
@@ -1925,6 +1941,7 @@ inline StreamProfile run_stream_profile(const MemorySetup& M, const StreamingUni
                 for (std::size_t i = 0; i < into.size(); ++i) for (const auto& [v, k] : from[i]) into[i][v] += k;
             };
             merge(P.count_hist, T.count_hist); merge(P.cycles_hist, T.cycles_hist); merge(P.round_hist, T.round_hist); merge(P.latency_hist, T.latency_hist);
+            merge(P.stream_latency_hist, T.stream_latency_hist); merge(P.stream_late_hist, T.stream_late_hist);
         }
     }
     return P;

@@ -2329,7 +2329,8 @@ static void test_stream_ops() {
               P.windows_empty + P.windows_uf == P.windows && Q.windows_cleared > 0 && Q.windows_empty + Q.windows_cleared + Q.windows_uf == Q.windows,
               "profile histograms: %ld windows, %ld in the cycle histogram, %ld empty (%ld)", P.windows, nw, empty, P.windows_empty);
         CHECK(StreamProfile::mean(Q.cycles_hist[0]) < StreamProfile::mean(P.cycles_hist[0]) && StreamProfile::quantile(P.cycles_hist[0], 0.999) <= StreamProfile::max(P.cycles_hist[0]) &&
-              StreamProfile::mean(P.latency_hist[0]) >= StreamProfile::mean(P.cycles_hist[0]),
+              StreamProfile::mean(P.latency_hist[0]) >= StreamProfile::mean(P.cycles_hist[0]) &&
+              StreamProfile::mean(P.stream_latency_hist[0]) >= StreamProfile::mean(P.latency_hist[0]) && !P.stream_late_hist[0].empty(),
               "profile statistics (mean cycles %.2f, with the pre-decoder %.2f)", StreamProfile::mean(P.cycles_hist[0]), StreamProfile::mean(Q.cycles_hist[0]));
     }
 }

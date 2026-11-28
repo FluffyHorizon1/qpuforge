@@ -110,7 +110,8 @@ higher. The rising detection rate is the signature to look for on hardware.
 - **Layout:** `GF97.gds` (cell `GF97_GAMMA1`), built from the Beta-1 rev C cells.
   - {{CHIP_W}} × {{CHIP_H}} mm, {{ETCH}} etch polygons, {{JJ}} junction regions, {{BUMPS}} bump pads.
   - DRC: {{DRC}}.
-  - Metal connectivity (reported, not gated): {{CONN}}.
+  - Metal connectivity: {{CONN}}.
+  - Control lines: {{LINES}}.
   - Extracted against target: E_C within {{EC_ERR}}, couplings within {{G_ERR}}, qubit–readout capacitance {{RO_C_ERR}}.
   - Parked exchange re-nulled by parking the couplers at {{PARK}} GHz (residual ZZ {{PARK_ZZ}} kHz).
 

@@ -1,0 +1,76 @@
+# Design note: mask connectivity (SQUID landing, flux-line return, ground straps, control-line coupling)
+
+Status: adopted. The cell files, masks, previews and reviews were regenerated with it.
+
+## Problem
+
+Release 0.4 added a metal-connectivity check (`ConnectivityReport`, LVS-lite on the merged etch layer) and reported it
+without gating. On the three committed masks it found:
+
+| (0.4 masks, from the committed reviews) | AF-17 | BF-49 | GF-97 |
+|---|---|---|---|
+| floating ground fragments | 143 | 405 | 821 |
+| shorted lines reaching the ground plane | 16 of 58 | 33 of 178 | 49 of 362 |
+| qubit flux lines reaching the ground plane | 0 of 17 | 0 of 49 | 0 of 97 |
+| junctions landing on metal at both ends | 24 of 41 | 80 of 129 | 168 of 265 |
+| DRC space violations (ground necks kept by the connectivity guard) | 4 | 0 | 0 |
+
+Three causes:
+
+1. **Qubit SQUIDs landed in etch.** The SQUID stub sits in the (−x, −y) inner corner of the cross, inside the arm
+   cut-outs. The junction region ran from the stub across 30 µm of etch and ended in the −x arm's cut-out: no ground
+   within reach.
+2. **Enclosed ground.** With T = 120 µm T-bars and 30 µm gaps, the T-bar cut-outs of neighbouring arms overlap at their
+   tips (T/2 + gap = 90 µm > L − t_w − gap ≈ 85 µm), so the three free inner corners of every qubit are sealed pockets.
+   The coupler and bus run in parallel bands from qubit to qubit; the strip of ground between a coupler body and its
+   bus, and the interior of every plaquette, are sealed by those bands. Resonators shorted into a sealed plaquette, and
+   flux lines shorted into a sealed pocket, had no DC return, which is why the flux lines had been drawn open.
+3. **Control lines too close.** Extracting the XY and flux lines with the qubit (new: `line_coupling`) showed that the
+   XY line, which ran diagonally into the (+x, −y) pocket, coupled 3.0 fF to the qubit, and the flux line 2.1 fF if
+   open. For a line matched at its far end, 1/T1 = ω² C_c² Z0 / C_Σ: at 5.5 GHz that is a T1 limit of 0.2 µs (XY) and
+   0.4 µs (flux), far below the design T1 (75–157 µs).
+
+## Changes
+
+- **SQUID ground lead.** `xmon` cuts a 10 µm wide tongue of ground (`kTongueW`) out of the qubit's cut-outs, from the
+  (−x, −y) pocket up beside the stub, 10 µm (`kSquidGap`) from the stub's −x face and 10 µm below the −x arm. The SQUID
+  region bridges stub → tongue, i.e. island → ground. The tongue is part of the extraction cells (it is drawn by `xmon`),
+  so the cells were re-synthesised (below).
+- **Flux line shorted to ground.** The flux line is shorted again into the (−x, −y) pocket next to the SQUID; the pocket
+  is tied to the plane by ground straps.
+- **Ground straps (modelled airbridges).** `detail::place_ground_straps` ties every component that may be grounded
+  (floating ground, and components holding only shorted lines with their pocket) to the plane: 10 µm wide bridges with
+  10 µm × 10 µm feet on ground metal of two different components, spans up to 150 µm, chosen by Kruskal over candidate
+  straps (cost: span + 40 µm per line crossed + 80 µm per coupler body or bus strip crossed). A strap never crosses a
+  qubit, and a foot never touches island metal. Straps are written to GDS layers 4 (span) and 5 (feet).
+  Crossing a coupler or a bus is unavoidable for the plaquette interiors and the coupler–bus strips. A bridge adds
+  about ε0 · 10 µm · w / h of capacitance to what it spans (≈ 0.2 fF over a 6 µm bus at 3 µm height, against
+  C_bus ≈ 65 fF); this is **not** in the extraction cells.
+- **Small fragments removed.** Ground fragments that no strap can reach and smaller than 2500 µm² (slivers of a pocket
+  cut by a line, ≈ 150 µm²) are etched away.
+- **Unguarded sliver fill.** The mask clean-up no longer keeps narrow ground necks to protect connectivity
+  (`guarded_fill` is still in the library): ground a fill cuts off is strapped back or removed. AF-17's four necks are
+  gone.
+- **XY line moved out.** The XY line now ends open outside the qubit's cut-out, at (+247, −279) µm from the qubit centre
+  (`kXYEnd`, `kXYLevel`), in the free corner between the two coupler pads, with its bump pad beside it.
+- **Control-line budget.** `line_coupling` extracts the qubit with its flux and XY lines (star-cell geometry plus both
+  lines up to their bump pads). The flux line is shorted at the SQUID: a point at path distance z from the short of a
+  line matched at its far end sees Re Z = Z0 sin²(βz), so the qubit's coupling to the flux line is its capacitance to each
+  panel of the line weighted by sin(βz) (panel charges with the qubit at 1 V; the line is drawn open without its last
+  two squares so that it is a separate conductor). `line_budget` evaluates the T1 limit of each line at every qubit's
+  idle frequency and asks for at least 10× the qubit's design T1 (`kLineT1Margin`). The mutual inductance of the flux
+  line to the SQUID loop (the flux coupling itself, and its own T1 channel) is not modelled.
+- **Junction check.** A junction now counts as landed only if it joins an island to the ground plane (both are grounded
+  transmons), with straps taken into account.
+
+## Results
+
+See the CHANGELOG [Unreleased] entry and the reviews (`layout.connectivity`, `layout.control_lines`) for the numbers
+of the regenerated masks.
+
+## Not modelled / open
+
+- The capacitance of the ground straps to what they span (above).
+- Inductive coupling of the flux line to the SQUID loop and the resulting flux-noise and T1 channel.
+- Any foundry DRC deck (airbridge rules included); the in-house checks are the 4 µm / 4 µm merged-etch width/space
+  check, the placement checks and the connectivity check.

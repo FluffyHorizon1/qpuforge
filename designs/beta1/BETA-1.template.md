@@ -100,7 +100,8 @@ Next-step sensitivity: {{SENS}}.
 - **Layout:** `BF49.gds` (cell `BF49_BETA1`).
   - {{CHIP_W}} × {{CHIP_H}} mm, {{ETCH}} etch polygons, {{JJ}} junction regions, {{BUMPS}} bump pads.
   - DRC: {{DRC}}.
-  - Metal connectivity (reported, not gated): {{CONN}}.
+  - Metal connectivity: {{CONN}}.
+  - Control lines: {{LINES}}.
 - **Interposer** (feedlines, Purcell filters, fan-out to edge launchers): designed in Beta; not drawn here.
 
 ## 7. Beta simulation gate (ROADMAP.md)
